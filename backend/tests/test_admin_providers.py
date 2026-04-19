@@ -1,14 +1,10 @@
-from pathlib import Path
-
 from fastapi.testclient import TestClient
 
 from app.main import create_app
 
 
-def test_admin_can_create_and_list_provider() -> None:
-    database_path = Path("data/gateway.db")
-    if database_path.exists():
-        database_path.unlink()
+def test_admin_can_create_and_list_provider(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 
     with TestClient(create_app()) as client:
         create_response = client.post(
@@ -31,3 +27,33 @@ def test_admin_can_create_and_list_provider() -> None:
     payload = list_response.json()
     assert payload[0]["name"] == "codex"
     assert payload[0]["route_policy"] == "http-first"
+
+
+def test_admin_rejects_duplicate_provider_names(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        first_response = client.post(
+            "/admin/providers",
+            json={
+                "name": "codex",
+                "http_enabled": True,
+                "cli_enabled": True,
+                "route_policy": "http-first",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        duplicate_response = client.post(
+            "/admin/providers",
+            json={
+                "name": "codex",
+                "http_enabled": False,
+                "cli_enabled": True,
+                "route_policy": "cli-only",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert first_response.status_code == 201
+    assert duplicate_response.status_code == 409
+    assert duplicate_response.json() == {"detail": "provider already exists"}

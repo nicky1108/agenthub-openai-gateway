@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -38,7 +39,14 @@ async def create_provider(
 ) -> ProviderRead:
     record = ProviderRecord(**payload.model_dump())
     session.add(record)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="provider already exists",
+        ) from exc
     await session.refresh(record)
     return ProviderRead.model_validate(record, from_attributes=True)
 
