@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from app.api.admin import router as admin_router
 from app.api.health import router as health_router
+from app.api.openai import router as openai_router
 from app.core.db import get_engine
 from app.core.models import Base
 from app.core.settings import Settings
@@ -21,6 +22,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="AgentHub OpenAI Gateway", lifespan=lifespan)
     app.include_router(admin_router)
     app.include_router(health_router)
+    app.include_router(openai_router)
     return app
 
 
