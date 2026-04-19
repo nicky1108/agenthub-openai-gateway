@@ -37,5 +37,8 @@ async def list_models(session: AsyncSession = Depends(get_session)) -> dict[str,
 
 
 @router.post("/chat/completions")
-async def create_chat_completion(payload: ChatCompletionCreate) -> dict[str, object]:
-    return await orchestrator.run(payload.model_dump())
+async def create_chat_completion(
+    payload: ChatCompletionCreate,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, object]:
+    return await orchestrator.run(payload.model_dump(), session)
