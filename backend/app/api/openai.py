@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,5 +41,11 @@ async def list_models(session: AsyncSession = Depends(get_session)) -> dict[str,
 async def create_chat_completion(
     payload: ChatCompletionCreate,
     session: AsyncSession = Depends(get_session),
-) -> dict[str, object]:
-    return await orchestrator.run(payload.model_dump(), session)
+):
+    request_payload = payload.model_dump()
+    if request_payload["stream"]:
+        return StreamingResponse(
+            orchestrator.stream(request_payload, session),
+            media_type="text/event-stream",
+        )
+    return await orchestrator.run(request_payload, session)
