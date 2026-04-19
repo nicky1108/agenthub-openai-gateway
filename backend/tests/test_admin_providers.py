@@ -57,3 +57,22 @@ def test_admin_rejects_duplicate_provider_names(tmp_path, monkeypatch) -> None:
     assert first_response.status_code == 201
     assert duplicate_response.status_code == 409
     assert duplicate_response.json() == {"detail": "provider already exists"}
+
+
+def test_admin_rejects_provider_names_containing_colons(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/admin/providers",
+            json={
+                "name": "codex:default",
+                "http_enabled": True,
+                "cli_enabled": False,
+                "route_policy": "fixed-http",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert response.status_code == 422
+    assert "must not contain ':'" in str(response.json())

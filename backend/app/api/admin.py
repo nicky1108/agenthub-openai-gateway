@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,13 @@ class ProviderCreate(BaseModel):
     http_enabled: bool
     cli_enabled: bool
     route_policy: str
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        if ":" in value:
+            raise ValueError("must not contain ':'")
+        return value
 
 
 class ProviderRead(ProviderCreate):

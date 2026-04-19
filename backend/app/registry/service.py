@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.models import ProviderRecord
@@ -6,7 +6,11 @@ from app.core.models import ProviderRecord
 
 class ProviderRegistry:
     async def list_public_models(self, session: AsyncSession) -> list[dict[str, object]]:
-        rows = await session.scalars(select(ProviderRecord).order_by(ProviderRecord.name.asc()))
+        rows = await session.scalars(
+            select(ProviderRecord)
+            .where(or_(ProviderRecord.http_enabled.is_(True), ProviderRecord.cli_enabled.is_(True)))
+            .order_by(ProviderRecord.name.asc())
+        )
         models: list[dict[str, object]] = []
         for row in rows:
             models.append(
