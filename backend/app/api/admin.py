@@ -30,6 +30,12 @@ class ProviderRead(ProviderCreate):
     id: int
 
 
+class ProviderHealth(BaseModel):
+    name: str
+    route_policy: str
+    capabilities: dict[str, bool]
+
+
 def require_admin(x_admin_secret: str = Header(...)) -> None:
     if x_admin_secret != settings.admin_secret:
         raise HTTPException(
@@ -65,3 +71,24 @@ async def list_providers(
 ) -> list[ProviderRead]:
     rows = await session.scalars(select(ProviderRecord).order_by(ProviderRecord.id.asc()))
     return [ProviderRead.model_validate(row, from_attributes=True) for row in rows]
+
+
+@router.get("/health", response_model=list[ProviderHealth])
+async def list_health(
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[ProviderHealth]:
+    rows = await session.scalars(select(ProviderRecord).order_by(ProviderRecord.id.asc()))
+    return [
+        ProviderHealth(
+            name=row.name,
+            route_policy=row.route_policy,
+            capabilities={
+                "chat": row.chat_capable,
+                "stream": row.stream_capable,
+                "http": row.http_enabled,
+                "cli": row.cli_enabled,
+            },
+        )
+        for row in rows
+    ]

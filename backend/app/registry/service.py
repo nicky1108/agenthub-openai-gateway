@@ -22,3 +22,11 @@ class ProviderRegistry:
                 }
             )
         return models
+
+    async def get_provider(self, session: AsyncSession, provider_name: str) -> ProviderRecord:
+        row = await session.scalar(
+            select(ProviderRecord).where(ProviderRecord.name == provider_name)
+        )
+        if row is None:
+            raise LookupError(provider_name)
+        return row

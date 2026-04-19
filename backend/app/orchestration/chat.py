@@ -1,18 +1,18 @@
 from collections.abc import AsyncIterator
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.base import ChatRequest
 from app.adapters.cli.base import MockCliAdapter
 from app.adapters.http.base import MockHttpAdapter
-from app.core.models import ProviderRecord
+from app.registry.service import ProviderRegistry
 
 
 class ChatOrchestrator:
     def __init__(self) -> None:
         self.http_adapter = MockHttpAdapter()
         self.cli_adapter = MockCliAdapter()
+        self.registry = ProviderRegistry()
 
     def _build_request(self, payload: dict[str, object]) -> ChatRequest:
         provider_name, provider_model = str(payload["model"]).split(":", 1)
@@ -27,18 +27,10 @@ class ChatOrchestrator:
             stop=payload.get("stop"),
         )
 
-    async def _route_policy(self, provider_name: str, session: AsyncSession) -> str:
-        route_policy = "http-first"
-        provider = await session.scalar(
-            select(ProviderRecord).where(ProviderRecord.name == provider_name)
-        )
-        if provider is not None:
-            route_policy = provider.route_policy
-        return route_policy
-
     async def run(self, payload: dict[str, object], session: AsyncSession) -> dict[str, object]:
         request = self._build_request(payload)
-        if await self._route_policy(request.provider_name, session) == "cli-first":
+        provider = await self.registry.get_provider(session, request.provider_name)
+        if provider.route_policy in {"cli-first", "fixed-cli"}:
             return await self.cli_adapter.chat(request)
         return await self.http_adapter.chat(request)
 
@@ -48,7 +40,8 @@ class ChatOrchestrator:
         session: AsyncSession,
     ) -> AsyncIterator[str]:
         request = self._build_request(payload)
-        if await self._route_policy(request.provider_name, session) == "cli-first":
+        provider = await self.registry.get_provider(session, request.provider_name)
+        if provider.route_policy in {"cli-first", "fixed-cli"}:
             async for chunk in self.cli_adapter.stream_chat(request):
                 yield chunk
             return

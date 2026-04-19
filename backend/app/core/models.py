@@ -14,3 +14,5 @@ class ProviderRecord(Base):
     http_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     cli_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     route_policy: Mapped[str] = mapped_column(String(32), nullable=False, default="http-first")
+    chat_capable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    stream_capable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
