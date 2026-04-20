@@ -59,3 +59,38 @@ def test_cli_first_route_uses_cli_response(tmp_path, monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["choices"][0]["message"]["content"] == "real-cli-response"
+
+
+def test_gemini_cli_provider_uses_gemini_adapter(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    fixture = pathlib.Path(__file__).parent / "fixtures" / "gemini_stub.py"
+    python_executable = pathlib.Path(__file__).resolve().parents[1] / ".venv" / "bin" / "python"
+
+    with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
+        create_response = client.post(
+            "/admin/providers",
+            json={
+                "name": "gemini",
+                "http_enabled": False,
+                "cli_enabled": True,
+                "route_policy": "fixed-cli",
+                "cli_command": str(python_executable),
+                "cli_args_json": f'[\"{fixture}\"]',
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        assert create_response.status_code == 201
+
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gemini:gemini-2.5-flash",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": False,
+            },
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["choices"][0]["message"]["content"] == "gemini:gemini-2.5-flash:ok"
