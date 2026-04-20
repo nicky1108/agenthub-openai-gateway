@@ -24,6 +24,29 @@ export type ProviderHealth = {
   };
 };
 
+export type Account = {
+  id: number;
+  name: string;
+  status: string;
+  notes?: string | null;
+};
+
+export type ApiKey = {
+  id: number;
+  account_id: number;
+  name: string;
+  key_prefix: string;
+  status: string;
+  per_minute: number | null;
+  per_hour: number | null;
+  per_day: number | null;
+  last_used_at: string | null;
+};
+
+export type CreatedApiKey = ApiKey & {
+  api_key: string;
+};
+
 async function request(path: string, init?: RequestInit) {
   const response = await fetch(path, {
     ...init,
@@ -54,4 +77,26 @@ export async function createProvider(payload: Record<string, unknown>): Promise<
 
 export async function getHealth(): Promise<ProviderHealth[]> {
   return request("/admin/health");
+}
+
+export async function getAccounts(): Promise<Account[]> {
+  return request("/admin/accounts");
+}
+
+export async function createAccount(payload: Record<string, unknown>): Promise<Account> {
+  return request("/admin/accounts", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getApiKeys(): Promise<ApiKey[]> {
+  return request("/admin/api-keys");
+}
+
+export async function createApiKey(payload: Record<string, unknown>): Promise<CreatedApiKey> {
+  return request("/admin/api-keys", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

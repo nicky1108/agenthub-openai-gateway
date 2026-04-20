@@ -1,11 +1,17 @@
 import { type FormEvent, useEffect, useState } from "react";
 
-import { createProvider, getHealth, getProviders } from "./api";
-import type { Provider, ProviderHealth } from "./api";
+import { createAccount, createApiKey, createProvider, getAccounts, getApiKeys, getHealth, getProviders } from "./api";
+import type { Account, ApiKey, Provider, ProviderHealth } from "./api";
 
 export default function App() {
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [health, setHealth] = useState<ProviderHealth[]>([]);
+  const [accountName, setAccountName] = useState("");
+  const [selectedAccountId, setSelectedAccountId] = useState("");
+  const [apiKeyName, setApiKeyName] = useState("");
+  const [createdApiKey, setCreatedApiKey] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [exposedModel, setExposedModel] = useState("default");
   const [routePolicy, setRoutePolicy] = useState("http-first");
@@ -17,11 +23,37 @@ export default function App() {
   const [streamCapable, setStreamCapable] = useState(true);
 
   useEffect(() => {
-    void Promise.all([getProviders(), getHealth()]).then(([providerRows, healthRows]) => {
-      setProviders(providerRows);
-      setHealth(healthRows);
-    });
+    void Promise.all([getAccounts(), getApiKeys(), getProviders(), getHealth()]).then(
+      ([accountRows, keyRows, providerRows, healthRows]) => {
+        setAccounts(accountRows);
+        setApiKeys(keyRows);
+        setProviders(providerRows);
+        setHealth(healthRows);
+        if (accountRows.length > 0) {
+          setSelectedAccountId(String(accountRows[0].id));
+        }
+      },
+    );
   }, []);
+
+  async function handleAccountSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const created = await createAccount({ name: accountName });
+    setAccounts((current) => current.concat(created));
+    setSelectedAccountId(String(created.id));
+    setAccountName("");
+  }
+
+  async function handleApiKeySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const created = await createApiKey({
+      account_id: Number(selectedAccountId),
+      name: apiKeyName,
+    });
+    setApiKeys((current) => current.concat(created));
+    setCreatedApiKey(created.api_key);
+    setApiKeyName("");
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -54,6 +86,59 @@ export default function App() {
   return (
     <main style={{ fontFamily: "sans-serif", padding: 24 }}>
       <h1>AgentHub Admin</h1>
+
+      <section>
+        <h2>Accounts</h2>
+        <form onSubmit={handleAccountSubmit}>
+          <label>
+            Account Name
+            <input value={accountName} onChange={(event) => setAccountName(event.target.value)} />
+          </label>
+          <button type="submit">Add Account</button>
+        </form>
+
+        <ul>
+          {accounts.map((account) => (
+            <li key={account.id}>
+              {account.name} - {account.status}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section>
+        <h2>API Keys</h2>
+        <form onSubmit={handleApiKeySubmit}>
+          <label>
+            Account
+            <select
+              value={selectedAccountId}
+              onChange={(event) => setSelectedAccountId(event.target.value)}
+            >
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            API Key Name
+            <input value={apiKeyName} onChange={(event) => setApiKeyName(event.target.value)} />
+          </label>
+          <button type="submit">Create API Key</button>
+        </form>
+
+        {createdApiKey ? <p>Last Created Key: {createdApiKey}</p> : null}
+
+        <ul>
+          {apiKeys.map((apiKey) => (
+            <li key={apiKey.id}>
+              {apiKey.name} - {apiKey.key_prefix} - {apiKey.status}
+            </li>
+          ))}
+        </ul>
+      </section>
 
       <section>
         <h2>Providers</h2>
