@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy.engine import Connection
 
+from app.api.auth import router as auth_router
 from app.api.admin import router as admin_router
 from app.api.health import router as health_router
 from app.api.openai import router as openai_router
@@ -129,6 +130,7 @@ async def lifespan(_: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="AgentHub OpenAI Gateway", lifespan=lifespan)
+    app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(health_router)
     app.include_router(openai_router)
