@@ -10,6 +10,8 @@
 *.secret
 *.pem
 *.key
+*.egg-info/
+__pycache__/
 data/
 secrets/
 backend/.venv/
