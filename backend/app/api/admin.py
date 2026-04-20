@@ -4,9 +4,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.service import generate_api_key, hash_api_key
 from app.discovery.service import ProviderDiscoveryService
 from app.core.db import get_session
-from app.core.models import ProviderModelRecord, ProviderRecord
+from app.core.models import AccountRecord, ApiKeyRecord, ProviderModelRecord, ProviderRecord, UsageRecord
 from app.core.settings import Settings
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -90,6 +91,49 @@ class ProviderModelCreate(BaseModel):
     enabled: bool = True
 
 
+class AccountCreate(BaseModel):
+    name: str
+    notes: str | None = None
+
+
+class AccountRead(BaseModel):
+    id: int
+    name: str
+    status: str
+    notes: str | None = None
+
+
+class ApiKeyCreate(BaseModel):
+    account_id: int
+    name: str
+    per_minute: int | None = None
+    per_hour: int | None = None
+    per_day: int | None = None
+
+
+class ApiKeyRead(BaseModel):
+    id: int
+    account_id: int
+    name: str
+    key_prefix: str
+    status: str
+    per_minute: int | None = None
+    per_hour: int | None = None
+    per_day: int | None = None
+    last_used_at: str | None = None
+
+
+class ApiKeyCreated(ApiKeyRead):
+    api_key: str
+
+
+class UsageSummary(BaseModel):
+    account_id: int
+    api_key_id: int
+    total_requests: int
+    limited_requests: int
+
+
 def require_admin(x_admin_secret: str = Header(...)) -> None:
     if x_admin_secret != settings.admin_secret:
         raise HTTPException(
@@ -147,6 +191,134 @@ async def list_health(
         )
         for row in rows
     ]
+
+
+@router.post("/accounts", response_model=AccountRead, status_code=status.HTTP_201_CREATED)
+async def create_account(
+    payload: AccountCreate,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AccountRead:
+    account = AccountRecord(name=payload.name, notes=payload.notes)
+    session.add(account)
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="account already exists") from exc
+    await session.refresh(account)
+    return AccountRead.model_validate(account, from_attributes=True)
+
+
+@router.get("/accounts", response_model=list[AccountRead])
+async def list_accounts(
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[AccountRead]:
+    rows = await session.scalars(select(AccountRecord).order_by(AccountRecord.id.asc()))
+    return [AccountRead.model_validate(row, from_attributes=True) for row in rows]
+
+
+@router.post("/api-keys", response_model=ApiKeyCreated, status_code=status.HTTP_201_CREATED)
+async def create_api_key(
+    payload: ApiKeyCreate,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ApiKeyCreated:
+    account = await session.scalar(select(AccountRecord).where(AccountRecord.id == payload.account_id))
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+    prefix, token = generate_api_key()
+    record = ApiKeyRecord(
+        account_id=payload.account_id,
+        name=payload.name,
+        key_prefix=prefix,
+        secret_hash=hash_api_key(token),
+        per_minute=payload.per_minute,
+        per_hour=payload.per_hour,
+        per_day=payload.per_day,
+    )
+    session.add(record)
+    await session.commit()
+    await session.refresh(record)
+    return ApiKeyCreated(
+        id=record.id,
+        account_id=record.account_id,
+        name=record.name,
+        key_prefix=record.key_prefix,
+        status=record.status,
+        per_minute=record.per_minute,
+        per_hour=record.per_hour,
+        per_day=record.per_day,
+        last_used_at=None,
+        api_key=token,
+    )
+
+
+@router.get("/api-keys", response_model=list[ApiKeyRead])
+async def list_api_keys(
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[ApiKeyRead]:
+    rows = await session.scalars(select(ApiKeyRecord).order_by(ApiKeyRecord.id.asc()))
+    return [
+        ApiKeyRead(
+            id=row.id,
+            account_id=row.account_id,
+            name=row.name,
+            key_prefix=row.key_prefix,
+            status=row.status,
+            per_minute=row.per_minute,
+            per_hour=row.per_hour,
+            per_day=row.per_day,
+            last_used_at=row.last_used_at.isoformat() if row.last_used_at else None,
+        )
+        for row in rows
+    ]
+
+
+@router.post("/api-keys/{key_id}/revoke", response_model=ApiKeyRead)
+async def revoke_api_key(
+    key_id: int,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ApiKeyRead:
+    row = await session.scalar(select(ApiKeyRecord).where(ApiKeyRecord.id == key_id))
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api key not found")
+    row.status = "revoked"
+    await session.commit()
+    await session.refresh(row)
+    return ApiKeyRead(
+        id=row.id,
+        account_id=row.account_id,
+        name=row.name,
+        key_prefix=row.key_prefix,
+        status=row.status,
+        per_minute=row.per_minute,
+        per_hour=row.per_hour,
+        per_day=row.per_day,
+        last_used_at=row.last_used_at.isoformat() if row.last_used_at else None,
+    )
+
+
+@router.get("/api-keys/{key_id}/usage", response_model=UsageSummary)
+async def get_api_key_usage(
+    key_id: int,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> UsageSummary:
+    key = await session.scalar(select(ApiKeyRecord).where(ApiKeyRecord.id == key_id))
+    if key is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api key not found")
+    rows = await session.scalars(select(UsageRecord).where(UsageRecord.api_key_id == key_id))
+    usage_rows = list(rows)
+    return UsageSummary(
+        account_id=key.account_id,
+        api_key_id=key.id,
+        total_requests=len(usage_rows),
+        limited_requests=sum(1 for row in usage_rows if row.outcome == "limited"),
+    )
 
 
 @router.get("/providers/{provider_name}/models", response_model=list[ProviderModelRead])

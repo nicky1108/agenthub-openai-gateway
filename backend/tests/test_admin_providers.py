@@ -5,6 +5,20 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 
 
+def _create_api_key(client: TestClient) -> str:
+    account_response = client.post(
+        "/admin/accounts",
+        json={"name": "provider-admin-account"},
+        headers={"x-admin-secret": "change-me"},
+    )
+    key_response = client.post(
+        "/admin/api-keys",
+        json={"account_id": account_response.json()["id"], "name": "provider-admin-key"},
+        headers={"x-admin-secret": "change-me"},
+    )
+    return key_response.json()["api_key"]
+
+
 def test_admin_can_create_and_list_provider(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 
@@ -222,6 +236,7 @@ def test_admin_can_override_provider_model_exposure(tmp_path, monkeypatch) -> No
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 
     with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
         create_response = client.post(
             "/admin/providers",
             json={
@@ -243,7 +258,7 @@ def test_admin_can_override_provider_model_exposure(tmp_path, monkeypatch) -> No
             },
             headers={"x-admin-secret": "change-me"},
         )
-        models_response = client.get("/v1/models")
+        models_response = client.get("/v1/models", headers={"authorization": f"Bearer {api_key}"})
 
     assert patch_response.status_code == 200
     assert patch_response.json()["enabled"] is False
@@ -257,6 +272,7 @@ def test_admin_can_add_manual_provider_model(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 
     with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
         create_response = client.post(
             "/admin/providers",
             json={
@@ -279,7 +295,7 @@ def test_admin_can_add_manual_provider_model(tmp_path, monkeypatch) -> None:
             },
             headers={"x-admin-secret": "change-me"},
         )
-        models_response = client.get("/v1/models")
+        models_response = client.get("/v1/models", headers={"authorization": f"Bearer {api_key}"})
 
     assert add_response.status_code == 201
     assert add_response.json()["source"] == "manual_override"

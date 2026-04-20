@@ -6,6 +6,20 @@ from app.api import openai as openai_api
 from app.main import create_app
 
 
+def _create_api_key(client: TestClient) -> str:
+    account_response = client.post(
+        "/admin/accounts",
+        json={"name": "chat-routing-account"},
+        headers={"x-admin-secret": "change-me"},
+    )
+    key_response = client.post(
+        "/admin/api-keys",
+        json={"account_id": account_response.json()["id"], "name": "chat-routing-key"},
+        headers={"x-admin-secret": "change-me"},
+    )
+    return key_response.json()["api_key"]
+
+
 def test_cli_first_route_uses_cli_response(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
     fixture = pathlib.Path(__file__).parent / "fixtures" / "echo_chat.py"
@@ -18,6 +32,7 @@ def test_cli_first_route_uses_cli_response(tmp_path, monkeypatch) -> None:
     )
 
     with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
         create_response = client.post(
             "/admin/providers",
             json={
@@ -39,6 +54,7 @@ def test_cli_first_route_uses_cli_response(tmp_path, monkeypatch) -> None:
                 "messages": [{"role": "user", "content": "hello"}],
                 "stream": False,
             },
+            headers={"authorization": f"Bearer {api_key}"},
         )
 
     assert response.status_code == 200

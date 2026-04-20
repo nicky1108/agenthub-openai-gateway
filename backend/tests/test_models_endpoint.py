@@ -3,10 +3,26 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 
 
+def _create_api_key(client: TestClient) -> str:
+    account_response = client.post(
+        "/admin/accounts",
+        json={"name": "test-account"},
+        headers={"x-admin-secret": "change-me"},
+    )
+    account_id = account_response.json()["id"]
+    key_response = client.post(
+        "/admin/api-keys",
+        json={"account_id": account_id, "name": "test-key"},
+        headers={"x-admin-secret": "change-me"},
+    )
+    return key_response.json()["api_key"]
+
+
 def test_models_endpoint_returns_provider_prefixed_model_ids(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 
     with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
         client.post(
             "/admin/providers",
             json={
@@ -19,7 +35,7 @@ def test_models_endpoint_returns_provider_prefixed_model_ids(tmp_path, monkeypat
             headers={"x-admin-secret": "change-me"},
         )
 
-        response = client.get("/v1/models")
+        response = client.get("/v1/models", headers={"authorization": f"Bearer {api_key}"})
 
     assert response.status_code == 200
     payload = response.json()
@@ -32,6 +48,7 @@ def test_models_endpoint_omits_disabled_providers(tmp_path, monkeypatch) -> None
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 
     with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
         client.post(
             "/admin/providers",
             json={
@@ -54,7 +71,7 @@ def test_models_endpoint_omits_disabled_providers(tmp_path, monkeypatch) -> None
             headers={"x-admin-secret": "change-me"},
         )
 
-        response = client.get("/v1/models")
+        response = client.get("/v1/models", headers={"authorization": f"Bearer {api_key}"})
 
     assert response.status_code == 200
     payload = response.json()
@@ -73,6 +90,7 @@ def test_models_endpoint_returns_multiple_gemini_models(tmp_path, monkeypatch) -
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 
     with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
         client.post(
             "/admin/providers",
             json={
@@ -85,7 +103,7 @@ def test_models_endpoint_returns_multiple_gemini_models(tmp_path, monkeypatch) -
             headers={"x-admin-secret": "change-me"},
         )
 
-        response = client.get("/v1/models")
+        response = client.get("/v1/models", headers={"authorization": f"Bearer {api_key}"})
 
     assert response.status_code == 200
     ids = [item["id"] for item in response.json()["data"]]

@@ -9,11 +9,26 @@ from app.api import openai as openai_api
 from app.main import create_app
 
 
+def _create_api_key(client: TestClient) -> str:
+    account_response = client.post(
+        "/admin/accounts",
+        json={"name": "chat-stream-account"},
+        headers={"x-admin-secret": "change-me"},
+    )
+    key_response = client.post(
+        "/admin/api-keys",
+        json={"account_id": account_response.json()["id"], "name": "chat-stream-key"},
+        headers={"x-admin-secret": "change-me"},
+    )
+    return key_response.json()["api_key"]
+
+
 def test_streaming_chat_returns_sse_chunks(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
     monkeypatch.setattr(openai_api.orchestrator, "_http_adapter", lambda provider: MockHttpAdapter())
 
     with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
         client.post(
             "/admin/providers",
             json={
@@ -34,6 +49,7 @@ def test_streaming_chat_returns_sse_chunks(tmp_path, monkeypatch) -> None:
                 "messages": [{"role": "user", "content": "hello"}],
                 "stream": True,
             },
+            headers={"authorization": f"Bearer {api_key}"},
         ) as response:
             body = b"".join(response.iter_bytes()).decode()
 
@@ -46,6 +62,7 @@ def test_streaming_chat_returns_404_for_unknown_provider(tmp_path, monkeypatch) 
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 
     with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
         with client.stream(
             "POST",
             "/v1/chat/completions",
@@ -54,6 +71,7 @@ def test_streaming_chat_returns_404_for_unknown_provider(tmp_path, monkeypatch) 
                 "messages": [{"role": "user", "content": "hello"}],
                 "stream": True,
             },
+            headers={"authorization": f"Bearer {api_key}"},
         ) as response:
             body = b"".join(response.iter_bytes()).decode()
 
@@ -100,6 +118,7 @@ def test_streaming_chat_escapes_model_in_sse_chunks(
     model = f"{provider_name}:{provider_model}"
 
     with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
         client.post(
             "/admin/providers",
             json=provider_payload,
@@ -114,6 +133,7 @@ def test_streaming_chat_escapes_model_in_sse_chunks(
                 "messages": [{"role": "user", "content": "hello"}],
                 "stream": True,
             },
+            headers={"authorization": f"Bearer {api_key}"},
         ) as response:
             body = b"".join(response.iter_bytes()).decode()
 

@@ -6,11 +6,26 @@ from app.api import openai as openai_api
 from app.main import create_app
 
 
+def _create_api_key(client: TestClient) -> str:
+    account_response = client.post(
+        "/admin/accounts",
+        json={"name": "chat-http-account"},
+        headers={"x-admin-secret": "change-me"},
+    )
+    key_response = client.post(
+        "/admin/api-keys",
+        json={"account_id": account_response.json()["id"], "name": "chat-http-key"},
+        headers={"x-admin-secret": "change-me"},
+    )
+    return key_response.json()["api_key"]
+
+
 def test_chat_completions_returns_openai_shaped_response(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
     monkeypatch.setattr(openai_api.orchestrator, "_http_adapter", lambda provider: MockHttpAdapter())
 
     with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
         client.post(
             "/admin/providers",
             json={
@@ -30,6 +45,7 @@ def test_chat_completions_returns_openai_shaped_response(tmp_path, monkeypatch) 
                 "messages": [{"role": "user", "content": "hello"}],
                 "stream": False,
             },
+            headers={"authorization": f"Bearer {api_key}"},
         )
 
     assert response.status_code == 200
@@ -42,6 +58,7 @@ def test_chat_completions_returns_404_for_unknown_provider(tmp_path, monkeypatch
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 
     with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
         response = client.post(
             "/v1/chat/completions",
             json={
@@ -49,6 +66,7 @@ def test_chat_completions_returns_404_for_unknown_provider(tmp_path, monkeypatch
                 "messages": [{"role": "user", "content": "hello"}],
                 "stream": False,
             },
+            headers={"authorization": f"Bearer {api_key}"},
         )
 
     assert response.status_code == 404
@@ -83,9 +101,11 @@ def test_chat_completions_rejects_payload_without_required_fields(
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 
     with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
         response = client.post(
             "/v1/chat/completions",
             json=payload,
+            headers={"authorization": f"Bearer {api_key}"},
         )
 
     assert response.status_code == 422

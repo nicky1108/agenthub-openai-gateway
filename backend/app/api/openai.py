@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.service import AuthContext, auth_service, require_api_key
 from app.core.db import get_session
 from app.orchestration.chat import ChatOrchestrator
 from app.registry.service import ProviderNotFoundError, ProviderRegistry
@@ -33,25 +34,36 @@ class ChatCompletionCreate(BaseModel):
 
 
 @router.get("/models")
-async def list_models(session: AsyncSession = Depends(get_session)) -> dict[str, object]:
-    return {"object": "list", "data": await registry.list_public_models(session)}
+async def list_models(
+    session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(require_api_key),
+) -> dict[str, object]:
+    payload = {"object": "list", "data": await registry.list_public_models(session)}
+    await auth_service.record_usage(session, auth, None, None, "success")
+    return payload
 
 
 @router.post("/chat/completions")
 async def create_chat_completion(
     payload: ChatCompletionCreate,
     session: AsyncSession = Depends(get_session),
+    auth: AuthContext = Depends(require_api_key),
 ):
     request_payload = payload.model_dump()
+    provider_name = payload.model.split(":", 1)[0]
     try:
         if request_payload["stream"]:
             request, provider = await orchestrator.prepare(request_payload, session)
+            await auth_service.record_usage(session, auth, provider.name, payload.model, "success")
             return StreamingResponse(
                 orchestrator.stream_prepared(request, provider),
                 media_type="text/event-stream",
             )
-        return await orchestrator.run(request_payload, session)
+        result = await orchestrator.run(request_payload, session)
+        await auth_service.record_usage(session, auth, provider_name, payload.model, "success")
+        return result
     except ProviderNotFoundError as exc:
+        await auth_service.record_usage(session, auth, exc.provider_name, payload.model, "error")
         raise HTTPException(
             status_code=404,
             detail=f"provider '{exc.provider_name}' not found",
