@@ -3,11 +3,15 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from app.adapters.cli.base import MockCliAdapter
+from app.adapters.http.base import MockHttpAdapter
+from app.api import openai as openai_api
 from app.main import create_app
 
 
 def test_streaming_chat_returns_sse_chunks(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setattr(openai_api.orchestrator, "_http_adapter", lambda provider: MockHttpAdapter())
 
     with TestClient(create_app()) as client:
         client.post(
@@ -17,6 +21,7 @@ def test_streaming_chat_returns_sse_chunks(tmp_path, monkeypatch) -> None:
                 "http_enabled": True,
                 "cli_enabled": False,
                 "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
             },
             headers={"x-admin-secret": "change-me"},
         )
@@ -66,6 +71,7 @@ def test_streaming_chat_returns_404_for_unknown_provider(tmp_path, monkeypatch) 
                 "http_enabled": True,
                 "cli_enabled": False,
                 "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
             },
         ),
         (
@@ -75,6 +81,8 @@ def test_streaming_chat_returns_404_for_unknown_provider(tmp_path, monkeypatch) 
                 "http_enabled": True,
                 "cli_enabled": True,
                 "route_policy": "cli-first",
+                "http_base_url": "http://provider.invalid",
+                "cli_command": "/bin/echo",
             },
         ),
     ],
@@ -86,6 +94,8 @@ def test_streaming_chat_escapes_model_in_sse_chunks(
     provider_payload,
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setattr(openai_api.orchestrator, "_http_adapter", lambda provider: MockHttpAdapter())
+    monkeypatch.setattr(openai_api.orchestrator, "_cli_adapter", lambda provider: MockCliAdapter())
     provider_model = 'default"\n\ndata: {"object":"injected"}'
     model = f"{provider_name}:{provider_model}"
 

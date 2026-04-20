@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
@@ -17,47 +18,56 @@ class OpenAICompatibleHttpAdapter:
         merged_headers = dict(headers)
         if api_key:
             merged_headers["Authorization"] = f"Bearer {api_key}"
-        self._client = httpx.AsyncClient(
-            base_url=base_url.rstrip("/"),
-            headers=merged_headers,
-            transport=transport,
-        )
+        self._base_url = base_url.rstrip("/")
+        self._headers = merged_headers
+        self._transport = transport
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[httpx.AsyncClient]:
+        async with httpx.AsyncClient(
+            base_url=self._base_url,
+            headers=self._headers,
+            transport=self._transport,
+        ) as client:
+            yield client
 
     async def chat(self, request: ChatRequest) -> dict[str, Any]:
-        response = await self._client.post(
-            "/v1/chat/completions",
-            json={
-                "model": request.provider_model,
-                "messages": request.messages,
-                "stream": False,
-                "temperature": request.temperature,
-                "top_p": request.top_p,
-                "max_tokens": request.max_tokens,
-                "stop": request.stop,
-                **request.provider_options,
-            },
-        )
-        response.raise_for_status()
-        return response.json()
+        async with self._client() as client:
+            response = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": request.provider_model,
+                    "messages": request.messages,
+                    "stream": False,
+                    "temperature": request.temperature,
+                    "top_p": request.top_p,
+                    "max_tokens": request.max_tokens,
+                    "stop": request.stop,
+                    **request.provider_options,
+                },
+            )
+            response.raise_for_status()
+            return response.json()
 
     async def stream_chat(self, request: ChatRequest) -> AsyncIterator[str]:
-        async with self._client.stream(
-            "POST",
-            "/v1/chat/completions",
-            json={
-                "model": request.provider_model,
-                "messages": request.messages,
-                "stream": True,
-                "temperature": request.temperature,
-                "top_p": request.top_p,
-                "max_tokens": request.max_tokens,
-                "stop": request.stop,
-                **request.provider_options,
-            },
-        ) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if line:
-                    yield f"{line}\n"
-                else:
-                    yield "\n"
+        async with self._client() as client:
+            async with client.stream(
+                "POST",
+                "/v1/chat/completions",
+                json={
+                    "model": request.provider_model,
+                    "messages": request.messages,
+                    "stream": True,
+                    "temperature": request.temperature,
+                    "top_p": request.top_p,
+                    "max_tokens": request.max_tokens,
+                    "stop": request.stop,
+                    **request.provider_options,
+                },
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if line:
+                        yield f"{line}\n"
+                    else:
+                        yield "\n"

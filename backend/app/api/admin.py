@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, model_validator, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +34,14 @@ class ProviderCreate(BaseModel):
         if ":" in value:
             raise ValueError("must not contain ':'")
         return value
+
+    @model_validator(mode="after")
+    def validate_transport_requirements(self) -> "ProviderCreate":
+        if self.http_enabled and not self.http_base_url:
+            raise ValueError("http_base_url is required when http_enabled is true")
+        if self.cli_enabled and not self.cli_command:
+            raise ValueError("cli_command is required when cli_enabled is true")
+        return self
 
 
 class ProviderRead(ProviderCreate):

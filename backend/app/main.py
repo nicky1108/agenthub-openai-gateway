@@ -28,6 +28,38 @@ def backfill_sqlite_provider_capability_columns(connection: Connection) -> None:
         connection.exec_driver_sql(
             "ALTER TABLE providers ADD COLUMN stream_capable BOOLEAN NOT NULL DEFAULT 1"
         )
+    if "exposed_model" not in column_names:
+        connection.exec_driver_sql(
+            "ALTER TABLE providers ADD COLUMN exposed_model VARCHAR(200) NOT NULL DEFAULT 'default'"
+        )
+    if "http_base_url" not in column_names:
+        connection.exec_driver_sql(
+            "ALTER TABLE providers ADD COLUMN http_base_url VARCHAR(500)"
+        )
+    if "http_api_key" not in column_names:
+        connection.exec_driver_sql(
+            "ALTER TABLE providers ADD COLUMN http_api_key VARCHAR(500)"
+        )
+    if "http_headers_json" not in column_names:
+        connection.exec_driver_sql(
+            "ALTER TABLE providers ADD COLUMN http_headers_json TEXT NOT NULL DEFAULT '{}'"
+        )
+    if "cli_command" not in column_names:
+        connection.exec_driver_sql(
+            "ALTER TABLE providers ADD COLUMN cli_command VARCHAR(500)"
+        )
+    if "cli_args_json" not in column_names:
+        connection.exec_driver_sql(
+            "ALTER TABLE providers ADD COLUMN cli_args_json TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "cli_env_json" not in column_names:
+        connection.exec_driver_sql(
+            "ALTER TABLE providers ADD COLUMN cli_env_json TEXT NOT NULL DEFAULT '{}'"
+        )
+    if "cli_cwd" not in column_names:
+        connection.exec_driver_sql(
+            "ALTER TABLE providers ADD COLUMN cli_cwd VARCHAR(500)"
+        )
 
 
 @asynccontextmanager

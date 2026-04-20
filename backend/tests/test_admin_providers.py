@@ -16,6 +16,8 @@ def test_admin_can_create_and_list_provider(tmp_path, monkeypatch) -> None:
                 "route_policy": "http-first",
                 "chat_capable": False,
                 "stream_capable": True,
+                "http_base_url": "http://provider.invalid",
+                "cli_command": "/bin/echo",
             },
             headers={"x-admin-secret": "change-me"},
         )
@@ -46,6 +48,7 @@ def test_admin_provider_defaults_preserve_capability_flags(tmp_path, monkeypatch
                 "http_enabled": True,
                 "cli_enabled": False,
                 "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
             },
             headers={"x-admin-secret": "change-me"},
         )
@@ -66,6 +69,8 @@ def test_admin_rejects_duplicate_provider_names(tmp_path, monkeypatch) -> None:
                 "http_enabled": True,
                 "cli_enabled": True,
                 "route_policy": "http-first",
+                "http_base_url": "http://provider.invalid",
+                "cli_command": "/bin/echo",
             },
             headers={"x-admin-secret": "change-me"},
         )
@@ -76,6 +81,7 @@ def test_admin_rejects_duplicate_provider_names(tmp_path, monkeypatch) -> None:
                 "http_enabled": False,
                 "cli_enabled": True,
                 "route_policy": "cli-only",
+                "cli_command": "/bin/echo",
             },
             headers={"x-admin-secret": "change-me"},
         )
@@ -96,9 +102,48 @@ def test_admin_rejects_provider_names_containing_colons(tmp_path, monkeypatch) -
                 "http_enabled": True,
                 "cli_enabled": False,
                 "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
             },
             headers={"x-admin-secret": "change-me"},
         )
 
     assert response.status_code == 422
     assert "must not contain ':'" in str(response.json())
+
+
+def test_admin_requires_http_base_url_when_http_enabled(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/admin/providers",
+            json={
+                "name": "codex",
+                "http_enabled": True,
+                "cli_enabled": False,
+                "route_policy": "fixed-http",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert response.status_code == 422
+    assert "http_base_url is required" in str(response.json())
+
+
+def test_admin_requires_cli_command_when_cli_enabled(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/admin/providers",
+            json={
+                "name": "gemini",
+                "http_enabled": False,
+                "cli_enabled": True,
+                "route_policy": "fixed-cli",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert response.status_code == 422
+    assert "cli_command is required" in str(response.json())

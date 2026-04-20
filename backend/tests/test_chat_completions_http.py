@@ -1,11 +1,14 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app.adapters.http.base import MockHttpAdapter
+from app.api import openai as openai_api
 from app.main import create_app
 
 
 def test_chat_completions_returns_openai_shaped_response(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setattr(openai_api.orchestrator, "_http_adapter", lambda provider: MockHttpAdapter())
 
     with TestClient(create_app()) as client:
         client.post(
@@ -15,6 +18,7 @@ def test_chat_completions_returns_openai_shaped_response(tmp_path, monkeypatch) 
                 "http_enabled": True,
                 "cli_enabled": False,
                 "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
             },
             headers={"x-admin-secret": "change-me"},
         )

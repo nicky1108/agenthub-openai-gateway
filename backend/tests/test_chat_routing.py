@@ -2,6 +2,7 @@ import pathlib
 
 from fastapi.testclient import TestClient
 
+from app.api import openai as openai_api
 from app.main import create_app
 
 
@@ -9,13 +10,19 @@ def test_cli_first_route_uses_cli_response(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
     fixture = pathlib.Path(__file__).parent / "fixtures" / "echo_chat.py"
     python_executable = pathlib.Path(__file__).resolve().parents[1] / ".venv" / "bin" / "python"
+    original_http_builder = openai_api.orchestrator._http_adapter
+    monkeypatch.setattr(
+        openai_api.orchestrator,
+        "_http_adapter",
+        lambda provider: original_http_builder(provider),
+    )
 
     with TestClient(create_app()) as client:
-        client.post(
+        create_response = client.post(
             "/admin/providers",
             json={
                 "name": "openai",
-                "http_enabled": True,
+                "http_enabled": False,
                 "cli_enabled": True,
                 "route_policy": "cli-first",
                 "cli_command": str(python_executable),
@@ -23,6 +30,7 @@ def test_cli_first_route_uses_cli_response(tmp_path, monkeypatch) -> None:
             },
             headers={"x-admin-secret": "change-me"},
         )
+        assert create_response.status_code == 201
 
         response = client.post(
             "/v1/chat/completions",

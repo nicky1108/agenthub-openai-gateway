@@ -38,10 +38,17 @@ class ProcessCliAdapter:
                 "stream": False,
             }
         ).encode()
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(payload),
-            timeout=self.read_timeout_seconds,
-        )
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(payload),
+                timeout=self.read_timeout_seconds,
+            )
+        except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+            process.kill()
+            await process.communicate()
+            if isinstance(exc, asyncio.TimeoutError):
+                raise TimeoutError("cli adapter timed out") from exc
+            raise
         if process.returncode != 0:
             raise RuntimeError(stderr.decode() or "cli adapter failed")
         return json.loads(stdout.decode())

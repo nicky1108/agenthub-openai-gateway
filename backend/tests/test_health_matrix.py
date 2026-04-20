@@ -18,6 +18,7 @@ def test_admin_health_matrix_reports_provider_capabilities(tmp_path, monkeypatch
                 "route_policy": "fixed-cli",
                 "chat_capable": False,
                 "stream_capable": False,
+                "cli_command": "/bin/echo",
             },
             headers={"x-admin-secret": "change-me"},
         )
@@ -31,7 +32,10 @@ def test_admin_health_matrix_reports_provider_capabilities(tmp_path, monkeypatch
     assert response.json()[0]["capabilities"]["stream"] is False
 
 
-def test_startup_backfills_missing_provider_capability_columns(tmp_path, monkeypatch) -> None:
+def test_startup_backfills_missing_provider_transport_and_capability_columns(
+    tmp_path,
+    monkeypatch,
+) -> None:
     database_path = tmp_path / "gateway.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")
 
@@ -59,10 +63,24 @@ def test_startup_backfills_missing_provider_capability_columns(tmp_path, monkeyp
         connection.close()
 
     with TestClient(create_app()) as client:
-        response = client.get("/admin/health", headers={"x-admin-secret": "change-me"})
+        health_response = client.get("/admin/health", headers={"x-admin-secret": "change-me"})
+        create_response = client.post(
+            "/admin/providers",
+            json={
+                "name": "new-http",
+                "http_enabled": True,
+                "cli_enabled": False,
+                "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
+                "http_headers_json": "{}",
+                "cli_args_json": "[]",
+                "cli_env_json": "{}",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
 
-    assert response.status_code == 200
-    assert response.json() == [
+    assert health_response.status_code == 200
+    assert health_response.json() == [
         {
             "name": "legacy",
             "route_policy": "fixed-http",
@@ -74,3 +92,5 @@ def test_startup_backfills_missing_provider_capability_columns(tmp_path, monkeyp
             },
         }
     ]
+    assert create_response.status_code == 201
+    assert create_response.json()["exposed_model"] == "default"

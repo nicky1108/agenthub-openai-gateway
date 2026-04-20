@@ -14,6 +14,7 @@ def test_models_endpoint_returns_provider_prefixed_model_ids(tmp_path, monkeypat
                 "http_enabled": True,
                 "cli_enabled": False,
                 "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
             },
             headers={"x-admin-secret": "change-me"},
         )
@@ -36,6 +37,7 @@ def test_models_endpoint_omits_disabled_providers(tmp_path, monkeypatch) -> None
                 "http_enabled": True,
                 "cli_enabled": False,
                 "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
             },
             headers={"x-admin-secret": "change-me"},
         )
