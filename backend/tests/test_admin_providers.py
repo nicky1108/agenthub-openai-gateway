@@ -188,3 +188,99 @@ def test_admin_can_list_legacy_provider_rows_after_column_backfill(tmp_path, mon
     assert response.json()[0]["name"] == "legacy-http"
     assert response.json()[0]["http_enabled"] is True
     assert response.json()[0]["http_base_url"] is None
+
+
+def test_admin_lists_discovered_provider_models(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        create_response = client.post(
+            "/admin/providers",
+            json={
+                "name": "gemini",
+                "http_enabled": False,
+                "cli_enabled": True,
+                "route_policy": "fixed-cli",
+                "cli_command": "/bin/echo",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        assert create_response.status_code == 201
+
+        response = client.get(
+            "/admin/providers/gemini/models",
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert response.status_code == 200
+    native_models = [item["native_model"] for item in response.json()]
+    assert "gemini-2.5-pro" in native_models
+    assert "gemini-2.5-flash" in native_models
+
+
+def test_admin_can_override_provider_model_exposure(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        create_response = client.post(
+            "/admin/providers",
+            json={
+                "name": "codex",
+                "http_enabled": True,
+                "cli_enabled": False,
+                "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        assert create_response.status_code == 201
+
+        patch_response = client.patch(
+            "/admin/providers/codex/models/gpt-5-codex",
+            json={
+                "enabled": False,
+                "exposed_model_id": "codex:primary",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        models_response = client.get("/v1/models")
+
+    assert patch_response.status_code == 200
+    assert patch_response.json()["enabled"] is False
+    assert patch_response.json()["exposed_model_id"] == "codex:primary"
+    exposed_ids = [item["id"] for item in models_response.json()["data"]]
+    assert "codex:primary" not in exposed_ids
+    assert "codex:gpt-5-codex" not in exposed_ids
+
+
+def test_admin_can_add_manual_provider_model(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        create_response = client.post(
+            "/admin/providers",
+            json={
+                "name": "codex",
+                "http_enabled": True,
+                "cli_enabled": False,
+                "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        assert create_response.status_code == 201
+
+        add_response = client.post(
+            "/admin/providers/codex/models",
+            json={
+                "native_model": "gpt-5.4",
+                "exposed_model_id": "codex:gpt-5.4",
+                "enabled": True,
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        models_response = client.get("/v1/models")
+
+    assert add_response.status_code == 201
+    assert add_response.json()["source"] == "manual_override"
+    assert "codex:gpt-5.4" in [item["id"] for item in models_response.json()["data"]]

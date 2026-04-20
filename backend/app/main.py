@@ -6,9 +6,11 @@ from sqlalchemy.engine import Connection
 from app.api.admin import router as admin_router
 from app.api.health import router as health_router
 from app.api.openai import router as openai_router
-from app.core.db import get_engine
-from app.core.models import Base
+from app.core.db import get_engine, get_session_factory
+from app.core.models import Base, ProviderRecord
 from app.core.settings import Settings
+from app.discovery.service import ProviderDiscoveryService
+from sqlalchemy import select
 
 
 def backfill_sqlite_provider_capability_columns(connection: Connection) -> None:
@@ -64,10 +66,21 @@ def backfill_sqlite_provider_capability_columns(connection: Connection) -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    engine = get_engine(Settings().database_url)
+    settings = Settings()
+    engine = get_engine(settings.database_url)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
         await connection.run_sync(backfill_sqlite_provider_capability_columns)
+    session_factory = get_session_factory(settings.database_url)
+    discovery = ProviderDiscoveryService()
+    async with session_factory() as session:
+        providers = await session.scalars(
+            select(ProviderRecord).where(
+                (ProviderRecord.name == "codex") | (ProviderRecord.name == "gemini")
+            )
+        )
+        for provider in providers:
+            await discovery.sync_provider_models(session, provider)
     yield
 
 

@@ -4,12 +4,14 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.discovery.service import ProviderDiscoveryService
 from app.core.db import get_session
-from app.core.models import ProviderRecord
+from app.core.models import ProviderModelRecord, ProviderRecord
 from app.core.settings import Settings
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 settings = Settings()
+discovery = ProviderDiscoveryService()
 
 
 class ProviderCreate(BaseModel):
@@ -68,6 +70,26 @@ class ProviderHealth(BaseModel):
     capabilities: dict[str, bool]
 
 
+class ProviderModelRead(BaseModel):
+    id: int
+    native_model: str
+    exposed_model_id: str
+    source: str
+    enabled: bool
+    manually_overridden: bool
+
+
+class ProviderModelPatch(BaseModel):
+    exposed_model_id: str | None = None
+    enabled: bool | None = None
+
+
+class ProviderModelCreate(BaseModel):
+    native_model: str
+    exposed_model_id: str
+    enabled: bool = True
+
+
 def require_admin(x_admin_secret: str = Header(...)) -> None:
     if x_admin_secret != settings.admin_secret:
         raise HTTPException(
@@ -93,6 +115,7 @@ async def create_provider(
             detail="provider already exists",
         ) from exc
     await session.refresh(record)
+    await discovery.sync_provider_models(session, record)
     return ProviderRead.model_validate(record, from_attributes=True)
 
 
@@ -124,3 +147,91 @@ async def list_health(
         )
         for row in rows
     ]
+
+
+@router.get("/providers/{provider_name}/models", response_model=list[ProviderModelRead])
+async def list_provider_models(
+    provider_name: str,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[ProviderModelRead]:
+    provider = await session.scalar(select(ProviderRecord).where(ProviderRecord.name == provider_name))
+    if provider is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider not found")
+    rows = await session.scalars(
+        select(ProviderModelRecord)
+        .where(ProviderModelRecord.provider_id == provider.id)
+        .order_by(ProviderModelRecord.native_model.asc())
+    )
+    return [ProviderModelRead.model_validate(row, from_attributes=True) for row in rows]
+
+
+@router.post("/providers/{provider_name}/rediscover", response_model=list[ProviderModelRead])
+async def rediscover_provider_models(
+    provider_name: str,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[ProviderModelRead]:
+    provider = await session.scalar(select(ProviderRecord).where(ProviderRecord.name == provider_name))
+    if provider is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider not found")
+    rows = await discovery.sync_provider_models(session, provider)
+    return [ProviderModelRead.model_validate(row, from_attributes=True) for row in rows]
+
+
+@router.patch("/providers/{provider_name}/models/{native_model}", response_model=ProviderModelRead)
+async def patch_provider_model(
+    provider_name: str,
+    native_model: str,
+    payload: ProviderModelPatch,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ProviderModelRead:
+    provider = await session.scalar(select(ProviderRecord).where(ProviderRecord.name == provider_name))
+    if provider is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider not found")
+    row = await session.scalar(
+        select(ProviderModelRecord).where(
+            ProviderModelRecord.provider_id == provider.id,
+            ProviderModelRecord.native_model == native_model,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider model not found")
+    if payload.exposed_model_id is not None:
+        row.exposed_model_id = payload.exposed_model_id
+        row.manually_overridden = True
+    if payload.enabled is not None:
+        row.enabled = payload.enabled
+        row.manually_overridden = True
+    await session.commit()
+    await session.refresh(row)
+    return ProviderModelRead.model_validate(row, from_attributes=True)
+
+
+@router.post("/providers/{provider_name}/models", response_model=ProviderModelRead, status_code=status.HTTP_201_CREATED)
+async def create_provider_model(
+    provider_name: str,
+    payload: ProviderModelCreate,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ProviderModelRead:
+    provider = await session.scalar(select(ProviderRecord).where(ProviderRecord.name == provider_name))
+    if provider is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider not found")
+    row = ProviderModelRecord(
+        provider_id=provider.id,
+        native_model=payload.native_model,
+        exposed_model_id=payload.exposed_model_id,
+        source="manual_override",
+        enabled=payload.enabled,
+        manually_overridden=True,
+    )
+    session.add(row)
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="provider model already exists") from exc
+    await session.refresh(row)
+    return ProviderModelRead.model_validate(row, from_attributes=True)

@@ -1,4 +1,6 @@
-from sqlalchemy import Boolean, Integer, String, Text
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -24,3 +26,17 @@ class ProviderRecord(Base):
     cli_args_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     cli_env_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     cli_cwd: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class ProviderModelRecord(Base):
+    __tablename__ = "provider_models"
+    __table_args__ = (UniqueConstraint("provider_id", "native_model", name="uq_provider_models_native"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), nullable=False, index=True)
+    native_model: Mapped[str] = mapped_column(String(200), nullable=False)
+    exposed_model_id: Mapped[str] = mapped_column(String(300), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="discovered")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    manually_overridden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
