@@ -64,6 +64,27 @@ def backfill_sqlite_provider_capability_columns(connection: Connection) -> None:
         )
 
 
+def backfill_sqlite_account_auth_columns(connection: Connection) -> None:
+    if connection.dialect.name != "sqlite":
+        return
+
+    table_rows = connection.exec_driver_sql("PRAGMA table_info(accounts)").mappings().all()
+    column_names = {row["name"] for row in table_rows}
+    if not column_names:
+        return
+
+    if "email" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN email VARCHAR(320)")
+    if "password_hash" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN password_hash VARCHAR(255)")
+    if "oauth_provider" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN oauth_provider VARCHAR(32)")
+    if "oauth_subject" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN oauth_subject VARCHAR(255)")
+    if "created_at" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN created_at DATETIME")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = Settings()
@@ -71,6 +92,7 @@ async def lifespan(_: FastAPI):
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
         await connection.run_sync(backfill_sqlite_provider_capability_columns)
+        await connection.run_sync(backfill_sqlite_account_auth_columns)
     session_factory = get_session_factory(settings.database_url)
     discovery = ProviderDiscoveryService()
     async with session_factory() as session:
