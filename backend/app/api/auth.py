@@ -112,6 +112,23 @@ async def login(
     return serialize_account(account)
 
 
+@router.post("/logout")
+async def logout(
+    response: Response,
+    agh_session: str | None = Cookie(default=None, alias="agh_session"),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, str]:
+    if agh_session:
+        session_record = await session.scalar(
+            select(AuthSessionRecord).where(AuthSessionRecord.session_token_hash == hash_api_key(agh_session))
+        )
+        if session_record is not None:
+            session_record.status = "revoked"
+            await session.commit()
+    response.delete_cookie("agh_session")
+    return {"status": "logged_out"}
+
+
 @router.get("/oauth/github")
 async def github_oauth_entry() -> dict[str, str]:
     return {

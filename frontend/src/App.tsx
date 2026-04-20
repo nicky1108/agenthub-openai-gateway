@@ -4,41 +4,20 @@ import {
   createAccount,
   createApiKey,
   createProvider,
+  getDashboardSummary,
+  getCurrentAccount,
   getAccounts,
   getApiKeys,
   getHealth,
   getProviders,
   getUsageOverview,
+  loginWithPassword,
+  logoutSession,
+  registerWithPassword,
 } from "./api";
-import type { Account, ApiKey, Provider, ProviderHealth, UsageActivityKey, UsageOverview } from "./api";
+import type { Account, ApiKey, AuthAccount, Provider, ProviderHealth, UsageOverview } from "./api";
 
-type DashboardSummary = {
-  total_requests: number;
-  active_api_keys: number;
-  error_rate: number;
-  rate_limit_hits: number;
-};
-
-async function getDashboardSummary(): Promise<DashboardSummary> {
-  const response = await fetch("/admin/dashboard/summary", {
-    headers: {
-      "content-type": "application/json",
-      "x-admin-secret": "change-me",
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`dashboard summary failed: ${response.status}`);
-  }
-
-  const payload = (await response.json()) as Partial<DashboardSummary>;
-  return {
-    total_requests: payload.total_requests ?? 0,
-    active_api_keys: payload.active_api_keys ?? 0,
-    error_rate: payload.error_rate ?? 0,
-    rate_limit_hits: payload.rate_limit_hits ?? 0,
-  };
-}
+type DashboardSummary = Awaited<ReturnType<typeof getDashboardSummary>>;
 
 function aggregateUsage(
   usageSummary: UsageOverview | null,
@@ -59,6 +38,13 @@ function formatLastUsed(lastUsedAt: string | null): string {
 }
 
 export default function App() {
+  const [authUser, setAuthUser] = useState<AuthAccount | null>(null);
+  const [authState, setAuthState] = useState<"loading" | "authenticated" | "unauthenticated">("loading");
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authName, setAuthName] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [usageOverview, setUsageOverview] = useState<UsageOverview | null>(null);
@@ -81,33 +67,40 @@ export default function App() {
   const [chatCapable, setChatCapable] = useState(true);
   const [streamCapable, setStreamCapable] = useState(true);
 
-  useEffect(() => {
-    void Promise.all([
+  async function loadAuthenticatedData() {
+    const [accountRows, keyRows, providerRows, healthRows, dashboard, usage] = await Promise.all([
       getAccounts(),
       getApiKeys(),
       getProviders(),
       getHealth(),
       getDashboardSummary(),
       getUsageOverview(),
-    ])
-      .then(([accountRows, keyRows, providerRows, healthRows, dashboard, usage]) => {
-        setAccounts(accountRows);
-        setApiKeys(keyRows);
-        setUsageOverview(usage);
-        setProviders(providerRows);
-        setHealth(healthRows);
-        setDashboardSummary(dashboard);
-        setDashboardError(null);
-        setUsageError(null);
-        if (accountRows.length > 0) {
-          setSelectedAccountId(String(accountRows[0].id));
-        }
+    ]);
+
+    setAccounts(accountRows);
+    setApiKeys(keyRows);
+    setUsageOverview(usage);
+    setProviders(providerRows);
+    setHealth(healthRows);
+    setDashboardSummary(dashboard);
+    setDashboardError(null);
+    setUsageError(null);
+    if (accountRows.length > 0) {
+      setSelectedAccountId(String(accountRows[0].id));
+    }
+  }
+
+  useEffect(() => {
+    void getCurrentAccount()
+      .then(async (account) => {
+        setAuthUser(account);
+        setAuthState("authenticated");
+        setAuthError(null);
+        await loadAuthenticatedData();
       })
-      .catch((error: unknown) => {
-        setDashboardSummary(null);
-        setUsageOverview(null);
-        setDashboardError(error instanceof Error ? error.message : "dashboard unavailable");
-        setUsageError(error instanceof Error ? error.message : "usage unavailable");
+      .catch(() => {
+        setAuthUser(null);
+        setAuthState("unauthenticated");
       });
   }, []);
 
@@ -175,6 +168,39 @@ export default function App() {
     setStreamCapable(true);
   }
 
+  async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      const account =
+        authMode === "login"
+          ? await loginWithPassword({ email: authEmail, password: authPassword })
+          : await registerWithPassword({ name: authName, email: authEmail, password: authPassword });
+      setAuthUser(account);
+      setAuthState("authenticated");
+      setAuthError(null);
+      if (authMode === "register") {
+        const loginAccount = await loginWithPassword({ email: authEmail, password: authPassword });
+        setAuthUser(loginAccount);
+      }
+      await loadAuthenticatedData();
+      setAuthPassword("");
+    } catch (error: unknown) {
+      setAuthError(error instanceof Error ? error.message : "authentication failed");
+    }
+  }
+
+  async function handleLogout() {
+    await logoutSession();
+    setAuthUser(null);
+    setAuthState("unauthenticated");
+    setAccounts([]);
+    setApiKeys([]);
+    setUsageOverview(null);
+    setProviders([]);
+    setHealth([]);
+    setDashboardSummary(null);
+  }
+
   const recentKeyActivity = [...(usageOverview?.key_activity ?? [])].sort((left, right) => {
       const leftTime = left.last_used_at ? new Date(left.last_used_at).getTime() : 0;
       const rightTime = right.last_used_at ? new Date(right.last_used_at).getTime() : 0;
@@ -182,6 +208,70 @@ export default function App() {
     });
   const providerActivity = aggregateUsage(usageOverview, "by_provider").slice(0, 5);
   const modelActivity = aggregateUsage(usageOverview, "by_model").slice(0, 5);
+
+  if (authState === "loading") {
+    return (
+      <main className="app-shell">
+        <section className="content">
+          <div className="page-body">
+            <section id="auth-loading">
+              <h1>AgentHub</h1>
+              <p>Checking session…</p>
+            </section>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (authState === "unauthenticated") {
+    return (
+      <main className="app-shell">
+        <section className="content">
+          <div className="page-body">
+            <section id="auth">
+              <h1>AgentHub</h1>
+              <p>Email and password are the primary sign-in path for this developer platform.</p>
+              {authError ? <p role="alert">Authentication failed: {authError}</p> : null}
+              <form onSubmit={handleAuthSubmit}>
+                {authMode === "register" ? (
+                  <label>
+                    Name
+                    <input value={authName} onChange={(event) => setAuthName(event.target.value)} />
+                  </label>
+                ) : null}
+                <label>
+                  Email
+                  <input value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} />
+                </label>
+                <label>
+                  Password
+                  <input
+                    type="password"
+                    value={authPassword}
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                  />
+                </label>
+                <button type="submit">{authMode === "login" ? "Sign In" : "Create Account"}</button>
+              </form>
+              <div>
+                <button type="button" onClick={() => setAuthMode("login")}>
+                  Use Email Login
+                </button>
+                <button type="button" onClick={() => setAuthMode("register")}>
+                  Create Account
+                </button>
+              </div>
+              <div>
+                <button type="button">Continue with GitHub</button>
+                <button type="button">Continue with Google</button>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="app-shell">
@@ -200,7 +290,12 @@ export default function App() {
       <section className="content">
         <header className="topbar">
           <div>Developer Platform</div>
-          <div>Signed in</div>
+          <div>
+            <span>{authUser?.email ?? "Signed in"}</span>{" "}
+            <button type="button" onClick={handleLogout}>
+              Sign out
+            </button>
+          </div>
         </header>
         <div className="page-body">
           <section id="dashboard" className="dashboard">

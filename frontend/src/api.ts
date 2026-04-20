@@ -31,6 +31,12 @@ export type Account = {
   notes?: string | null;
 };
 
+export type AuthAccount = {
+  id: number;
+  name: string;
+  email: string | null;
+};
+
 export type ApiKey = {
   id: number;
   account_id: number;
@@ -146,4 +152,61 @@ export async function getUsageOverview(): Promise<UsageOverview> {
     by_provider: payload.by_provider ?? {},
     by_model: payload.by_model ?? {},
   };
+}
+
+async function authRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    credentials: "same-origin",
+    headers: {
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`auth request failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export async function getCurrentAccount(): Promise<AuthAccount> {
+  return authRequest<AuthAccount>("/auth/me");
+}
+
+export async function loginWithPassword(payload: {
+  email: string;
+  password: string;
+}): Promise<AuthAccount> {
+  return authRequest<AuthAccount>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function registerWithPassword(payload: {
+  name: string;
+  email: string;
+  password: string;
+}): Promise<AuthAccount> {
+  return authRequest<AuthAccount>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function logoutSession(): Promise<{ status: string }> {
+  return authRequest<{ status: string }>("/auth/logout", {
+    method: "POST",
+  });
+}
+
+export async function getDashboardSummary(): Promise<{
+  total_requests: number;
+  active_api_keys: number;
+  error_rate: number;
+  rate_limit_hits: number;
+}> {
+  return request("/admin/dashboard/summary");
 }
