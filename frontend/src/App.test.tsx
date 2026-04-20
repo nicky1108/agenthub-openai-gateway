@@ -279,10 +279,11 @@ describe("App", () => {
     expect(screen.getByRole("tab", { name: "codex" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByText("$2.50 in · $15.00 out")).toBeTruthy();
     expect(screen.getByText("OpenAI API Pricing")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Test Chat" }));
     fireEvent.change(screen.getByPlaceholderText("Test this model"), { target: { value: "hello model" } });
     fireEvent.click(screen.getByRole("button", { name: "Send Test Message" }));
-    expect(await screen.findByText("hello model")).toBeTruthy();
-    expect(screen.getByText("test-model-response")).toBeTruthy();
+    expect((await screen.findAllByText("hello model")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("test-model-response").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("link", { name: "Providers" }));
     window.dispatchEvent(new HashChangeEvent("hashchange"));

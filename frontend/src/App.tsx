@@ -40,6 +40,15 @@ import { LOCALE_STORAGE_KEY, messages, type Locale } from "./i18n";
 type DashboardSummary = Awaited<ReturnType<typeof getDashboardSummary>>;
 type RouteId = "dashboard" | "providers" | "models" | "accounts" | "api-keys" | "usage" | "settings";
 type DashboardWindow = "24h" | "7d";
+type ModalId =
+  | null
+  | "add-account"
+  | "adjust-credits"
+  | "add-api-key"
+  | "add-provider"
+  | "add-manual-model"
+  | "override-pricing"
+  | "test-model";
 
 const ROUTE_IDS: RouteId[] = ["dashboard", "providers", "models", "accounts", "api-keys", "usage", "settings"];
 
@@ -184,6 +193,7 @@ export default function App() {
   const [pricingNotes, setPricingNotes] = useState("");
   const [testMessage, setTestMessage] = useState("");
   const [testChatMessages, setTestChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const [activeModal, setActiveModal] = useState<ModalId>(null);
   const copy = messages[locale];
   const NAV_ITEMS: Array<{ id: RouteId; label: string }> = [
     { id: "dashboard", label: copy.nav.dashboard },
@@ -580,6 +590,280 @@ export default function App() {
   ).length;
   const selectedAccountLedger = selectedAccountId ? (creditLedger[Number(selectedAccountId)] ?? []) : [];
 
+  function renderAccountSelector() {
+    return (
+      <div className="provider-selector">
+        <span className="provider-selector-label">{copy.apiKeys.account}</span>
+        <div className="provider-selector-grid" role="tablist" aria-label={copy.apiKeys.account}>
+          {accounts.map((account) => (
+            <button
+              key={account.id}
+              type="button"
+              role="tab"
+              aria-selected={selectedAccountId === String(account.id)}
+              className={
+                selectedAccountId === String(account.id)
+                  ? "provider-selector-pill provider-selector-pill--active"
+                  : "provider-selector-pill"
+              }
+              onClick={() => setSelectedAccountId(String(account.id))}
+            >
+              {account.name}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function renderRoutePolicySelector() {
+    return (
+      <div className="provider-selector">
+        <span className="provider-selector-label">{copy.providers.routePolicy}</span>
+        <div className="provider-selector-grid" role="tablist" aria-label={copy.providers.routePolicy}>
+          {["http-first", "cli-first", "fixed-http", "fixed-cli"].map((policy) => (
+            <button
+              key={policy}
+              type="button"
+              role="tab"
+              aria-selected={routePolicy === policy}
+              className={routePolicy === policy ? "provider-selector-pill provider-selector-pill--active" : "provider-selector-pill"}
+              onClick={() => setRoutePolicy(policy)}
+            >
+              {policy}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function renderModal() {
+    if (!activeModal) {
+      return null;
+    }
+
+    let title = "";
+    let body: JSX.Element | null = null;
+
+    if (activeModal === "add-account") {
+      title = copy.accounts.addAccount;
+      body = (
+        <form onSubmit={handleAccountSubmit} className="modal-form">
+          <label>
+            {copy.accounts.accountName}
+            <input value={accountName} onChange={(event) => setAccountName(event.target.value)} />
+          </label>
+          <div className="modal-actions">
+            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="submit">{copy.accounts.addAccount}</button>
+          </div>
+        </form>
+      );
+    } else if (activeModal === "adjust-credits") {
+      title = copy.accounts.applyCreditAdjustment;
+      body = (
+        <form onSubmit={handleCreditAdjustmentSubmit} className="modal-form">
+          {renderAccountSelector()}
+          <label>
+            {copy.accounts.creditDelta}
+            <input value={creditAdjustment} onChange={(event) => setCreditAdjustment(event.target.value)} />
+          </label>
+          <label>
+            {copy.accounts.adjustmentNotes}
+            <input value={creditAdjustmentNotes} onChange={(event) => setCreditAdjustmentNotes(event.target.value)} />
+          </label>
+          <div className="modal-actions">
+            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="submit">{copy.accounts.applyCreditAdjustment}</button>
+          </div>
+        </form>
+      );
+    } else if (activeModal === "add-api-key") {
+      title = copy.apiKeys.createKey;
+      body = (
+        <form onSubmit={handleApiKeySubmit} className="modal-form">
+          {renderAccountSelector()}
+          <label>
+            {copy.apiKeys.keyName}
+            <input value={apiKeyName} onChange={(event) => setApiKeyName(event.target.value)} />
+          </label>
+          <label>
+            {copy.apiKeys.perMinute}
+            <input value={keyPerMinute} onChange={(event) => setKeyPerMinute(event.target.value)} />
+          </label>
+          <label>
+            {copy.apiKeys.perHour}
+            <input value={keyPerHour} onChange={(event) => setKeyPerHour(event.target.value)} />
+          </label>
+          <label>
+            {copy.apiKeys.perDay}
+            <input value={keyPerDay} onChange={(event) => setKeyPerDay(event.target.value)} />
+          </label>
+          <div className="modal-actions">
+            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="submit">{copy.apiKeys.createKey}</button>
+          </div>
+        </form>
+      );
+    } else if (activeModal === "add-provider") {
+      title = copy.providers.addProvider;
+      body = (
+        <form onSubmit={handleSubmit} className="modal-form">
+          <label>
+            {copy.providers.providerName}
+            <input value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label>
+            {copy.providers.exposedModel}
+            <input value={exposedModel} onChange={(event) => setExposedModel(event.target.value)} />
+          </label>
+          {renderRoutePolicySelector()}
+          <label className="checkbox-field">
+            <span>{copy.providers.httpEnabled}</span>
+            <input type="checkbox" checked={httpEnabled} onChange={(event) => setHttpEnabled(event.target.checked)} />
+          </label>
+          <label className="checkbox-field">
+            <span>{copy.providers.cliEnabled}</span>
+            <input type="checkbox" checked={cliEnabled} onChange={(event) => setCliEnabled(event.target.checked)} />
+          </label>
+          <label>
+            {copy.providers.httpBaseUrl}
+            <input required={httpEnabled} value={httpBaseUrl} onChange={(event) => setHttpBaseUrl(event.target.value)} />
+          </label>
+          <label>
+            {copy.providers.cliCommand}
+            <input required={cliEnabled} value={cliCommand} onChange={(event) => setCliCommand(event.target.value)} />
+          </label>
+          <label className="checkbox-field">
+            <span>{copy.providers.chatCapable}</span>
+            <input type="checkbox" checked={chatCapable} onChange={(event) => setChatCapable(event.target.checked)} />
+          </label>
+          <label className="checkbox-field">
+            <span>{copy.providers.streamCapable}</span>
+            <input type="checkbox" checked={streamCapable} onChange={(event) => setStreamCapable(event.target.checked)} />
+          </label>
+          <div className="modal-actions">
+            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="submit">{copy.providers.addProvider}</button>
+          </div>
+        </form>
+      );
+    } else if (activeModal === "add-manual-model") {
+      title = copy.models.addManualModel;
+      body = (
+        <form onSubmit={handleManualModelSubmit} className="modal-form">
+          <label>
+            {copy.models.nativeModel}
+            <input value={manualNativeModel} onChange={(event) => setManualNativeModel(event.target.value)} />
+          </label>
+          <label>
+            {copy.models.exposedModelId}
+            <input value={manualExposedModelId} onChange={(event) => setManualExposedModelId(event.target.value)} />
+          </label>
+          <div className="modal-actions">
+            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="submit">{copy.models.addManualModel}</button>
+          </div>
+        </form>
+      );
+    } else if (activeModal === "override-pricing") {
+      title = copy.models.savePricingOverride;
+      body = (
+        <form onSubmit={handlePricingOverrideSubmit} className="modal-form">
+          <label>
+            {copy.models.pricingTargetModel}
+            <input value={pricingNativeModel} onChange={(event) => setPricingNativeModel(event.target.value)} />
+          </label>
+          <label>
+            {copy.models.inputPrice}
+            <input value={pricingInput} onChange={(event) => setPricingInput(event.target.value)} />
+          </label>
+          <label>
+            {copy.models.cachedInputPrice}
+            <input value={pricingCachedInput} onChange={(event) => setPricingCachedInput(event.target.value)} />
+          </label>
+          <label>
+            {copy.models.outputPrice}
+            <input value={pricingOutput} onChange={(event) => setPricingOutput(event.target.value)} />
+          </label>
+          <label>
+            {copy.models.highTierInput}
+            <input value={pricingInputHigh} onChange={(event) => setPricingInputHigh(event.target.value)} />
+          </label>
+          <label>
+            {copy.models.highTierCachedInput}
+            <input value={pricingCachedInputHigh} onChange={(event) => setPricingCachedInputHigh(event.target.value)} />
+          </label>
+          <label>
+            {copy.models.highTierOutput}
+            <input value={pricingOutputHigh} onChange={(event) => setPricingOutputHigh(event.target.value)} />
+          </label>
+          <label>
+            {copy.models.highTierThreshold}
+            <input value={pricingThreshold} onChange={(event) => setPricingThreshold(event.target.value)} />
+          </label>
+          <label>
+            {copy.models.pricingNotes}
+            <input value={pricingNotes} onChange={(event) => setPricingNotes(event.target.value)} />
+          </label>
+          <div className="modal-actions">
+            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="submit">{copy.models.savePricingOverride}</button>
+          </div>
+        </form>
+      );
+    } else if (activeModal === "test-model") {
+      title = copy.models.testChat;
+      body = (
+        <>
+          <form onSubmit={handleModelTestSubmit} className="modal-form">
+            <label>
+              {copy.models.pricingTargetModel}
+              <input value={pricingNativeModel} onChange={(event) => setPricingNativeModel(event.target.value)} />
+            </label>
+            <label>
+              {copy.models.testChat}
+              <input
+                placeholder={copy.models.testPromptPlaceholder}
+                value={testMessage}
+                onChange={(event) => setTestMessage(event.target.value)}
+              />
+            </label>
+            <div className="modal-actions">
+              <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+              <button type="submit">{copy.models.sendTestMessage}</button>
+            </div>
+          </form>
+          <ul>
+            {testChatMessages.length === 0 ? (
+              <li>{copy.models.noTestMessages}</li>
+            ) : (
+              testChatMessages.map((message, index) => (
+                <li key={`${message.role}-${index}`}>
+                  <strong>{message.role === "user" ? copy.models.testerUser : copy.models.testerModel}</strong>
+                  <div className="usage-meta">{message.content}</div>
+                </li>
+              ))
+            )}
+          </ul>
+        </>
+      );
+    }
+
+    return (
+      <div className="modal-backdrop" onClick={() => setActiveModal(null)}>
+        <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+          <div className="modal-header">
+            <h3>{title}</h3>
+            <button type="button" onClick={() => setActiveModal(null)}>Close</button>
+          </div>
+          {body}
+        </div>
+      </div>
+    );
+  }
+
   function renderCurrentPage() {
     switch (currentRoute) {
       case "dashboard":
@@ -673,6 +957,10 @@ export default function App() {
                 <span className="section-eyebrow">{copy.accounts.eyebrow}</span>
                 <h2>{copy.accounts.title}</h2>
               </div>
+              <div className="inline-actions">
+                <button type="button" onClick={() => setActiveModal("add-account")}>{copy.accounts.addAccount}</button>
+                <button type="button" onClick={() => setActiveModal("adjust-credits")}>{copy.accounts.applyCreditAdjustment}</button>
+              </div>
             </div>
             <div className="provider-summary-grid">
               <article className="provider-summary-card">
@@ -696,13 +984,6 @@ export default function App() {
                 <p>{selectedAccountId ? copy.accounts.selectedBalance(accounts.find((row) => String(row.id) === selectedAccountId)?.credit_balance ?? 0) : copy.common.noData}</p>
               </article>
             </div>
-            <form onSubmit={handleAccountSubmit}>
-              <label>
-                {copy.accounts.accountName}
-                <input value={accountName} onChange={(event) => setAccountName(event.target.value)} />
-              </label>
-              <button type="submit">{copy.accounts.addAccount}</button>
-            </form>
             <ul>
               {accounts.length === 0 ? <li>{copy.accounts.empty}</li> : accounts.map((account) => (
                 <li key={account.id}>
@@ -712,27 +993,6 @@ export default function App() {
                 </li>
               ))}
             </ul>
-            <form onSubmit={handleCreditAdjustmentSubmit}>
-              <label>
-                {copy.apiKeys.account}
-                <select value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {copy.accounts.creditDelta}
-                <input value={creditAdjustment} onChange={(event) => setCreditAdjustment(event.target.value)} />
-              </label>
-              <label>
-                {copy.accounts.adjustmentNotes}
-                <input value={creditAdjustmentNotes} onChange={(event) => setCreditAdjustmentNotes(event.target.value)} />
-              </label>
-              <button type="submit">{copy.accounts.applyCreditAdjustment}</button>
-            </form>
             <ul>
               {selectedAccountLedger.length === 0 ? (
                 <li>{copy.accounts.ledgerEmpty}</li>
@@ -759,6 +1019,7 @@ export default function App() {
                 <span className="section-eyebrow">{copy.apiKeys.eyebrow}</span>
                 <h2>{copy.apiKeys.title}</h2>
               </div>
+              <button type="button" onClick={() => setActiveModal("add-api-key")}>{copy.apiKeys.createKey}</button>
             </div>
             <div className="provider-summary-grid">
               <article className="provider-summary-card">
@@ -777,35 +1038,6 @@ export default function App() {
                 <p>{copy.apiKeys.quotaCoverageValue(quotaConfiguredKeys, apiKeys.length)}</p>
               </article>
             </div>
-            <form onSubmit={handleApiKeySubmit}>
-              <label>
-                {copy.apiKeys.account}
-                <select value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {copy.apiKeys.keyName}
-                <input value={apiKeyName} onChange={(event) => setApiKeyName(event.target.value)} />
-              </label>
-              <label>
-                {copy.apiKeys.perMinute}
-                <input value={keyPerMinute} onChange={(event) => setKeyPerMinute(event.target.value)} />
-              </label>
-              <label>
-                {copy.apiKeys.perHour}
-                <input value={keyPerHour} onChange={(event) => setKeyPerHour(event.target.value)} />
-              </label>
-              <label>
-                {copy.apiKeys.perDay}
-                <input value={keyPerDay} onChange={(event) => setKeyPerDay(event.target.value)} />
-              </label>
-              <button type="submit">{copy.apiKeys.createKey}</button>
-            </form>
             {createdApiKey ? <p>{copy.apiKeys.lastCreatedKey}: {createdApiKey}</p> : null}
             <ul>
               {apiKeys.length === 0 ? <li>{copy.apiKeys.noKeys}</li> : apiKeys.map((apiKey) => (
@@ -832,6 +1064,7 @@ export default function App() {
                 <h2>{copy.providers.title}</h2>
                 <p>{copy.providers.description}</p>
               </div>
+              <button type="button" onClick={() => setActiveModal("add-provider")}>{copy.providers.addProvider}</button>
             </div>
             <div className="provider-summary-grid">
               <article className="provider-summary-card">
@@ -917,71 +1150,6 @@ export default function App() {
                   })}
                 </div>
               </div>
-              <aside className="provider-panel provider-compose-panel">
-                <div className="provider-panel-header">
-                  <div>
-                    <span className="section-eyebrow">{copy.providers.compose}</span>
-                    <h3>{copy.providers.registerProvider}</h3>
-                  </div>
-                  <p>{copy.providers.registerDescription}</p>
-                </div>
-                <form onSubmit={handleSubmit} className="provider-form">
-                  <label>
-                    {copy.providers.providerName}
-                    <input value={name} onChange={(event) => setName(event.target.value)} />
-                  </label>
-                  <label>
-                    {copy.providers.exposedModel}
-                    <input value={exposedModel} onChange={(event) => setExposedModel(event.target.value)} />
-                  </label>
-                  <label>
-                    {copy.providers.routePolicy}
-                    <select value={routePolicy} onChange={(event) => setRoutePolicy(event.target.value)}>
-                      <option value="http-first">http-first</option>
-                      <option value="cli-first">cli-first</option>
-                      <option value="fixed-http">fixed-http</option>
-                      <option value="fixed-cli">fixed-cli</option>
-                    </select>
-                  </label>
-                  <label className="checkbox-field">
-                    <span>{copy.providers.httpEnabled}</span>
-                    <input
-                      type="checkbox"
-                      checked={httpEnabled}
-                      onChange={(event) => setHttpEnabled(event.target.checked)}
-                    />
-                  </label>
-                  <label className="checkbox-field">
-                    <span>{copy.providers.cliEnabled}</span>
-                    <input type="checkbox" checked={cliEnabled} onChange={(event) => setCliEnabled(event.target.checked)} />
-                  </label>
-                  <label>
-                    {copy.providers.httpBaseUrl}
-                    <input required={httpEnabled} value={httpBaseUrl} onChange={(event) => setHttpBaseUrl(event.target.value)} />
-                  </label>
-                  <label>
-                    {copy.providers.cliCommand}
-                    <input required={cliEnabled} value={cliCommand} onChange={(event) => setCliCommand(event.target.value)} />
-                  </label>
-                  <label className="checkbox-field">
-                    <span>{copy.providers.chatCapable}</span>
-                    <input
-                      type="checkbox"
-                      checked={chatCapable}
-                      onChange={(event) => setChatCapable(event.target.checked)}
-                    />
-                  </label>
-                  <label className="checkbox-field">
-                    <span>{copy.providers.streamCapable}</span>
-                    <input
-                      type="checkbox"
-                      checked={streamCapable}
-                      onChange={(event) => setStreamCapable(event.target.checked)}
-                    />
-                  </label>
-                  <button type="submit">{copy.providers.addProvider}</button>
-                </form>
-              </aside>
             </div>
           </section>
         );
@@ -999,6 +1167,15 @@ export default function App() {
                 </button>
                 <button type="button" onClick={() => void handleRefreshPricing()} disabled={!selectedProviderName}>
                   {copy.models.refreshOfficialPricing}
+                </button>
+                <button type="button" onClick={() => setActiveModal("add-manual-model")} disabled={!selectedProviderName}>
+                  {copy.models.addManualModel}
+                </button>
+                <button type="button" onClick={() => setActiveModal("override-pricing")} disabled={!selectedProviderName}>
+                  {copy.models.savePricingOverride}
+                </button>
+                <button type="button" onClick={() => setActiveModal("test-model")} disabled={!selectedProviderName}>
+                  {copy.models.testChat}
                 </button>
               </div>
             </div>
@@ -1099,76 +1276,8 @@ export default function App() {
                 </li>
               ))}
             </ul>
-            <form onSubmit={handleManualModelSubmit}>
-              <label>
-                {copy.models.nativeModel}
-                <input value={manualNativeModel} onChange={(event) => setManualNativeModel(event.target.value)} />
-              </label>
-              <label>
-                {copy.models.exposedModelId}
-                <input
-                  value={manualExposedModelId}
-                  onChange={(event) => setManualExposedModelId(event.target.value)}
-                />
-              </label>
-              <button type="submit">{copy.models.addManualModel}</button>
-            </form>
-            <form onSubmit={handlePricingOverrideSubmit}>
-              <label>
-                {copy.models.pricingTargetModel}
-                <input value={pricingNativeModel} onChange={(event) => setPricingNativeModel(event.target.value)} />
-              </label>
-              <label>
-                {copy.models.inputPrice}
-                <input value={pricingInput} onChange={(event) => setPricingInput(event.target.value)} />
-              </label>
-              <label>
-                {copy.models.cachedInputPrice}
-                <input value={pricingCachedInput} onChange={(event) => setPricingCachedInput(event.target.value)} />
-              </label>
-              <label>
-                {copy.models.outputPrice}
-                <input value={pricingOutput} onChange={(event) => setPricingOutput(event.target.value)} />
-              </label>
-              <label>
-                {copy.models.highTierInput}
-                <input value={pricingInputHigh} onChange={(event) => setPricingInputHigh(event.target.value)} />
-              </label>
-              <label>
-                {copy.models.highTierCachedInput}
-                <input value={pricingCachedInputHigh} onChange={(event) => setPricingCachedInputHigh(event.target.value)} />
-              </label>
-              <label>
-                {copy.models.highTierOutput}
-                <input value={pricingOutputHigh} onChange={(event) => setPricingOutputHigh(event.target.value)} />
-              </label>
-              <label>
-                {copy.models.highTierThreshold}
-                <input value={pricingThreshold} onChange={(event) => setPricingThreshold(event.target.value)} />
-              </label>
-              <label>
-                {copy.models.pricingNotes}
-                <input value={pricingNotes} onChange={(event) => setPricingNotes(event.target.value)} />
-              </label>
-              <button type="submit">{copy.models.savePricingOverride}</button>
-            </form>
             <section className="panel">
               <h3>{copy.models.testChat}</h3>
-              <form onSubmit={handleModelTestSubmit}>
-                <label>
-                  {copy.models.pricingTargetModel}
-                  <input value={pricingNativeModel} onChange={(event) => setPricingNativeModel(event.target.value)} />
-                </label>
-                <label>
-                  {copy.models.testChat}
-                  <input
-                    placeholder={copy.models.testPromptPlaceholder}
-                    value={testMessage}
-                    onChange={(event) => setTestMessage(event.target.value)}
-                  />
-                </label>
-                <button type="submit">{copy.models.sendTestMessage}</button>
-              </form>
               <ul>
                 {testChatMessages.length === 0 ? (
                   <li>{copy.models.noTestMessages}</li>
@@ -1470,6 +1579,7 @@ export default function App() {
         </header>
         <div className="page-body">{renderCurrentPage()}</div>
       </section>
+      {renderModal()}
     </main>
   );
 }
