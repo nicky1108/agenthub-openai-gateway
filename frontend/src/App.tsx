@@ -88,13 +88,13 @@ export default function App() {
       <aside className="sidebar">
         <h1>AgentHub</h1>
         <nav>
-          <a>Dashboard</a>
-          <a>Providers</a>
-          <a>Models</a>
-          <a>Accounts</a>
-          <a>API Keys</a>
-          <a>Usage</a>
-          <a>Settings</a>
+          <a href="#dashboard">Dashboard</a>
+          <a href="#providers">Providers</a>
+          <a href="#models">Models</a>
+          <a href="#accounts">Accounts</a>
+          <a href="#api-keys">API Keys</a>
+          <a href="#usage">Usage</a>
+          <a href="#settings">Settings</a>
         </nav>
       </aside>
       <section className="content">
@@ -103,8 +103,8 @@ export default function App() {
           <div>Signed in</div>
         </header>
         <div className="page-body">
-          <section>
-            <h2>Accounts</h2>
+          <section id="accounts">
+            <h2>Account Management</h2>
             <form onSubmit={handleAccountSubmit}>
               <label>
                 Account Name
@@ -122,8 +122,8 @@ export default function App() {
             </ul>
           </section>
 
-          <section>
-            <h2>API Keys</h2>
+          <section id="api-keys">
+            <h2>Key Management</h2>
             <form onSubmit={handleApiKeySubmit}>
               <label>
                 Account
@@ -156,8 +156,8 @@ export default function App() {
             </ul>
           </section>
 
-          <section>
-            <h2>Providers</h2>
+          <section id="providers">
+            <h2>Provider Registry</h2>
             <form onSubmit={handleSubmit}>
               <label>
                 Provider Name
@@ -237,8 +237,8 @@ export default function App() {
             </ul>
           </section>
 
-          <section>
-            <h2>Health</h2>
+          <section id="models">
+            <h2>Provider Health</h2>
             <ul>
               {health.map((item) => (
                 <li key={item.name}>
@@ -248,12 +248,20 @@ export default function App() {
             </ul>
           </section>
 
-          <section>
-            <h2>Logs</h2>
+          <section id="usage">
+            <h2>Gateway Logs</h2>
             <p>
               Request logs land in the backend first. Keep the frontend read-only here until log
               pagination exists.
             </p>
+          </section>
+          <section id="dashboard">
+            <h2>Platform Overview</h2>
+            <p>The runtime dashboard will land here next while the existing admin tools stay available inside the shell.</p>
+          </section>
+          <section id="settings">
+            <h2>Platform Settings</h2>
+            <p>Settings navigation is reserved in the shell while the current admin forms continue to handle configuration.</p>
           </section>
         </div>
       </section>

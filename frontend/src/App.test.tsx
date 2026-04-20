@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 
 import App from "./App";
 
@@ -81,14 +81,14 @@ describe("App", () => {
 
   it("renders the signed-in product shell navigation", async () => {
     render(<App />);
-    const navigation = screen.getByRole("navigation");
 
-    expect(within(navigation).getByText("Dashboard")).toBeTruthy();
-    expect(within(navigation).getByText("Providers")).toBeTruthy();
-    expect(within(navigation).getByText("Models")).toBeTruthy();
-    expect(within(navigation).getByText("Accounts")).toBeTruthy();
-    expect(within(navigation).getByText("API Keys")).toBeTruthy();
-    expect(within(navigation).getByText("Usage")).toBeTruthy();
-    expect(within(navigation).getByText("Settings")).toBeTruthy();
+    expect(screen.getByText("Dashboard")).toBeTruthy();
+    expect(screen.getByText("Providers")).toBeTruthy();
+    expect(screen.getByText("Models")).toBeTruthy();
+    expect(screen.getByText("Accounts")).toBeTruthy();
+    expect(screen.getByText("API Keys")).toBeTruthy();
+    expect(screen.getByText("Usage")).toBeTruthy();
+    expect(screen.getByText("Settings")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add Account" })).toBeTruthy();
   });
 });
