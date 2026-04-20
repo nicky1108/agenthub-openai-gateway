@@ -211,14 +211,16 @@ export default function App() {
 
   if (authState === "loading") {
     return (
-      <main className="app-shell">
-        <section className="content">
-          <div className="page-body">
-            <section id="auth-loading">
+      <main className="auth-shell">
+        <section id="auth-loading" className="auth-card auth-card--loading">
+          <div className="auth-brand-lockup">
+            <div className="auth-brand-mark">AG</div>
+            <div>
               <h1>AgentHub</h1>
-              <p>Checking session…</p>
-            </section>
+              <p className="auth-kicker">Gateway control plane</p>
+            </div>
           </div>
+          <p>Checking session…</p>
         </section>
       </main>
     );
@@ -226,47 +228,82 @@ export default function App() {
 
   if (authState === "unauthenticated") {
     return (
-      <main className="app-shell">
-        <section className="content">
-          <div className="page-body">
-            <section id="auth">
-              <h1>AgentHub</h1>
-              <p>Email and password are the primary sign-in path for this developer platform.</p>
+      <main className="auth-shell">
+        <section id="auth" className="auth-card">
+          <div className="auth-split">
+            <div className="auth-copy">
+              <div className="auth-brand-lockup">
+                <div className="auth-brand-mark">AG</div>
+                <div>
+                  <h1>AgentHub</h1>
+                  <p className="auth-kicker">Gateway control plane</p>
+                </div>
+              </div>
+              <h2>{authMode === "login" ? "Sign in to your platform" : "Create your operator account"}</h2>
+              <p>
+                Manage providers, keys, model catalogs, quotas, and traffic from one dark developer
+                console.
+              </p>
+              <ul className="auth-feature-list">
+                <li>Track request volume, key activity, and rate-limit hits</li>
+                <li>Control HTTP and CLI providers from the same shell</li>
+                <li>Keep OpenAI-compatible access behind managed API keys</li>
+              </ul>
+            </div>
+            <div className="auth-form-panel">
+              <div className="auth-form-header">
+                <span className="auth-eyebrow">{authMode === "login" ? "Primary access" : "Create workspace access"}</span>
+                <h3>{authMode === "login" ? "Email sign in" : "Register with email"}</h3>
+              </div>
               {authError ? <p role="alert">Authentication failed: {authError}</p> : null}
-              <form onSubmit={handleAuthSubmit}>
+              <form className="auth-form" onSubmit={handleAuthSubmit}>
                 {authMode === "register" ? (
-                  <label>
-                    Name
+                  <label className="auth-field">
+                    <span className="auth-label">Name</span>
                     <input value={authName} onChange={(event) => setAuthName(event.target.value)} />
                   </label>
                 ) : null}
-                <label>
-                  Email
+                <label className="auth-field">
+                  <span className="auth-label">Email</span>
                   <input value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} />
                 </label>
-                <label>
-                  Password
+                <label className="auth-field">
+                  <span className="auth-label">Password</span>
                   <input
                     type="password"
                     value={authPassword}
                     onChange={(event) => setAuthPassword(event.target.value)}
                   />
                 </label>
-                <button type="submit">{authMode === "login" ? "Sign In" : "Create Account"}</button>
+                <button className="auth-submit" type="submit">
+                  {authMode === "login" ? "Sign In" : "Create Account"}
+                </button>
               </form>
-              <div>
-                <button type="button" onClick={() => setAuthMode("login")}>
+              <div className="auth-toggle-group">
+                <button
+                  className={authMode === "login" ? "auth-secondary auth-secondary--active" : "auth-secondary"}
+                  type="button"
+                  onClick={() => setAuthMode("login")}
+                >
                   Use Email Login
                 </button>
-                <button type="button" onClick={() => setAuthMode("register")}>
+                <button
+                  className={authMode === "register" ? "auth-secondary auth-secondary--active" : "auth-secondary"}
+                  type="button"
+                  onClick={() => setAuthMode("register")}
+                >
                   Create Account
                 </button>
               </div>
-              <div>
-                <button type="button">Continue with GitHub</button>
-                <button type="button">Continue with Google</button>
+              <div className="auth-social-group">
+                <button className="auth-social-button" type="button">
+                  Continue with GitHub
+                </button>
+                <button className="auth-social-button" type="button">
+                  Continue with Google
+                </button>
               </div>
-            </section>
+            </div>
           </div>
         </section>
       </main>
@@ -276,7 +313,14 @@ export default function App() {
   return (
     <main className="app-shell">
       <aside className="sidebar">
-        <h1>AgentHub</h1>
+        <div className="sidebar-header">
+          <div className="sidebar-mark">AG</div>
+          <div>
+            <h1>AgentHub</h1>
+            <p>Developer Platform</p>
+          </div>
+        </div>
+        <div className="sidebar-section-label">Navigation</div>
         <nav>
           <a href="#dashboard">Dashboard</a>
           <a href="#providers">Providers</a>
@@ -286,62 +330,102 @@ export default function App() {
           <a href="#usage">Usage</a>
           <a href="#settings">Settings</a>
         </nav>
+        <div className="sidebar-footer">
+          <span className="sidebar-footer-label">Runtime</span>
+          <strong>OpenAI-compatible gateway</strong>
+        </div>
       </aside>
       <section className="content">
         <header className="topbar">
-          <div>Developer Platform</div>
-          <div>
-            <span>{authUser?.email ?? "Signed in"}</span>{" "}
-            <button type="button" onClick={handleLogout}>
+          <div className="topbar-title-group">
+            <span className="topbar-eyebrow">Developer Platform</span>
+            <strong>Gateway operations</strong>
+          </div>
+          <div className="topbar-user">
+            <span className="topbar-user-email">{authUser?.email ?? "Signed in"}</span>
+            <button className="topbar-logout" type="button" onClick={handleLogout}>
               Sign out
             </button>
           </div>
         </header>
         <div className="page-body">
           <section id="dashboard" className="dashboard">
-            <h2>Platform Overview</h2>
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Overview</span>
+                <h2>Platform Overview</h2>
+              </div>
+              <div className="status-pill">24h default</div>
+            </div>
             {dashboardError ? (
               <p role="alert">Dashboard unavailable: {dashboardError}</p>
             ) : null}
             <div
               className="kpi-grid"
-              style={{ display: "grid", gap: "1rem", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
             >
-              <div className="kpi-card" style={{ border: "1px solid #d1d5db", borderRadius: "12px", padding: "1rem" }}>
+              <div className="kpi-card">
                 <strong>Requests</strong>
+                <span className="kpi-subtitle">Gateway traffic volume</span>
                 <div>{dashboardSummary?.total_requests ?? "—"}</div>
               </div>
-              <div className="kpi-card" style={{ border: "1px solid #d1d5db", borderRadius: "12px", padding: "1rem" }}>
+              <div className="kpi-card">
                 <strong>Active Keys</strong>
+                <span className="kpi-subtitle">Live access credentials</span>
                 <div>{dashboardSummary?.active_api_keys ?? "—"}</div>
               </div>
-              <div className="kpi-card" style={{ border: "1px solid #d1d5db", borderRadius: "12px", padding: "1rem" }}>
+              <div className="kpi-card">
                 <strong>Error Rate</strong>
+                <span className="kpi-subtitle">Failed request ratio</span>
                 <div>{dashboardSummary ? `${(dashboardSummary.error_rate * 100).toFixed(1)}%` : "—"}</div>
               </div>
-              <div className="kpi-card" style={{ border: "1px solid #d1d5db", borderRadius: "12px", padding: "1rem" }}>
+              <div className="kpi-card">
                 <strong>Rate Limit Hits</strong>
+                <span className="kpi-subtitle">Quota pressure</span>
                 <div>{dashboardSummary?.rate_limit_hits ?? "—"}</div>
               </div>
             </div>
-            <div
-              className="hero-chart"
-              style={{
-                marginTop: "1rem",
-                border: "1px dashed #9ca3af",
-                borderRadius: "16px",
-                minHeight: "180px",
-                display: "grid",
-                placeItems: "center",
-                color: "#4b5563",
-              }}
-            >
-              24h / 7d traffic chart placeholder
+            <div className="hero-chart">
+              <div className="chart-header">
+                <div>
+                  <strong>Traffic</strong>
+                  <p>24h / 7d runtime activity</p>
+                </div>
+                <div className="chart-toggle">
+                  <button type="button" className="chart-toggle-active">
+                    24h
+                  </button>
+                  <button type="button">7d</button>
+                </div>
+              </div>
+              <svg viewBox="0 0 600 180" className="chart-svg" aria-hidden="true">
+                <defs>
+                  <linearGradient id="traffic-fill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="rgba(102,210,255,0.35)" />
+                    <stop offset="100%" stopColor="rgba(102,210,255,0)" />
+                  </linearGradient>
+                </defs>
+                <path
+                  d="M0 160 C40 120, 70 126, 95 98 S160 55, 205 84 285 145, 320 108 375 42, 438 70 515 132, 600 48"
+                  fill="none"
+                  stroke="rgba(102,210,255,0.96)"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M0 160 C40 120, 70 126, 95 98 S160 55, 205 84 285 145, 320 108 375 42, 438 70 515 132, 600 48 L600 180 L0 180 Z"
+                  fill="url(#traffic-fill)"
+                />
+              </svg>
             </div>
           </section>
 
           <section id="accounts">
-            <h2>Account Management</h2>
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Identity</span>
+                <h2>Account Management</h2>
+              </div>
+            </div>
             <form onSubmit={handleAccountSubmit}>
               <label>
                 Account Name
@@ -360,7 +444,12 @@ export default function App() {
           </section>
 
           <section id="api-keys">
-            <h2>Key Management</h2>
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Access</span>
+                <h2>Key Management</h2>
+              </div>
+            </div>
             <form onSubmit={handleApiKeySubmit}>
               <label>
                 Account
@@ -394,7 +483,12 @@ export default function App() {
           </section>
 
           <section id="providers">
-            <h2>Provider Registry</h2>
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Runtime</span>
+                <h2>Provider Registry</h2>
+              </div>
+            </div>
             <form onSubmit={handleSubmit}>
               <label>
                 Provider Name
@@ -475,7 +569,12 @@ export default function App() {
           </section>
 
           <section id="models">
-            <h2>Provider Health</h2>
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Status</span>
+                <h2>Provider Health</h2>
+              </div>
+            </div>
             <ul>
               {health.map((item) => (
                 <li key={item.name}>
@@ -486,13 +585,15 @@ export default function App() {
           </section>
 
           <section id="usage">
-            <h2>Usage</h2>
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Activity</span>
+                <h2>Usage</h2>
+              </div>
+            </div>
             {usageError ? <p role="alert">Usage unavailable: {usageError}</p> : null}
-            <div
-              className="split"
-              style={{ display: "grid", gap: "1rem", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
-            >
-              <div className="panel" style={{ border: "1px solid #d1d5db", borderRadius: "16px", padding: "1rem" }}>
+            <div className="split">
+              <div className="panel">
                 <h3>Recent key activity</h3>
                 {recentKeyActivity.length === 0 ? (
                   <p>No API keys yet.</p>
@@ -500,14 +601,18 @@ export default function App() {
                   <ul>
                     {recentKeyActivity.map((apiKey) => (
                       <li key={apiKey.api_key_id}>
-                        <strong>{apiKey.name}</strong> ({apiKey.key_prefix}) - {apiKey.total_requests} requests,{" "}
-                        {apiKey.limited_requests} limited, last used {formatLastUsed(apiKey.last_used_at)}
+                        <strong>{apiKey.name}</strong>
+                        <div className="usage-meta">{apiKey.key_prefix} · {apiKey.status}</div>
+                        <div className="usage-stats">
+                          {apiKey.total_requests} requests · {apiKey.limited_requests} limited
+                        </div>
+                        <div className="usage-meta">Last used {formatLastUsed(apiKey.last_used_at)}</div>
                       </li>
                     ))}
                   </ul>
                 )}
               </div>
-              <div className="panel" style={{ border: "1px solid #d1d5db", borderRadius: "16px", padding: "1rem" }}>
+              <div className="panel">
                 <h3>Top providers / models</h3>
                 <p>
                   Providers:{" "}
@@ -525,7 +630,12 @@ export default function App() {
             </div>
           </section>
           <section id="settings">
-            <h2>Platform Settings</h2>
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Configuration</span>
+                <h2>Platform Settings</h2>
+              </div>
+            </div>
             <p>Settings navigation is reserved in the shell while the current admin forms continue to handle configuration.</p>
           </section>
         </div>
