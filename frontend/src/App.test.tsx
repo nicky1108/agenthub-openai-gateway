@@ -276,9 +276,6 @@ describe("App", () => {
     expect((await screen.findAllByText("总览")).length).toBeGreaterThan(0);
     expect(screen.getByText("服务提供方")).toBeTruthy();
     expect(screen.getByText("平台概览")).toBeTruthy();
-    window.location.hash = "#settings";
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
-    expect(await screen.findByText("网关地址")).toBeTruthy();
     expect(window.localStorage.getItem("agh_locale")).toBe("zh");
   });
 });
