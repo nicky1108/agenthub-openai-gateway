@@ -84,6 +84,27 @@ def backfill_sqlite_account_auth_columns(connection: Connection) -> None:
     if "created_at" not in column_names:
         connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN created_at DATETIME")
 
+    index_rows = connection.exec_driver_sql("PRAGMA index_list(accounts)").mappings().all()
+    has_unique_email_index = False
+    for row in index_rows:
+        if not row["unique"]:
+            continue
+        index_columns = connection.exec_driver_sql(
+            f"PRAGMA index_info('{row['name']}')"
+        ).mappings().all()
+        if any(column["name"] == "email" for column in index_columns):
+            has_unique_email_index = True
+            break
+
+    if not has_unique_email_index:
+        connection.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_accounts_email ON accounts(email)"
+        )
+
+    connection.exec_driver_sql(
+        "UPDATE accounts SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"
+    )
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
