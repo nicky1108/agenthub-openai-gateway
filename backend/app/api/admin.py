@@ -21,11 +21,13 @@ from app.core.models import (
     UsageRecord,
 )
 from app.pricing.service import OfficialPricingService
+from app.orchestration.chat import ChatOrchestrator
 from app.core.settings import Settings
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 discovery = ProviderDiscoveryService()
 pricing = OfficialPricingService()
+chat_orchestrator = ChatOrchestrator()
 
 
 class ProviderCreate(BaseModel):
@@ -251,6 +253,15 @@ class SettingsOverview(BaseModel):
     github_oauth_enabled: bool
     google_oauth_enabled: bool
     admin_secret_configured: bool
+
+
+class AdminTestChatCreate(BaseModel):
+    model: str
+    messages: list[dict[str, object]]
+    temperature: float | None = None
+    top_p: float | None = None
+    max_tokens: int | None = None
+    stop: str | list[str] | None = None
 
 
 def get_settings() -> Settings:
@@ -680,6 +691,26 @@ async def settings_overview(
         github_oauth_enabled=settings.github_oauth_enabled,
         google_oauth_enabled=settings.google_oauth_enabled,
         admin_secret_configured=bool(settings.admin_secret),
+    )
+
+
+@router.post("/test-chat")
+async def admin_test_chat(
+    payload: AdminTestChatCreate,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, object]:
+    return await chat_orchestrator.run(
+        {
+            "model": payload.model,
+            "messages": payload.messages,
+            "stream": False,
+            "temperature": payload.temperature,
+            "top_p": payload.top_p,
+            "max_tokens": payload.max_tokens,
+            "stop": payload.stop,
+        },
+        session,
     )
 
 

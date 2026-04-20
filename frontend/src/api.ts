@@ -139,6 +139,17 @@ export type SettingsOverview = {
   admin_secret_configured: boolean;
 };
 
+export type AdminTestChatResponse = {
+  id: string;
+  object: string;
+  model: string;
+  choices: Array<{
+    index: number;
+    message: { role: string; content: string };
+    finish_reason: string | null;
+  }>;
+};
+
 export type CreditLedgerEntry = {
   id: number;
   account_id: number;
@@ -373,6 +384,19 @@ export async function getDashboardTimeseries(window: "24h" | "7d"): Promise<Dash
 
 export async function getSettingsOverview(): Promise<SettingsOverview> {
   return request<SettingsOverview>("/admin/settings/overview");
+}
+
+export async function sendAdminTestChat(payload: {
+  model: string;
+  messages: Array<{ role: string; content: string }>;
+  temperature?: number | null;
+  top_p?: number | null;
+  max_tokens?: number | null;
+}): Promise<AdminTestChatResponse> {
+  return request<AdminTestChatResponse>("/admin/test-chat", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getAuthProviders(): Promise<AuthProviderStatus> {

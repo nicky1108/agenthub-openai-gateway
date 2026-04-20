@@ -24,6 +24,7 @@ import {
   refreshProviderPricing,
   revokeApiKey,
   rediscoverProviderModels,
+  sendAdminTestChat,
   logoutSession,
   registerWithPassword,
 } from "./api";
@@ -181,6 +182,8 @@ export default function App() {
   const [pricingOutputHigh, setPricingOutputHigh] = useState("");
   const [pricingThreshold, setPricingThreshold] = useState("");
   const [pricingNotes, setPricingNotes] = useState("");
+  const [testMessage, setTestMessage] = useState("");
+  const [testChatMessages, setTestChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const copy = messages[locale];
   const NAV_ITEMS: Array<{ id: RouteId; label: string }> = [
     { id: "dashboard", label: copy.nav.dashboard },
@@ -448,6 +451,20 @@ export default function App() {
     }));
   }
 
+  async function handleModelTestSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProviderName || !pricingNativeModel || !testMessage.trim()) return;
+    const userContent = testMessage.trim();
+    setTestChatMessages((current) => [...current, { role: "user", content: userContent }]);
+    setTestMessage("");
+    const response = await sendAdminTestChat({
+      model: `${selectedProviderName}:${pricingNativeModel}`,
+      messages: [{ role: "user", content: userContent }],
+    });
+    const assistantContent = response.choices[0]?.message?.content ?? "";
+    setTestChatMessages((current) => [...current, { role: "assistant", content: assistantContent }]);
+  }
+
   async function handleOpenProviderModels(providerName: string) {
     setSelectedProviderName(providerName);
     await loadSelectedProviderModels(providerName);
@@ -690,7 +707,7 @@ export default function App() {
               {accounts.length === 0 ? <li>{copy.accounts.empty}</li> : accounts.map((account) => (
                 <li key={account.id}>
                   <strong>{account.name}</strong>
-                  <div className="usage-meta">{account.status} · {account.credit_balance} credits</div>
+                  <div className="usage-meta">{account.status} · {account.credit_balance} {copy.accounts.credits}</div>
                   {account.notes ? <div className="usage-meta">{account.notes}</div> : null}
                 </li>
               ))}
@@ -1135,6 +1152,36 @@ export default function App() {
               </label>
               <button type="submit">{copy.models.savePricingOverride}</button>
             </form>
+            <section className="panel">
+              <h3>{copy.models.testChat}</h3>
+              <form onSubmit={handleModelTestSubmit}>
+                <label>
+                  {copy.models.pricingTargetModel}
+                  <input value={pricingNativeModel} onChange={(event) => setPricingNativeModel(event.target.value)} />
+                </label>
+                <label>
+                  {copy.models.testChat}
+                  <input
+                    placeholder={copy.models.testPromptPlaceholder}
+                    value={testMessage}
+                    onChange={(event) => setTestMessage(event.target.value)}
+                  />
+                </label>
+                <button type="submit">{copy.models.sendTestMessage}</button>
+              </form>
+              <ul>
+                {testChatMessages.length === 0 ? (
+                  <li>{copy.models.noTestMessages}</li>
+                ) : (
+                  testChatMessages.map((message, index) => (
+                    <li key={`${message.role}-${index}`}>
+                      <strong>{message.role === "user" ? copy.models.testerUser : copy.models.testerModel}</strong>
+                      <div className="usage-meta">{message.content}</div>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </section>
           </section>
         );
       case "usage":

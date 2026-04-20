@@ -107,6 +107,22 @@ describe("App", () => {
             ]),
           );
         }
+        if (path.endsWith("/admin/test-chat")) {
+          return new Response(
+            JSON.stringify({
+              id: "chatcmpl-test-1",
+              object: "chat.completion",
+              model: "codex:gpt-5.4",
+              choices: [
+                {
+                  index: 0,
+                  message: { role: "assistant", content: "test-model-response" },
+                  finish_reason: "stop",
+                },
+              ],
+            }),
+          );
+        }
         if (
           path.endsWith("/admin/accounts") &&
           (!init || init.method === undefined || init.method === "GET")
@@ -263,6 +279,10 @@ describe("App", () => {
     expect(screen.getByRole("tab", { name: "codex" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByText("$2.50 in · $15.00 out")).toBeTruthy();
     expect(screen.getByText("OpenAI API Pricing")).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText("Test this model"), { target: { value: "hello model" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send Test Message" }));
+    expect(await screen.findByText("hello model")).toBeTruthy();
+    expect(screen.getByText("test-model-response")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("link", { name: "Providers" }));
     window.dispatchEvent(new HashChangeEvent("hashchange"));

@@ -190,6 +190,12 @@ type Copy = {
       highTierThreshold: string;
       pricingNotes: string;
       savePricingOverride: string;
+      testChat: string;
+      testPromptPlaceholder: string;
+      sendTestMessage: string;
+      noTestMessages: string;
+      testerUser: string;
+      testerModel: string;
     };
   usage: {
     eyebrow: string;
@@ -422,6 +428,12 @@ export const messages: Record<Locale, Copy> = {
       highTierThreshold: "High-tier threshold tokens",
       pricingNotes: "Pricing notes",
       savePricingOverride: "Save Pricing Override",
+      testChat: "Test Chat",
+      testPromptPlaceholder: "Test this model",
+      sendTestMessage: "Send Test Message",
+      noTestMessages: "No test messages yet.",
+      testerUser: "You",
+      testerModel: "Model",
     },
     usage: {
       eyebrow: "Activity",
@@ -648,6 +660,12 @@ export const messages: Record<Locale, Copy> = {
       highTierThreshold: "高阶阈值 tokens",
       pricingNotes: "价格备注",
       savePricingOverride: "保存价格覆盖",
+      testChat: "测试对话",
+      testPromptPlaceholder: "测试这个模型",
+      sendTestMessage: "发送测试消息",
+      noTestMessages: "还没有测试消息。",
+      testerUser: "你",
+      testerModel: "模型",
     },
     usage: {
       eyebrow: "活跃度",
