@@ -14,11 +14,19 @@ settings = Settings()
 
 class ProviderCreate(BaseModel):
     name: str
+    exposed_model: str = "default"
     http_enabled: bool
     cli_enabled: bool
     route_policy: str
     chat_capable: bool = True
     stream_capable: bool = True
+    http_base_url: str | None = None
+    http_api_key: str | None = None
+    http_headers_json: str = "{}"
+    cli_command: str | None = None
+    cli_args_json: str = "[]"
+    cli_env_json: str = "{}"
+    cli_cwd: str | None = None
 
     @field_validator("name")
     @classmethod

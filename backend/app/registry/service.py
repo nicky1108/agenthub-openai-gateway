@@ -21,7 +21,7 @@ class ProviderRegistry:
         for row in rows:
             models.append(
                 {
-                    "id": f"{row.name}:default",
+                    "id": f"{row.name}:{row.exposed_model}",
                     "object": "model",
                     "created": 0,
                     "owned_by": row.name,
