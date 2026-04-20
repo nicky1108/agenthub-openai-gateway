@@ -134,6 +134,13 @@ class UsageSummary(BaseModel):
     limited_requests: int
 
 
+class DashboardSummary(BaseModel):
+    total_requests: int
+    active_api_keys: int
+    error_rate: float
+    rate_limit_hits: int
+
+
 def require_admin(x_admin_secret: str = Header(...)) -> None:
     if x_admin_secret != settings.admin_secret:
         raise HTTPException(
@@ -318,6 +325,24 @@ async def get_api_key_usage(
         api_key_id=key.id,
         total_requests=len(usage_rows),
         limited_requests=sum(1 for row in usage_rows if row.outcome == "limited"),
+    )
+
+
+@router.get("/dashboard/summary", response_model=DashboardSummary)
+async def dashboard_summary(
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> DashboardSummary:
+    usage_rows = list(await session.scalars(select(UsageRecord)))
+    key_rows = list(await session.scalars(select(ApiKeyRecord).where(ApiKeyRecord.status == "active")))
+    error_count = sum(1 for row in usage_rows if row.outcome == "error")
+    limited_count = sum(1 for row in usage_rows if row.outcome == "limited")
+    total = len(usage_rows)
+    return DashboardSummary(
+        total_requests=total,
+        active_api_keys=len(key_rows),
+        error_rate=(error_count / total) if total else 0.0,
+        rate_limit_hits=limited_count,
     )
 
 

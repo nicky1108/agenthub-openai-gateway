@@ -3,11 +3,47 @@ import { type FormEvent, useEffect, useState } from "react";
 import { createAccount, createApiKey, createProvider, getAccounts, getApiKeys, getHealth, getProviders } from "./api";
 import type { Account, ApiKey, Provider, ProviderHealth } from "./api";
 
+type DashboardSummary = {
+  total_requests: number;
+  active_api_keys: number;
+  error_rate: number;
+  rate_limit_hits: number;
+};
+
+const EMPTY_DASHBOARD_SUMMARY: DashboardSummary = {
+  total_requests: 0,
+  active_api_keys: 0,
+  error_rate: 0,
+  rate_limit_hits: 0,
+};
+
+async function getDashboardSummary(): Promise<DashboardSummary> {
+  const response = await fetch("/admin/dashboard/summary", {
+    headers: {
+      "content-type": "application/json",
+      "x-admin-secret": "change-me",
+    },
+  });
+
+  if (!response.ok) {
+    return EMPTY_DASHBOARD_SUMMARY;
+  }
+
+  const payload = (await response.json()) as Partial<DashboardSummary>;
+  return {
+    total_requests: payload.total_requests ?? 0,
+    active_api_keys: payload.active_api_keys ?? 0,
+    error_rate: payload.error_rate ?? 0,
+    rate_limit_hits: payload.rate_limit_hits ?? 0,
+  };
+}
+
 export default function App() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [health, setHealth] = useState<ProviderHealth[]>([]);
+  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary>(EMPTY_DASHBOARD_SUMMARY);
   const [accountName, setAccountName] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [apiKeyName, setApiKeyName] = useState("");
@@ -23,12 +59,13 @@ export default function App() {
   const [streamCapable, setStreamCapable] = useState(true);
 
   useEffect(() => {
-    void Promise.all([getAccounts(), getApiKeys(), getProviders(), getHealth()]).then(
-      ([accountRows, keyRows, providerRows, healthRows]) => {
+    void Promise.all([getAccounts(), getApiKeys(), getProviders(), getHealth(), getDashboardSummary()]).then(
+      ([accountRows, keyRows, providerRows, healthRows, dashboard]) => {
         setAccounts(accountRows);
         setApiKeys(keyRows);
         setProviders(providerRows);
         setHealth(healthRows);
+        setDashboardSummary(dashboard);
         if (accountRows.length > 0) {
           setSelectedAccountId(String(accountRows[0].id));
         }
@@ -103,6 +140,45 @@ export default function App() {
           <div>Signed in</div>
         </header>
         <div className="page-body">
+          <section id="dashboard" className="dashboard">
+            <h2>Platform Overview</h2>
+            <div
+              className="kpi-grid"
+              style={{ display: "grid", gap: "1rem", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
+            >
+              <div className="kpi-card" style={{ border: "1px solid #d1d5db", borderRadius: "12px", padding: "1rem" }}>
+                <strong>Requests</strong>
+                <div>{dashboardSummary.total_requests}</div>
+              </div>
+              <div className="kpi-card" style={{ border: "1px solid #d1d5db", borderRadius: "12px", padding: "1rem" }}>
+                <strong>Active Keys</strong>
+                <div>{dashboardSummary.active_api_keys}</div>
+              </div>
+              <div className="kpi-card" style={{ border: "1px solid #d1d5db", borderRadius: "12px", padding: "1rem" }}>
+                <strong>Error Rate</strong>
+                <div>{(dashboardSummary.error_rate * 100).toFixed(1)}%</div>
+              </div>
+              <div className="kpi-card" style={{ border: "1px solid #d1d5db", borderRadius: "12px", padding: "1rem" }}>
+                <strong>Rate Limit Hits</strong>
+                <div>{dashboardSummary.rate_limit_hits}</div>
+              </div>
+            </div>
+            <div
+              className="hero-chart"
+              style={{
+                marginTop: "1rem",
+                border: "1px dashed #9ca3af",
+                borderRadius: "16px",
+                minHeight: "180px",
+                display: "grid",
+                placeItems: "center",
+                color: "#4b5563",
+              }}
+            >
+              24h / 7d traffic chart placeholder
+            </div>
+          </section>
+
           <section id="accounts">
             <h2>Account Management</h2>
             <form onSubmit={handleAccountSubmit}>
@@ -254,10 +330,6 @@ export default function App() {
               Request logs land in the backend first. Keep the frontend read-only here until log
               pagination exists.
             </p>
-          </section>
-          <section id="dashboard">
-            <h2>Platform Overview</h2>
-            <p>The runtime dashboard will land here next while the existing admin tools stay available inside the shell.</p>
           </section>
           <section id="settings">
             <h2>Platform Settings</h2>
