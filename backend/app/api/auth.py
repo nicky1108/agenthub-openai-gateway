@@ -2,7 +2,6 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
-from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -114,13 +113,21 @@ async def login(
 
 
 @router.get("/oauth/github")
-async def github_oauth_entry() -> RedirectResponse:
-    return RedirectResponse(url="/auth/oauth/github/callback-placeholder", status_code=302)
+async def github_oauth_entry() -> dict[str, str]:
+    return {
+        "provider": "github",
+        "status": "not_implemented",
+        "detail": "OAuth entry point placeholder",
+    }
 
 
 @router.get("/oauth/google")
-async def google_oauth_entry() -> RedirectResponse:
-    return RedirectResponse(url="/auth/oauth/google/callback-placeholder", status_code=302)
+async def google_oauth_entry() -> dict[str, str]:
+    return {
+        "provider": "google",
+        "status": "not_implemented",
+        "detail": "OAuth entry point placeholder",
+    }
 
 
 @router.get("/me")
