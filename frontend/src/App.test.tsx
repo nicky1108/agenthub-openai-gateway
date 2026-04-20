@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import App from "./App";
 
@@ -143,8 +143,15 @@ describe("App", () => {
     expect(screen.getByText("API Keys")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Usage" })).toBeTruthy();
     expect(screen.getByText("Settings")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add Account" })).toBeTruthy();
-    expect(screen.getByText("Provider Registry")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+    expect(screen.getByText("Platform Overview")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("link", { name: "Accounts" }));
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    expect(await screen.findByRole("button", { name: "Add Account" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("link", { name: "Providers" }));
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    expect(await screen.findByText("Provider Registry")).toBeTruthy();
   });
 });

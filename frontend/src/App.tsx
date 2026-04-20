@@ -18,6 +18,25 @@ import {
 import type { Account, ApiKey, AuthAccount, Provider, ProviderHealth, UsageOverview } from "./api";
 
 type DashboardSummary = Awaited<ReturnType<typeof getDashboardSummary>>;
+type RouteId = "dashboard" | "providers" | "models" | "accounts" | "api-keys" | "usage" | "settings";
+
+const NAV_ITEMS: Array<{ id: RouteId; label: string }> = [
+  { id: "dashboard", label: "Dashboard" },
+  { id: "providers", label: "Providers" },
+  { id: "models", label: "Models" },
+  { id: "accounts", label: "Accounts" },
+  { id: "api-keys", label: "API Keys" },
+  { id: "usage", label: "Usage" },
+  { id: "settings", label: "Settings" },
+];
+
+function getRouteFromHash(hash: string): RouteId {
+  const value = hash.replace(/^#/, "");
+  if (NAV_ITEMS.some((item) => item.id === value)) {
+    return value as RouteId;
+  }
+  return "dashboard";
+}
 
 function aggregateUsage(
   usageSummary: UsageOverview | null,
@@ -45,6 +64,8 @@ export default function App() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
+  const [currentRoute, setCurrentRoute] = useState<RouteId>(() => getRouteFromHash(window.location.hash));
+
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [usageOverview, setUsageOverview] = useState<UsageOverview | null>(null);
@@ -53,6 +74,7 @@ export default function App() {
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [usageError, setUsageError] = useState<string | null>(null);
+
   const [accountName, setAccountName] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [apiKeyName, setApiKeyName] = useState("");
@@ -89,6 +111,20 @@ export default function App() {
       setSelectedAccountId(String(accountRows[0].id));
     }
   }
+
+  useEffect(() => {
+    const syncRoute = () => {
+      setCurrentRoute(getRouteFromHash(window.location.hash));
+    };
+
+    if (!window.location.hash) {
+      window.location.hash = "#dashboard";
+      syncRoute();
+    }
+
+    window.addEventListener("hashchange", syncRoute);
+    return () => window.removeEventListener("hashchange", syncRoute);
+  }, []);
 
   useEffect(() => {
     void getCurrentAccount()
@@ -184,6 +220,7 @@ export default function App() {
       }
       await loadAuthenticatedData();
       setAuthPassword("");
+      setCurrentRoute(getRouteFromHash(window.location.hash));
     } catch (error: unknown) {
       setAuthError(error instanceof Error ? error.message : "authentication failed");
     }
@@ -202,12 +239,289 @@ export default function App() {
   }
 
   const recentKeyActivity = [...(usageOverview?.key_activity ?? [])].sort((left, right) => {
-      const leftTime = left.last_used_at ? new Date(left.last_used_at).getTime() : 0;
-      const rightTime = right.last_used_at ? new Date(right.last_used_at).getTime() : 0;
-      return rightTime - leftTime || right.total_requests - left.total_requests;
-    });
+    const leftTime = left.last_used_at ? new Date(left.last_used_at).getTime() : 0;
+    const rightTime = right.last_used_at ? new Date(right.last_used_at).getTime() : 0;
+    return rightTime - leftTime || right.total_requests - left.total_requests;
+  });
   const providerActivity = aggregateUsage(usageOverview, "by_provider").slice(0, 5);
   const modelActivity = aggregateUsage(usageOverview, "by_model").slice(0, 5);
+
+  function renderCurrentPage() {
+    switch (currentRoute) {
+      case "dashboard":
+        return (
+          <section id="dashboard" className="dashboard">
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Overview</span>
+                <h2>Platform Overview</h2>
+              </div>
+              <div className="status-pill">24h default</div>
+            </div>
+            {dashboardError ? <p role="alert">Dashboard unavailable: {dashboardError}</p> : null}
+            <div className="kpi-grid">
+              <div className="kpi-card">
+                <strong>Requests</strong>
+                <span className="kpi-subtitle">Gateway traffic volume</span>
+                <div>{dashboardSummary?.total_requests ?? "—"}</div>
+              </div>
+              <div className="kpi-card">
+                <strong>Active Keys</strong>
+                <span className="kpi-subtitle">Live access credentials</span>
+                <div>{dashboardSummary?.active_api_keys ?? "—"}</div>
+              </div>
+              <div className="kpi-card">
+                <strong>Error Rate</strong>
+                <span className="kpi-subtitle">Failed request ratio</span>
+                <div>{dashboardSummary ? `${(dashboardSummary.error_rate * 100).toFixed(1)}%` : "—"}</div>
+              </div>
+              <div className="kpi-card">
+                <strong>Rate Limit Hits</strong>
+                <span className="kpi-subtitle">Quota pressure</span>
+                <div>{dashboardSummary?.rate_limit_hits ?? "—"}</div>
+              </div>
+            </div>
+            <div className="hero-chart">
+              <div className="chart-header">
+                <div>
+                  <strong>Traffic</strong>
+                  <p>24h / 7d runtime activity</p>
+                </div>
+                <div className="chart-toggle">
+                  <button type="button" className="chart-toggle-active">
+                    24h
+                  </button>
+                  <button type="button">7d</button>
+                </div>
+              </div>
+              <svg viewBox="0 0 600 180" className="chart-svg" aria-hidden="true">
+                <defs>
+                  <linearGradient id="traffic-fill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="rgba(102,210,255,0.35)" />
+                    <stop offset="100%" stopColor="rgba(102,210,255,0)" />
+                  </linearGradient>
+                </defs>
+                <path
+                  d="M0 160 C40 120, 70 126, 95 98 S160 55, 205 84 285 145, 320 108 375 42, 438 70 515 132, 600 48"
+                  fill="none"
+                  stroke="rgba(102,210,255,0.96)"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M0 160 C40 120, 70 126, 95 98 S160 55, 205 84 285 145, 320 108 375 42, 438 70 515 132, 600 48 L600 180 L0 180 Z"
+                  fill="url(#traffic-fill)"
+                />
+              </svg>
+            </div>
+          </section>
+        );
+      case "accounts":
+        return (
+          <section id="accounts">
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Identity</span>
+                <h2>Account Management</h2>
+              </div>
+            </div>
+            <form onSubmit={handleAccountSubmit}>
+              <label>
+                Account Name
+                <input value={accountName} onChange={(event) => setAccountName(event.target.value)} />
+              </label>
+              <button type="submit">Add Account</button>
+            </form>
+            <ul>
+              {accounts.map((account) => (
+                <li key={account.id}>
+                  {account.name} - {account.status}
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      case "api-keys":
+        return (
+          <section id="api-keys">
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Access</span>
+                <h2>Key Management</h2>
+              </div>
+            </div>
+            <form onSubmit={handleApiKeySubmit}>
+              <label>
+                Account
+                <select value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                API Key Name
+                <input value={apiKeyName} onChange={(event) => setApiKeyName(event.target.value)} />
+              </label>
+              <button type="submit">Create API Key</button>
+            </form>
+            {createdApiKey ? <p>Last Created Key: {createdApiKey}</p> : null}
+            <ul>
+              {apiKeys.map((apiKey) => (
+                <li key={apiKey.id}>
+                  {apiKey.name} - {apiKey.key_prefix} - {apiKey.status}
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      case "providers":
+        return (
+          <section id="providers">
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Runtime</span>
+                <h2>Provider Registry</h2>
+              </div>
+            </div>
+            <form onSubmit={handleSubmit}>
+              <label>
+                Provider Name
+                <input value={name} onChange={(event) => setName(event.target.value)} />
+              </label>
+              <label>
+                Exposed Model
+                <input value={exposedModel} onChange={(event) => setExposedModel(event.target.value)} />
+              </label>
+              <label>
+                Route Policy
+                <select value={routePolicy} onChange={(event) => setRoutePolicy(event.target.value)}>
+                  <option value="http-first">http-first</option>
+                  <option value="cli-first">cli-first</option>
+                  <option value="fixed-http">fixed-http</option>
+                  <option value="fixed-cli">fixed-cli</option>
+                </select>
+              </label>
+              <label>
+                HTTP Enabled
+                <input type="checkbox" checked={httpEnabled} onChange={(event) => setHttpEnabled(event.target.checked)} />
+              </label>
+              <label>
+                CLI Enabled
+                <input type="checkbox" checked={cliEnabled} onChange={(event) => setCliEnabled(event.target.checked)} />
+              </label>
+              <label>
+                HTTP Base URL
+                <input required={httpEnabled} value={httpBaseUrl} onChange={(event) => setHttpBaseUrl(event.target.value)} />
+              </label>
+              <label>
+                CLI Command
+                <input required={cliEnabled} value={cliCommand} onChange={(event) => setCliCommand(event.target.value)} />
+              </label>
+              <label>
+                Chat Capable
+                <input type="checkbox" checked={chatCapable} onChange={(event) => setChatCapable(event.target.checked)} />
+              </label>
+              <label>
+                Stream Capable
+                <input type="checkbox" checked={streamCapable} onChange={(event) => setStreamCapable(event.target.checked)} />
+              </label>
+              <button type="submit">Add Provider</button>
+            </form>
+            <ul>
+              {providers.map((provider) => (
+                <li key={provider.id}>
+                  {provider.name} - {provider.exposed_model} - {provider.route_policy} - http:
+                  {String(provider.http_enabled)} - cli:{String(provider.cli_enabled)}
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      case "models":
+        return (
+          <section id="models">
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Status</span>
+                <h2>Provider Health</h2>
+              </div>
+            </div>
+            <ul>
+              {health.map((item) => (
+                <li key={item.name}>
+                  {item.name} - http:{String(item.capabilities.http)} - cli:{String(item.capabilities.cli)}
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      case "usage":
+        return (
+          <section id="usage">
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Activity</span>
+                <h2>Usage</h2>
+              </div>
+            </div>
+            {usageError ? <p role="alert">Usage unavailable: {usageError}</p> : null}
+            <div className="split">
+              <div className="panel">
+                <h3>Recent key activity</h3>
+                {recentKeyActivity.length === 0 ? (
+                  <p>No API keys yet.</p>
+                ) : (
+                  <ul>
+                    {recentKeyActivity.map((apiKey) => (
+                      <li key={apiKey.api_key_id}>
+                        <strong>{apiKey.name}</strong>
+                        <div className="usage-meta">{apiKey.key_prefix} · {apiKey.status}</div>
+                        <div className="usage-stats">
+                          {apiKey.total_requests} requests · {apiKey.limited_requests} limited
+                        </div>
+                        <div className="usage-meta">Last used {formatLastUsed(apiKey.last_used_at)}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="panel">
+                <h3>Top providers / models</h3>
+                <p>
+                  Providers:{" "}
+                  {providerActivity.length === 0
+                    ? "No attributed usage yet."
+                    : providerActivity.map(([name, count]) => `${name} (${count})`).join(", ")}
+                </p>
+                <p>
+                  Models:{" "}
+                  {modelActivity.length === 0
+                    ? "No model activity yet."
+                    : modelActivity.map(([name, count]) => `${name} (${count})`).join(", ")}
+                </p>
+              </div>
+            </div>
+          </section>
+        );
+      case "settings":
+        return (
+          <section id="settings">
+            <div className="section-header">
+              <div>
+                <span className="section-eyebrow">Configuration</span>
+                <h2>Platform Settings</h2>
+              </div>
+            </div>
+            <p>Settings navigation is reserved in the shell while the current admin forms continue to handle configuration.</p>
+          </section>
+        );
+      default:
+        return null;
+    }
+  }
 
   if (authState === "loading") {
     return (
@@ -322,13 +636,11 @@ export default function App() {
         </div>
         <div className="sidebar-section-label">Navigation</div>
         <nav>
-          <a href="#dashboard">Dashboard</a>
-          <a href="#providers">Providers</a>
-          <a href="#models">Models</a>
-          <a href="#accounts">Accounts</a>
-          <a href="#api-keys">API Keys</a>
-          <a href="#usage">Usage</a>
-          <a href="#settings">Settings</a>
+          {NAV_ITEMS.map((item) => (
+            <a key={item.id} href={`#${item.id}`} aria-current={currentRoute === item.id ? "page" : undefined}>
+              {item.label}
+            </a>
+          ))}
         </nav>
         <div className="sidebar-footer">
           <span className="sidebar-footer-label">Runtime</span>
@@ -348,297 +660,7 @@ export default function App() {
             </button>
           </div>
         </header>
-        <div className="page-body">
-          <section id="dashboard" className="dashboard">
-            <div className="section-header">
-              <div>
-                <span className="section-eyebrow">Overview</span>
-                <h2>Platform Overview</h2>
-              </div>
-              <div className="status-pill">24h default</div>
-            </div>
-            {dashboardError ? (
-              <p role="alert">Dashboard unavailable: {dashboardError}</p>
-            ) : null}
-            <div
-              className="kpi-grid"
-            >
-              <div className="kpi-card">
-                <strong>Requests</strong>
-                <span className="kpi-subtitle">Gateway traffic volume</span>
-                <div>{dashboardSummary?.total_requests ?? "—"}</div>
-              </div>
-              <div className="kpi-card">
-                <strong>Active Keys</strong>
-                <span className="kpi-subtitle">Live access credentials</span>
-                <div>{dashboardSummary?.active_api_keys ?? "—"}</div>
-              </div>
-              <div className="kpi-card">
-                <strong>Error Rate</strong>
-                <span className="kpi-subtitle">Failed request ratio</span>
-                <div>{dashboardSummary ? `${(dashboardSummary.error_rate * 100).toFixed(1)}%` : "—"}</div>
-              </div>
-              <div className="kpi-card">
-                <strong>Rate Limit Hits</strong>
-                <span className="kpi-subtitle">Quota pressure</span>
-                <div>{dashboardSummary?.rate_limit_hits ?? "—"}</div>
-              </div>
-            </div>
-            <div className="hero-chart">
-              <div className="chart-header">
-                <div>
-                  <strong>Traffic</strong>
-                  <p>24h / 7d runtime activity</p>
-                </div>
-                <div className="chart-toggle">
-                  <button type="button" className="chart-toggle-active">
-                    24h
-                  </button>
-                  <button type="button">7d</button>
-                </div>
-              </div>
-              <svg viewBox="0 0 600 180" className="chart-svg" aria-hidden="true">
-                <defs>
-                  <linearGradient id="traffic-fill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="rgba(102,210,255,0.35)" />
-                    <stop offset="100%" stopColor="rgba(102,210,255,0)" />
-                  </linearGradient>
-                </defs>
-                <path
-                  d="M0 160 C40 120, 70 126, 95 98 S160 55, 205 84 285 145, 320 108 375 42, 438 70 515 132, 600 48"
-                  fill="none"
-                  stroke="rgba(102,210,255,0.96)"
-                  strokeWidth="4"
-                  strokeLinecap="round"
-                />
-                <path
-                  d="M0 160 C40 120, 70 126, 95 98 S160 55, 205 84 285 145, 320 108 375 42, 438 70 515 132, 600 48 L600 180 L0 180 Z"
-                  fill="url(#traffic-fill)"
-                />
-              </svg>
-            </div>
-          </section>
-
-          <section id="accounts">
-            <div className="section-header">
-              <div>
-                <span className="section-eyebrow">Identity</span>
-                <h2>Account Management</h2>
-              </div>
-            </div>
-            <form onSubmit={handleAccountSubmit}>
-              <label>
-                Account Name
-                <input value={accountName} onChange={(event) => setAccountName(event.target.value)} />
-              </label>
-              <button type="submit">Add Account</button>
-            </form>
-
-            <ul>
-              {accounts.map((account) => (
-                <li key={account.id}>
-                  {account.name} - {account.status}
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section id="api-keys">
-            <div className="section-header">
-              <div>
-                <span className="section-eyebrow">Access</span>
-                <h2>Key Management</h2>
-              </div>
-            </div>
-            <form onSubmit={handleApiKeySubmit}>
-              <label>
-                Account
-                <select
-                  value={selectedAccountId}
-                  onChange={(event) => setSelectedAccountId(event.target.value)}
-                >
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                API Key Name
-                <input value={apiKeyName} onChange={(event) => setApiKeyName(event.target.value)} />
-              </label>
-              <button type="submit">Create API Key</button>
-            </form>
-
-            {createdApiKey ? <p>Last Created Key: {createdApiKey}</p> : null}
-
-            <ul>
-              {apiKeys.map((apiKey) => (
-                <li key={apiKey.id}>
-                  {apiKey.name} - {apiKey.key_prefix} - {apiKey.status}
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section id="providers">
-            <div className="section-header">
-              <div>
-                <span className="section-eyebrow">Runtime</span>
-                <h2>Provider Registry</h2>
-              </div>
-            </div>
-            <form onSubmit={handleSubmit}>
-              <label>
-                Provider Name
-                <input value={name} onChange={(event) => setName(event.target.value)} />
-              </label>
-              <label>
-                Exposed Model
-                <input value={exposedModel} onChange={(event) => setExposedModel(event.target.value)} />
-              </label>
-              <label>
-                Route Policy
-                <select value={routePolicy} onChange={(event) => setRoutePolicy(event.target.value)}>
-                  <option value="http-first">http-first</option>
-                  <option value="cli-first">cli-first</option>
-                  <option value="fixed-http">fixed-http</option>
-                  <option value="fixed-cli">fixed-cli</option>
-                </select>
-              </label>
-              <label>
-                HTTP Enabled
-                <input
-                  type="checkbox"
-                  checked={httpEnabled}
-                  onChange={(event) => setHttpEnabled(event.target.checked)}
-                />
-              </label>
-              <label>
-                CLI Enabled
-                <input
-                  type="checkbox"
-                  checked={cliEnabled}
-                  onChange={(event) => setCliEnabled(event.target.checked)}
-                />
-              </label>
-              <label>
-                HTTP Base URL
-                <input
-                  required={httpEnabled}
-                  value={httpBaseUrl}
-                  onChange={(event) => setHttpBaseUrl(event.target.value)}
-                />
-              </label>
-              <label>
-                CLI Command
-                <input
-                  required={cliEnabled}
-                  value={cliCommand}
-                  onChange={(event) => setCliCommand(event.target.value)}
-                />
-              </label>
-              <label>
-                Chat Capable
-                <input
-                  type="checkbox"
-                  checked={chatCapable}
-                  onChange={(event) => setChatCapable(event.target.checked)}
-                />
-              </label>
-              <label>
-                Stream Capable
-                <input
-                  type="checkbox"
-                  checked={streamCapable}
-                  onChange={(event) => setStreamCapable(event.target.checked)}
-                />
-              </label>
-              <button type="submit">Add Provider</button>
-            </form>
-
-            <ul>
-              {providers.map((provider) => (
-                <li key={provider.id}>
-                  {provider.name} - {provider.exposed_model} - {provider.route_policy} - http:
-                  {String(provider.http_enabled)} - cli:{String(provider.cli_enabled)}
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section id="models">
-            <div className="section-header">
-              <div>
-                <span className="section-eyebrow">Status</span>
-                <h2>Provider Health</h2>
-              </div>
-            </div>
-            <ul>
-              {health.map((item) => (
-                <li key={item.name}>
-                  {item.name} - http:{String(item.capabilities.http)} - cli:{String(item.capabilities.cli)}
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section id="usage">
-            <div className="section-header">
-              <div>
-                <span className="section-eyebrow">Activity</span>
-                <h2>Usage</h2>
-              </div>
-            </div>
-            {usageError ? <p role="alert">Usage unavailable: {usageError}</p> : null}
-            <div className="split">
-              <div className="panel">
-                <h3>Recent key activity</h3>
-                {recentKeyActivity.length === 0 ? (
-                  <p>No API keys yet.</p>
-                ) : (
-                  <ul>
-                    {recentKeyActivity.map((apiKey) => (
-                      <li key={apiKey.api_key_id}>
-                        <strong>{apiKey.name}</strong>
-                        <div className="usage-meta">{apiKey.key_prefix} · {apiKey.status}</div>
-                        <div className="usage-stats">
-                          {apiKey.total_requests} requests · {apiKey.limited_requests} limited
-                        </div>
-                        <div className="usage-meta">Last used {formatLastUsed(apiKey.last_used_at)}</div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div className="panel">
-                <h3>Top providers / models</h3>
-                <p>
-                  Providers:{" "}
-                  {providerActivity.length === 0
-                    ? "No attributed usage yet."
-                    : providerActivity.map(([name, count]) => `${name} (${count})`).join(", ")}
-                </p>
-                <p>
-                  Models:{" "}
-                  {modelActivity.length === 0
-                    ? "No model activity yet."
-                    : modelActivity.map(([name, count]) => `${name} (${count})`).join(", ")}
-                </p>
-              </div>
-            </div>
-          </section>
-          <section id="settings">
-            <div className="section-header">
-              <div>
-                <span className="section-eyebrow">Configuration</span>
-                <h2>Platform Settings</h2>
-              </div>
-            </div>
-            <p>Settings navigation is reserved in the shell while the current admin forms continue to handle configuration.</p>
-          </section>
-        </div>
+        <div className="page-body">{renderCurrentPage()}</div>
       </section>
     </main>
   );
