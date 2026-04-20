@@ -10,13 +10,6 @@ type DashboardSummary = {
   rate_limit_hits: number;
 };
 
-const EMPTY_DASHBOARD_SUMMARY: DashboardSummary = {
-  total_requests: 0,
-  active_api_keys: 0,
-  error_rate: 0,
-  rate_limit_hits: 0,
-};
-
 async function getDashboardSummary(): Promise<DashboardSummary> {
   const response = await fetch("/admin/dashboard/summary", {
     headers: {
@@ -26,7 +19,7 @@ async function getDashboardSummary(): Promise<DashboardSummary> {
   });
 
   if (!response.ok) {
-    return EMPTY_DASHBOARD_SUMMARY;
+    throw new Error(`dashboard summary failed: ${response.status}`);
   }
 
   const payload = (await response.json()) as Partial<DashboardSummary>;
@@ -43,7 +36,8 @@ export default function App() {
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [health, setHealth] = useState<ProviderHealth[]>([]);
-  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary>(EMPTY_DASHBOARD_SUMMARY);
+  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [accountName, setAccountName] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [apiKeyName, setApiKeyName] = useState("");
@@ -59,18 +53,22 @@ export default function App() {
   const [streamCapable, setStreamCapable] = useState(true);
 
   useEffect(() => {
-    void Promise.all([getAccounts(), getApiKeys(), getProviders(), getHealth(), getDashboardSummary()]).then(
-      ([accountRows, keyRows, providerRows, healthRows, dashboard]) => {
+    void Promise.all([getAccounts(), getApiKeys(), getProviders(), getHealth(), getDashboardSummary()])
+      .then(([accountRows, keyRows, providerRows, healthRows, dashboard]) => {
         setAccounts(accountRows);
         setApiKeys(keyRows);
         setProviders(providerRows);
         setHealth(healthRows);
         setDashboardSummary(dashboard);
+        setDashboardError(null);
         if (accountRows.length > 0) {
           setSelectedAccountId(String(accountRows[0].id));
         }
-      },
-    );
+      })
+      .catch((error: unknown) => {
+        setDashboardSummary(null);
+        setDashboardError(error instanceof Error ? error.message : "dashboard unavailable");
+      });
   }, []);
 
   async function handleAccountSubmit(event: FormEvent<HTMLFormElement>) {
@@ -142,25 +140,28 @@ export default function App() {
         <div className="page-body">
           <section id="dashboard" className="dashboard">
             <h2>Platform Overview</h2>
+            {dashboardError ? (
+              <p role="alert">Dashboard unavailable: {dashboardError}</p>
+            ) : null}
             <div
               className="kpi-grid"
               style={{ display: "grid", gap: "1rem", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
             >
               <div className="kpi-card" style={{ border: "1px solid #d1d5db", borderRadius: "12px", padding: "1rem" }}>
                 <strong>Requests</strong>
-                <div>{dashboardSummary.total_requests}</div>
+                <div>{dashboardSummary?.total_requests ?? "—"}</div>
               </div>
               <div className="kpi-card" style={{ border: "1px solid #d1d5db", borderRadius: "12px", padding: "1rem" }}>
                 <strong>Active Keys</strong>
-                <div>{dashboardSummary.active_api_keys}</div>
+                <div>{dashboardSummary?.active_api_keys ?? "—"}</div>
               </div>
               <div className="kpi-card" style={{ border: "1px solid #d1d5db", borderRadius: "12px", padding: "1rem" }}>
                 <strong>Error Rate</strong>
-                <div>{(dashboardSummary.error_rate * 100).toFixed(1)}%</div>
+                <div>{dashboardSummary ? `${(dashboardSummary.error_rate * 100).toFixed(1)}%` : "—"}</div>
               </div>
               <div className="kpi-card" style={{ border: "1px solid #d1d5db", borderRadius: "12px", padding: "1rem" }}>
                 <strong>Rate Limit Hits</strong>
-                <div>{dashboardSummary.rate_limit_hits}</div>
+                <div>{dashboardSummary?.rate_limit_hits ?? "—"}</div>
               </div>
             </div>
             <div

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, model_validator, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -333,14 +333,27 @@ async def dashboard_summary(
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> DashboardSummary:
-    usage_rows = list(await session.scalars(select(UsageRecord)))
-    key_rows = list(await session.scalars(select(ApiKeyRecord).where(ApiKeyRecord.status == "active")))
-    error_count = sum(1 for row in usage_rows if row.outcome == "error")
-    limited_count = sum(1 for row in usage_rows if row.outcome == "limited")
-    total = len(usage_rows)
+    total = (
+        await session.scalar(select(func.count(UsageRecord.id)))
+    ) or 0
+    error_count = (
+        await session.scalar(
+            select(func.count(UsageRecord.id)).where(UsageRecord.outcome == "error")
+        )
+    ) or 0
+    limited_count = (
+        await session.scalar(
+            select(func.count(UsageRecord.id)).where(UsageRecord.outcome == "limited")
+        )
+    ) or 0
+    active_key_count = (
+        await session.scalar(
+            select(func.count(ApiKeyRecord.id)).where(ApiKeyRecord.status == "active")
+        )
+    ) or 0
     return DashboardSummary(
         total_requests=total,
-        active_api_keys=len(key_rows),
+        active_api_keys=active_key_count,
         error_rate=(error_count / total) if total else 0.0,
         rate_limit_hits=limited_count,
     )
