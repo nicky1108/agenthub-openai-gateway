@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 
 import App from "./App";
 
@@ -79,22 +79,16 @@ describe("App", () => {
     );
   });
 
-  it("renders provider data, health data, and the add form", async () => {
+  it("renders the signed-in product shell navigation", async () => {
     render(<App />);
+    const navigation = screen.getByRole("navigation");
 
-    const providerRows = await screen.findAllByText(
-      (_, element) =>
-        element?.textContent ===
-        "codex - gpt-5.4 - http-first - http:true - cli:false",
-    );
-    expect(providerRows.some((element) => element.tagName === "LI")).toBe(true);
-    expect(screen.getByText("Accounts")).toBeTruthy();
-    expect(screen.getByText("API Keys")).toBeTruthy();
-    expect(screen.getByText("Providers")).toBeTruthy();
-    expect(screen.getByText("Health")).toBeTruthy();
-    expect(screen.getByLabelText("Provider Name")).toBeTruthy();
-    expect(screen.getByLabelText("CLI Command")).toBeTruthy();
-    expect(screen.getByLabelText("Account Name")).toBeTruthy();
-    expect(screen.getByLabelText("API Key Name")).toBeTruthy();
+    expect(within(navigation).getByText("Dashboard")).toBeTruthy();
+    expect(within(navigation).getByText("Providers")).toBeTruthy();
+    expect(within(navigation).getByText("Models")).toBeTruthy();
+    expect(within(navigation).getByText("Accounts")).toBeTruthy();
+    expect(within(navigation).getByText("API Keys")).toBeTruthy();
+    expect(within(navigation).getByText("Usage")).toBeTruthy();
+    expect(within(navigation).getByText("Settings")).toBeTruthy();
   });
 });

@@ -84,157 +84,178 @@ export default function App() {
   }
 
   return (
-    <main style={{ fontFamily: "sans-serif", padding: 24 }}>
-      <h1>AgentHub Admin</h1>
+    <main className="app-shell">
+      <aside className="sidebar">
+        <h1>AgentHub</h1>
+        <nav>
+          <a>Dashboard</a>
+          <a>Providers</a>
+          <a>Models</a>
+          <a>Accounts</a>
+          <a>API Keys</a>
+          <a>Usage</a>
+          <a>Settings</a>
+        </nav>
+      </aside>
+      <section className="content">
+        <header className="topbar">
+          <div>Developer Platform</div>
+          <div>Signed in</div>
+        </header>
+        <div className="page-body">
+          <section>
+            <h2>Accounts</h2>
+            <form onSubmit={handleAccountSubmit}>
+              <label>
+                Account Name
+                <input value={accountName} onChange={(event) => setAccountName(event.target.value)} />
+              </label>
+              <button type="submit">Add Account</button>
+            </form>
 
-      <section>
-        <h2>Accounts</h2>
-        <form onSubmit={handleAccountSubmit}>
-          <label>
-            Account Name
-            <input value={accountName} onChange={(event) => setAccountName(event.target.value)} />
-          </label>
-          <button type="submit">Add Account</button>
-        </form>
-
-        <ul>
-          {accounts.map((account) => (
-            <li key={account.id}>
-              {account.name} - {account.status}
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section>
-        <h2>API Keys</h2>
-        <form onSubmit={handleApiKeySubmit}>
-          <label>
-            Account
-            <select
-              value={selectedAccountId}
-              onChange={(event) => setSelectedAccountId(event.target.value)}
-            >
+            <ul>
               {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
+                <li key={account.id}>
+                  {account.name} - {account.status}
+                </li>
               ))}
-            </select>
-          </label>
-          <label>
-            API Key Name
-            <input value={apiKeyName} onChange={(event) => setApiKeyName(event.target.value)} />
-          </label>
-          <button type="submit">Create API Key</button>
-        </form>
+            </ul>
+          </section>
 
-        {createdApiKey ? <p>Last Created Key: {createdApiKey}</p> : null}
+          <section>
+            <h2>API Keys</h2>
+            <form onSubmit={handleApiKeySubmit}>
+              <label>
+                Account
+                <select
+                  value={selectedAccountId}
+                  onChange={(event) => setSelectedAccountId(event.target.value)}
+                >
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                API Key Name
+                <input value={apiKeyName} onChange={(event) => setApiKeyName(event.target.value)} />
+              </label>
+              <button type="submit">Create API Key</button>
+            </form>
 
-        <ul>
-          {apiKeys.map((apiKey) => (
-            <li key={apiKey.id}>
-              {apiKey.name} - {apiKey.key_prefix} - {apiKey.status}
-            </li>
-          ))}
-        </ul>
-      </section>
+            {createdApiKey ? <p>Last Created Key: {createdApiKey}</p> : null}
 
-      <section>
-        <h2>Providers</h2>
-        <form onSubmit={handleSubmit}>
-          <label>
-            Provider Name
-            <input value={name} onChange={(event) => setName(event.target.value)} />
-          </label>
-          <label>
-            Exposed Model
-            <input value={exposedModel} onChange={(event) => setExposedModel(event.target.value)} />
-          </label>
-          <label>
-            Route Policy
-            <select value={routePolicy} onChange={(event) => setRoutePolicy(event.target.value)}>
-              <option value="http-first">http-first</option>
-              <option value="cli-first">cli-first</option>
-              <option value="fixed-http">fixed-http</option>
-              <option value="fixed-cli">fixed-cli</option>
-            </select>
-          </label>
-          <label>
-            HTTP Enabled
-            <input
-              type="checkbox"
-              checked={httpEnabled}
-              onChange={(event) => setHttpEnabled(event.target.checked)}
-            />
-          </label>
-          <label>
-            CLI Enabled
-            <input
-              type="checkbox"
-              checked={cliEnabled}
-              onChange={(event) => setCliEnabled(event.target.checked)}
-            />
-          </label>
-          <label>
-            HTTP Base URL
-            <input
-              required={httpEnabled}
-              value={httpBaseUrl}
-              onChange={(event) => setHttpBaseUrl(event.target.value)}
-            />
-          </label>
-          <label>
-            CLI Command
-            <input
-              required={cliEnabled}
-              value={cliCommand}
-              onChange={(event) => setCliCommand(event.target.value)}
-            />
-          </label>
-          <label>
-            Chat Capable
-            <input
-              type="checkbox"
-              checked={chatCapable}
-              onChange={(event) => setChatCapable(event.target.checked)}
-            />
-          </label>
-          <label>
-            Stream Capable
-            <input
-              type="checkbox"
-              checked={streamCapable}
-              onChange={(event) => setStreamCapable(event.target.checked)}
-            />
-          </label>
-          <button type="submit">Add Provider</button>
-        </form>
+            <ul>
+              {apiKeys.map((apiKey) => (
+                <li key={apiKey.id}>
+                  {apiKey.name} - {apiKey.key_prefix} - {apiKey.status}
+                </li>
+              ))}
+            </ul>
+          </section>
 
-        <ul>
-          {providers.map((provider) => (
-            <li key={provider.id}>
-              {provider.name} - {provider.exposed_model} - {provider.route_policy} - http:
-              {String(provider.http_enabled)} - cli:{String(provider.cli_enabled)}
-            </li>
-          ))}
-        </ul>
-      </section>
+          <section>
+            <h2>Providers</h2>
+            <form onSubmit={handleSubmit}>
+              <label>
+                Provider Name
+                <input value={name} onChange={(event) => setName(event.target.value)} />
+              </label>
+              <label>
+                Exposed Model
+                <input value={exposedModel} onChange={(event) => setExposedModel(event.target.value)} />
+              </label>
+              <label>
+                Route Policy
+                <select value={routePolicy} onChange={(event) => setRoutePolicy(event.target.value)}>
+                  <option value="http-first">http-first</option>
+                  <option value="cli-first">cli-first</option>
+                  <option value="fixed-http">fixed-http</option>
+                  <option value="fixed-cli">fixed-cli</option>
+                </select>
+              </label>
+              <label>
+                HTTP Enabled
+                <input
+                  type="checkbox"
+                  checked={httpEnabled}
+                  onChange={(event) => setHttpEnabled(event.target.checked)}
+                />
+              </label>
+              <label>
+                CLI Enabled
+                <input
+                  type="checkbox"
+                  checked={cliEnabled}
+                  onChange={(event) => setCliEnabled(event.target.checked)}
+                />
+              </label>
+              <label>
+                HTTP Base URL
+                <input
+                  required={httpEnabled}
+                  value={httpBaseUrl}
+                  onChange={(event) => setHttpBaseUrl(event.target.value)}
+                />
+              </label>
+              <label>
+                CLI Command
+                <input
+                  required={cliEnabled}
+                  value={cliCommand}
+                  onChange={(event) => setCliCommand(event.target.value)}
+                />
+              </label>
+              <label>
+                Chat Capable
+                <input
+                  type="checkbox"
+                  checked={chatCapable}
+                  onChange={(event) => setChatCapable(event.target.checked)}
+                />
+              </label>
+              <label>
+                Stream Capable
+                <input
+                  type="checkbox"
+                  checked={streamCapable}
+                  onChange={(event) => setStreamCapable(event.target.checked)}
+                />
+              </label>
+              <button type="submit">Add Provider</button>
+            </form>
 
-      <section>
-        <h2>Health</h2>
-        <ul>
-          {health.map((item) => (
-            <li key={item.name}>
-              {item.name} - http:{String(item.capabilities.http)} - cli:{String(item.capabilities.cli)}
-            </li>
-          ))}
-        </ul>
-      </section>
+            <ul>
+              {providers.map((provider) => (
+                <li key={provider.id}>
+                  {provider.name} - {provider.exposed_model} - {provider.route_policy} - http:
+                  {String(provider.http_enabled)} - cli:{String(provider.cli_enabled)}
+                </li>
+              ))}
+            </ul>
+          </section>
 
-      <section>
-        <h2>Logs</h2>
-        <p>Request logs land in the backend first. Keep the frontend read-only here until log pagination exists.</p>
+          <section>
+            <h2>Health</h2>
+            <ul>
+              {health.map((item) => (
+                <li key={item.name}>
+                  {item.name} - http:{String(item.capabilities.http)} - cli:{String(item.capabilities.cli)}
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section>
+            <h2>Logs</h2>
+            <p>
+              Request logs land in the backend first. Keep the frontend read-only here until log
+              pagination exists.
+            </p>
+          </section>
+        </div>
       </section>
     </main>
   );
