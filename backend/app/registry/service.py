@@ -4,6 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.models import ProviderRecord
 
 
+class ProviderNotFoundError(LookupError):
+    def __init__(self, provider_name: str) -> None:
+        super().__init__(provider_name)
+        self.provider_name = provider_name
+
+
 class ProviderRegistry:
     async def list_public_models(self, session: AsyncSession) -> list[dict[str, object]]:
         rows = await session.scalars(
@@ -28,5 +34,5 @@ class ProviderRegistry:
             select(ProviderRecord).where(ProviderRecord.name == provider_name)
         )
         if row is None:
-            raise LookupError(provider_name)
+            raise ProviderNotFoundError(provider_name)
         return row

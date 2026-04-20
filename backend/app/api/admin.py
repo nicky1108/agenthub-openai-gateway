@@ -17,6 +17,8 @@ class ProviderCreate(BaseModel):
     http_enabled: bool
     cli_enabled: bool
     route_policy: str
+    chat_capable: bool = True
+    stream_capable: bool = True
 
     @field_validator("name")
     @classmethod

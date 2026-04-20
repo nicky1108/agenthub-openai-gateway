@@ -37,6 +37,25 @@ def test_streaming_chat_returns_sse_chunks(tmp_path, monkeypatch) -> None:
     assert "[DONE]" in body
 
 
+def test_streaming_chat_returns_404_for_unknown_provider(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        with client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json={
+                "model": "missing:default",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": True,
+            },
+        ) as response:
+            body = b"".join(response.iter_bytes()).decode()
+
+    assert response.status_code == 404
+    assert body == '{"detail":"provider \'missing\' not found"}'
+
+
 @pytest.mark.parametrize(
     ("provider_name", "provider_payload"),
     [

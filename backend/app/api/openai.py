@@ -1,13 +1,13 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.orchestration.chat import ChatOrchestrator
-from app.registry.service import ProviderRegistry
+from app.registry.service import ProviderNotFoundError, ProviderRegistry
 
 router = APIRouter(prefix="/v1", tags=["openai"])
 registry = ProviderRegistry()
@@ -43,9 +43,16 @@ async def create_chat_completion(
     session: AsyncSession = Depends(get_session),
 ):
     request_payload = payload.model_dump()
-    if request_payload["stream"]:
-        return StreamingResponse(
-            orchestrator.stream(request_payload, session),
-            media_type="text/event-stream",
-        )
-    return await orchestrator.run(request_payload, session)
+    try:
+        if request_payload["stream"]:
+            request, provider = await orchestrator.prepare(request_payload, session)
+            return StreamingResponse(
+                orchestrator.stream_prepared(request, provider),
+                media_type="text/event-stream",
+            )
+        return await orchestrator.run(request_payload, session)
+    except ProviderNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"provider '{exc.provider_name}' not found",
+        ) from exc

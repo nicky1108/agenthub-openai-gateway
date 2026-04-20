@@ -34,6 +34,23 @@ def test_chat_completions_returns_openai_shaped_response(tmp_path, monkeypatch) 
     assert payload["choices"][0]["message"]["content"] == "mocked-http-response"
 
 
+def test_chat_completions_returns_404_for_unknown_provider(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "missing:default",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": False,
+            },
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "provider 'missing' not found"}
+
+
 @pytest.mark.parametrize(
     ("payload", "missing_field"),
     [

@@ -14,6 +14,8 @@ def test_admin_can_create_and_list_provider(tmp_path, monkeypatch) -> None:
                 "http_enabled": True,
                 "cli_enabled": True,
                 "route_policy": "http-first",
+                "chat_capable": False,
+                "stream_capable": True,
             },
             headers={"x-admin-secret": "change-me"},
         )
@@ -24,9 +26,33 @@ def test_admin_can_create_and_list_provider(tmp_path, monkeypatch) -> None:
 
     assert create_response.status_code == 201
     assert list_response.status_code == 200
+    assert create_response.json()["chat_capable"] is False
+    assert create_response.json()["stream_capable"] is True
     payload = list_response.json()
     assert payload[0]["name"] == "codex"
     assert payload[0]["route_policy"] == "http-first"
+    assert payload[0]["chat_capable"] is False
+    assert payload[0]["stream_capable"] is True
+
+
+def test_admin_provider_defaults_preserve_capability_flags(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/admin/providers",
+            json={
+                "name": "openai",
+                "http_enabled": True,
+                "cli_enabled": False,
+                "route_policy": "fixed-http",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert response.status_code == 201
+    assert response.json()["chat_capable"] is True
+    assert response.json()["stream_capable"] is True
 
 
 def test_admin_rejects_duplicate_provider_names(tmp_path, monkeypatch) -> None:
