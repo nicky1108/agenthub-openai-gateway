@@ -90,5 +90,6 @@ describe("App", () => {
     expect(screen.getByText("Usage")).toBeTruthy();
     expect(screen.getByText("Settings")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add Account" })).toBeTruthy();
+    expect(screen.getByText("Provider Registry")).toBeTruthy();
   });
 });
