@@ -5,13 +5,16 @@ import {
   createApiKey,
   createProviderModel,
   createProvider,
+  getAuthProviders,
   getDashboardSummary,
+  getDashboardTimeseries,
   getCurrentAccount,
   getAccounts,
   getApiKeys,
   getHealth,
   getProviderModels,
   getProviders,
+  getSettingsOverview,
   getUsageOverview,
   loginWithPassword,
   patchProviderModel,
@@ -21,9 +24,15 @@ import {
   registerWithPassword,
 } from "./api";
 import type { Account, ApiKey, AuthAccount, Provider, ProviderHealth, ProviderModel, UsageOverview } from "./api";
+import type {
+  AuthProviderStatus,
+  DashboardTimeseries,
+  SettingsOverview,
+} from "./api";
 
 type DashboardSummary = Awaited<ReturnType<typeof getDashboardSummary>>;
 type RouteId = "dashboard" | "providers" | "models" | "accounts" | "api-keys" | "usage" | "settings";
+type DashboardWindow = "24h" | "7d";
 
 const NAV_ITEMS: Array<{ id: RouteId; label: string }> = [
   { id: "dashboard", label: "Dashboard" },
@@ -71,6 +80,34 @@ function formatProviderState(health: ProviderHealth | undefined): string {
   return "Offline";
 }
 
+function buildTrafficPath(series: DashboardTimeseries | null): { stroke: string; fill: string; maxValue: number } {
+  const buckets = series?.buckets ?? [];
+  if (buckets.length === 0) {
+    return { stroke: "M0 160 L600 160", fill: "M0 160 L600 160 L600 180 L0 180 Z", maxValue: 0 };
+  }
+
+  const maxValue = Math.max(...buckets.map((bucket) => bucket.total_requests), 1);
+  const points = buckets.map((bucket, index) => {
+    const x = buckets.length === 1 ? 0 : (index / (buckets.length - 1)) * 600;
+    const y = 160 - (bucket.total_requests / maxValue) * 120;
+    return `${x.toFixed(1)} ${y.toFixed(1)}`;
+  });
+  const stroke = `M${points[0]} ${points.slice(1).map((point) => `L${point}`).join(" ")}`;
+  const fill = `${stroke} L600 180 L0 180 Z`;
+  return { stroke, fill, maxValue };
+}
+
+function describeSeries(series: DashboardTimeseries | null): string {
+  if (!series || series.buckets.length === 0) {
+    return "No runtime activity recorded yet.";
+  }
+  const busiest = [...series.buckets].sort((left, right) => right.total_requests - left.total_requests)[0];
+  if (!busiest || busiest.total_requests === 0) {
+    return "No runtime activity recorded yet.";
+  }
+  return `Peak traffic hit ${busiest.total_requests} requests during ${busiest.label}.`;
+}
+
 export default function App() {
   const [authUser, setAuthUser] = useState<AuthAccount | null>(null);
   const [authState, setAuthState] = useState<"loading" | "authenticated" | "unauthenticated">("loading");
@@ -88,8 +125,17 @@ export default function App() {
   const [providerModels, setProviderModels] = useState<Record<string, ProviderModel[]>>({});
   const [health, setHealth] = useState<ProviderHealth[]>([]);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
+  const [dashboardWindow, setDashboardWindow] = useState<DashboardWindow>("24h");
+  const [dashboardSeries, setDashboardSeries] = useState<DashboardTimeseries | null>(null);
+  const [settingsOverview, setSettingsOverview] = useState<SettingsOverview | null>(null);
+  const [authProviders, setAuthProviders] = useState<AuthProviderStatus>({
+    email_password_enabled: true,
+    github_enabled: false,
+    google_enabled: false,
+  });
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [usageError, setUsageError] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   const [accountName, setAccountName] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState("");
@@ -112,13 +158,15 @@ export default function App() {
   const [manualExposedModelId, setManualExposedModelId] = useState("");
 
   async function loadAuthenticatedData() {
-    const [accountRows, keyRows, providerRows, healthRows, dashboard, usage] = await Promise.all([
+    const [accountRows, keyRows, providerRows, healthRows, dashboard, usage, series, settingsData] = await Promise.all([
       getAccounts(),
       getApiKeys(),
       getProviders(),
       getHealth(),
       getDashboardSummary(),
       getUsageOverview(),
+      getDashboardTimeseries(dashboardWindow),
+      getSettingsOverview(),
     ]);
 
     setAccounts(accountRows);
@@ -127,8 +175,11 @@ export default function App() {
     setProviders(providerRows);
     setHealth(healthRows);
     setDashboardSummary(dashboard);
+    setDashboardSeries(series);
     setDashboardError(null);
     setUsageError(null);
+    setSettingsOverview(settingsData);
+    setSettingsError(null);
     if (accountRows.length > 0) {
       setSelectedAccountId(String(accountRows[0].id));
     }
@@ -155,6 +206,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    void getAuthProviders()
+      .then((providers) => setAuthProviders(providers))
+      .catch(() =>
+        setAuthProviders({
+          email_password_enabled: true,
+          github_enabled: false,
+          google_enabled: false,
+        }),
+      );
+  }, []);
+
+  useEffect(() => {
     void getCurrentAccount()
       .then(async (account) => {
         setAuthUser(account);
@@ -167,6 +230,20 @@ export default function App() {
         setAuthState("unauthenticated");
       });
   }, []);
+
+  useEffect(() => {
+    if (authState !== "authenticated") {
+      return;
+    }
+    void getDashboardTimeseries(dashboardWindow)
+      .then((series) => {
+        setDashboardSeries(series);
+        setDashboardError(null);
+      })
+      .catch((error: unknown) => {
+        setDashboardError(error instanceof Error ? error.message : "dashboard unavailable");
+      });
+  }, [authState, dashboardWindow]);
 
   async function handleAccountSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -337,6 +414,8 @@ export default function App() {
     setProviders([]);
     setHealth([]);
     setDashboardSummary(null);
+    setDashboardSeries(null);
+    setSettingsOverview(null);
   }
 
   const recentKeyActivity = [...(usageOverview?.key_activity ?? [])].sort((left, right) => {
@@ -352,6 +431,10 @@ export default function App() {
   const httpProviders = providers.filter((provider) => provider.http_enabled).length;
   const cliProviders = providers.filter((provider) => provider.cli_enabled).length;
   const streamingProviders = providers.filter((provider) => provider.stream_capable).length;
+  const chart = buildTrafficPath(dashboardSeries);
+  const totalSeriesRequests = (dashboardSeries?.buckets ?? []).reduce((sum, bucket) => sum + bucket.total_requests, 0);
+  const totalSeriesErrors = (dashboardSeries?.buckets ?? []).reduce((sum, bucket) => sum + bucket.error_requests, 0);
+  const totalSeriesLimited = (dashboardSeries?.buckets ?? []).reduce((sum, bucket) => sum + bucket.limited_requests, 0);
 
   function renderCurrentPage() {
     switch (currentRoute) {
@@ -363,7 +446,7 @@ export default function App() {
                 <span className="section-eyebrow">Overview</span>
                 <h2>Platform Overview</h2>
               </div>
-              <div className="status-pill">24h default</div>
+              <div className="status-pill">{dashboardWindow} default</div>
             </div>
             {dashboardError ? <p role="alert">Dashboard unavailable: {dashboardError}</p> : null}
             <div className="kpi-grid">
@@ -392,13 +475,23 @@ export default function App() {
               <div className="chart-header">
                 <div>
                   <strong>Traffic</strong>
-                  <p>24h / 7d runtime activity</p>
+                  <p>{describeSeries(dashboardSeries)}</p>
                 </div>
                 <div className="chart-toggle">
-                  <button type="button" className="chart-toggle-active">
+                  <button
+                    type="button"
+                    className={dashboardWindow === "24h" ? "chart-toggle-active" : undefined}
+                    onClick={() => setDashboardWindow("24h")}
+                  >
                     24h
                   </button>
-                  <button type="button">7d</button>
+                  <button
+                    type="button"
+                    className={dashboardWindow === "7d" ? "chart-toggle-active" : undefined}
+                    onClick={() => setDashboardWindow("7d")}
+                  >
+                    7d
+                  </button>
                 </div>
               </div>
               <svg viewBox="0 0 600 180" className="chart-svg" aria-hidden="true">
@@ -409,17 +502,22 @@ export default function App() {
                   </linearGradient>
                 </defs>
                 <path
-                  d="M0 160 C40 120, 70 126, 95 98 S160 55, 205 84 285 145, 320 108 375 42, 438 70 515 132, 600 48"
+                  d={chart.stroke}
                   fill="none"
                   stroke="rgba(102,210,255,0.96)"
                   strokeWidth="4"
                   strokeLinecap="round"
                 />
                 <path
-                  d="M0 160 C40 120, 70 126, 95 98 S160 55, 205 84 285 145, 320 108 375 42, 438 70 515 132, 600 48 L600 180 L0 180 Z"
+                  d={chart.fill}
                   fill="url(#traffic-fill)"
                 />
               </svg>
+              <div className="chart-footer">
+                <span>{totalSeriesRequests} requests in window</span>
+                <span>{totalSeriesErrors} errors</span>
+                <span>{totalSeriesLimited} limited</span>
+              </div>
             </div>
           </section>
         );
@@ -797,7 +895,29 @@ export default function App() {
                 <h2>Platform Settings</h2>
               </div>
             </div>
-            <p>Settings navigation is reserved in the shell while the current admin forms continue to handle configuration.</p>
+            {settingsError ? <p role="alert">Settings unavailable: {settingsError}</p> : null}
+            <div className="settings-grid">
+              <article className="settings-card">
+                <span className="provider-summary-label">Gateway endpoint</span>
+                <strong>
+                  {settingsOverview?.gateway_host ?? "—"}:{settingsOverview?.gateway_port ?? "—"}
+                </strong>
+                <p>Frontend base URL: {settingsOverview?.frontend_base_url ?? "—"}</p>
+                <p>Database: {settingsOverview?.database_scheme ?? "—"}</p>
+              </article>
+              <article className="settings-card">
+                <span className="provider-summary-label">Authentication</span>
+                <strong>Primary sign-in: Email + password</strong>
+                <p>GitHub OAuth: {settingsOverview?.github_oauth_enabled ? "Enabled" : "Disabled"}</p>
+                <p>Google OAuth: {settingsOverview?.google_oauth_enabled ? "Enabled" : "Disabled"}</p>
+              </article>
+              <article className="settings-card">
+                <span className="provider-summary-label">Control plane</span>
+                <strong>Admin boundary</strong>
+                <p>Admin secret configured: {settingsOverview?.admin_secret_configured ? "Yes" : "No"}</p>
+                <p>Session auth and gateway API keys remain separated by design.</p>
+              </article>
+            </div>
           </section>
         );
       default:
@@ -892,13 +1012,31 @@ export default function App() {
                 </button>
               </div>
               <div className="auth-social-group">
-                <button className="auth-social-button" type="button">
+                <button
+                  className="auth-social-button"
+                  type="button"
+                  disabled={!authProviders.github_enabled}
+                  onClick={() => {
+                    window.location.href = "/auth/oauth/github";
+                  }}
+                >
                   Continue with GitHub
                 </button>
-                <button className="auth-social-button" type="button">
+                <button
+                  className="auth-social-button"
+                  type="button"
+                  disabled={!authProviders.google_enabled}
+                  onClick={() => {
+                    window.location.href = "/auth/oauth/google";
+                  }}
+                >
                   Continue with Google
                 </button>
               </div>
+              <p className="auth-provider-note">
+                GitHub {authProviders.github_enabled ? "is ready" : "needs configuration"} · Google{" "}
+                {authProviders.google_enabled ? "is ready" : "needs configuration"}
+              </p>
             </div>
           </div>
         </section>

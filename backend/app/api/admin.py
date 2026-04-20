@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from datetime import datetime, timedelta, timezone
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, model_validator, field_validator
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
@@ -11,7 +14,6 @@ from app.core.models import AccountRecord, ApiKeyRecord, ProviderModelRecord, Pr
 from app.core.settings import Settings
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-settings = Settings()
 discovery = ProviderDiscoveryService()
 
 
@@ -160,12 +162,63 @@ class DashboardSummary(BaseModel):
     rate_limit_hits: int
 
 
-def require_admin(x_admin_secret: str = Header(...)) -> None:
+class DashboardTimeseriesBucket(BaseModel):
+    label: str
+    start_at: str
+    total_requests: int
+    error_requests: int
+    limited_requests: int
+
+
+class DashboardTimeseries(BaseModel):
+    window: Literal["24h", "7d"]
+    buckets: list[DashboardTimeseriesBucket]
+
+
+class SettingsOverview(BaseModel):
+    gateway_host: str
+    gateway_port: int
+    frontend_base_url: str
+    database_scheme: str
+    email_password_enabled: bool
+    github_oauth_enabled: bool
+    google_oauth_enabled: bool
+    admin_secret_configured: bool
+
+
+def get_settings() -> Settings:
+    return Settings()
+
+
+def require_admin(
+    x_admin_secret: str = Header(...),
+    settings: Settings = Depends(get_settings),
+) -> None:
     if x_admin_secret != settings.admin_secret:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid admin secret",
         )
+
+
+def normalize_timestamp(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def build_timeseries_window(window: Literal["24h", "7d"]) -> tuple[list[datetime], list[str], timedelta]:
+    now = datetime.now(timezone.utc)
+    if window == "24h":
+        anchor = now.replace(minute=0, second=0, microsecond=0)
+        starts = [anchor - timedelta(hours=index) for index in range(23, -1, -1)]
+        labels = [start.strftime("%H:00") for start in starts]
+        return starts, labels, timedelta(hours=1)
+
+    anchor = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    starts = [anchor - timedelta(days=index) for index in range(6, -1, -1)]
+    labels = [start.strftime("%b %d") for start in starts]
+    return starts, labels, timedelta(days=1)
 
 
 @router.post("/providers", response_model=ProviderRead, status_code=status.HTTP_201_CREATED)
@@ -438,6 +491,70 @@ async def dashboard_summary(
         active_api_keys=active_key_count,
         error_rate=(error_count / total) if total else 0.0,
         rate_limit_hits=limited_count,
+    )
+
+
+@router.get("/dashboard/timeseries", response_model=DashboardTimeseries)
+async def dashboard_timeseries(
+    window: Literal["24h", "7d"] = Query(default="24h"),
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> DashboardTimeseries:
+    bucket_starts, labels, bucket_size = build_timeseries_window(window)
+    earliest = bucket_starts[0]
+    rows = list(
+        await session.scalars(
+            select(UsageRecord)
+            .where(UsageRecord.created_at >= earliest)
+            .order_by(UsageRecord.created_at.asc())
+        )
+    )
+    counters = [
+        {"total_requests": 0, "error_requests": 0, "limited_requests": 0}
+        for _ in bucket_starts
+    ]
+
+    for row in rows:
+        created_at = normalize_timestamp(row.created_at)
+        delta = created_at - earliest
+        bucket_index = int(delta.total_seconds() // bucket_size.total_seconds())
+        if bucket_index < 0 or bucket_index >= len(counters):
+            continue
+        counters[bucket_index]["total_requests"] += 1
+        if row.outcome == "error":
+            counters[bucket_index]["error_requests"] += 1
+        if row.outcome == "limited":
+            counters[bucket_index]["limited_requests"] += 1
+
+    return DashboardTimeseries(
+        window=window,
+        buckets=[
+            DashboardTimeseriesBucket(
+                label=label,
+                start_at=start.isoformat(),
+                total_requests=counter["total_requests"],
+                error_requests=counter["error_requests"],
+                limited_requests=counter["limited_requests"],
+            )
+            for start, label, counter in zip(bucket_starts, labels, counters, strict=True)
+        ],
+    )
+
+
+@router.get("/settings/overview", response_model=SettingsOverview)
+async def settings_overview(
+    _: None = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+) -> SettingsOverview:
+    return SettingsOverview(
+        gateway_host=settings.openai_gateway_host,
+        gateway_port=settings.openai_gateway_port,
+        frontend_base_url=settings.frontend_base_url,
+        database_scheme=settings.database_scheme,
+        email_password_enabled=True,
+        github_oauth_enabled=settings.github_oauth_enabled,
+        google_oauth_enabled=settings.google_oauth_enabled,
+        admin_secret_configured=bool(settings.admin_secret),
     )
 
 

@@ -37,6 +37,12 @@ export type AuthAccount = {
   email: string | null;
 };
 
+export type AuthProviderStatus = {
+  email_password_enabled: boolean;
+  github_enabled: boolean;
+  google_enabled: boolean;
+};
+
 export type ApiKey = {
   id: number;
   account_id: number;
@@ -86,6 +92,30 @@ export type ProviderModel = {
   source: string;
   enabled: boolean;
   manually_overridden: boolean;
+};
+
+export type DashboardTimeseriesBucket = {
+  label: string;
+  start_at: string;
+  total_requests: number;
+  error_requests: number;
+  limited_requests: number;
+};
+
+export type DashboardTimeseries = {
+  window: "24h" | "7d";
+  buckets: DashboardTimeseriesBucket[];
+};
+
+export type SettingsOverview = {
+  gateway_host: string;
+  gateway_port: number;
+  frontend_base_url: string;
+  database_scheme: string;
+  email_password_enabled: boolean;
+  github_oauth_enabled: boolean;
+  google_oauth_enabled: boolean;
+  admin_secret_configured: boolean;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -255,4 +285,20 @@ export async function getDashboardSummary(): Promise<{
   rate_limit_hits: number;
 }> {
   return request("/admin/dashboard/summary");
+}
+
+export async function getDashboardTimeseries(window: "24h" | "7d"): Promise<DashboardTimeseries> {
+  return request<DashboardTimeseries>(`/admin/dashboard/timeseries?window=${window}`);
+}
+
+export async function getSettingsOverview(): Promise<SettingsOverview> {
+  return request<SettingsOverview>("/admin/settings/overview");
+}
+
+export async function getAuthProviders(): Promise<AuthProviderStatus> {
+  const response = await fetch("/auth/providers");
+  if (!response.ok) {
+    throw new Error(`auth request failed: ${response.status}`);
+  }
+  return response.json() as Promise<AuthProviderStatus>;
 }

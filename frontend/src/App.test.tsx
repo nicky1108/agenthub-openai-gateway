@@ -5,6 +5,7 @@ import App from "./App";
 
 describe("App", () => {
   beforeEach(() => {
+    window.location.hash = "";
     const getPath = (input: RequestInfo | URL): string => {
       if (typeof input === "string") {
         return input;
@@ -28,6 +29,15 @@ describe("App", () => {
               id: 1,
               name: "default-account",
               email: "alice@example.com",
+            }),
+          );
+        }
+        if (path.endsWith("/auth/providers")) {
+          return new Response(
+            JSON.stringify({
+              email_password_enabled: true,
+              github_enabled: true,
+              google_enabled: false,
             }),
           );
         }
@@ -121,6 +131,33 @@ describe("App", () => {
             }),
           );
         }
+        if (path.includes("/admin/dashboard/timeseries")) {
+          const url = new URL(path, "http://localhost");
+          const windowValue = url.searchParams.get("window");
+          const labels = windowValue === "7d" ? ["Apr 14", "Apr 15", "Apr 16", "Apr 17", "Apr 18", "Apr 19", "Apr 20"] : Array.from({ length: 24 }, (_, index) => `${String(index).padStart(2, "0")}:00`);
+          const buckets = labels.map((label, index) => ({
+            label,
+            start_at: `2026-04-20T${String(index).padStart(2, "0")}:00:00Z`,
+            total_requests: windowValue === "7d" ? (index === 6 ? 9 : 0) : (index === 23 ? 4 : 0),
+            error_requests: windowValue === "7d" ? (index === 6 ? 1 : 0) : 0,
+            limited_requests: windowValue === "7d" ? (index === 5 ? 2 : 0) : 0,
+          }));
+          return new Response(JSON.stringify({ window: windowValue ?? "24h", buckets }));
+        }
+        if (path.endsWith("/admin/settings/overview")) {
+          return new Response(
+            JSON.stringify({
+              gateway_host: "127.0.0.1",
+              gateway_port: 8787,
+              frontend_base_url: "http://127.0.0.1:3000",
+              database_scheme: "sqlite+aiosqlite",
+              email_password_enabled: true,
+              github_oauth_enabled: true,
+              google_oauth_enabled: false,
+              admin_secret_configured: true,
+            }),
+          );
+        }
         if (path.endsWith("/admin/usage/overview")) {
           return new Response(
             JSON.stringify({
@@ -174,5 +211,45 @@ describe("App", () => {
     expect(screen.getByText("Runtime coverage")).toBeTruthy();
     expect(screen.getByRole("button", { name: "View models" })).toBeTruthy();
     expect(screen.getAllByText("OpenAI-compatible HTTP").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    expect(await screen.findByText("Gateway endpoint")).toBeTruthy();
+    expect(screen.getByText("GitHub OAuth: Enabled")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("link", { name: "Dashboard" }));
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    fireEvent.click(await screen.findByRole("button", { name: "7d" }));
+    expect(await screen.findByText("7d default")).toBeTruthy();
+    expect(screen.getByText("9 requests in window")).toBeTruthy();
+  });
+
+  it("renders disabled oauth controls when providers are not configured", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = typeof input === "string" ? input : input instanceof URL ? input.pathname : "url" in input ? input.url : String(input);
+        if (path.endsWith("/auth/me")) {
+          return new Response(JSON.stringify({ detail: "missing session cookie" }), { status: 401 });
+        }
+        if (path.endsWith("/auth/providers")) {
+          return new Response(
+            JSON.stringify({
+              email_password_enabled: true,
+              github_enabled: false,
+              google_enabled: false,
+            }),
+          );
+        }
+        return new Response(JSON.stringify({}), { status: 200 });
+      }),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText("Sign in to your platform")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue with GitHub" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Continue with Google" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("GitHub needs configuration · Google needs configuration")).toBeTruthy();
   });
 });

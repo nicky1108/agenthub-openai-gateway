@@ -287,6 +287,15 @@ select:focus {
   height: 190px;
 }
 
+.chart-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-top: 0.85rem;
+  color: var(--muted-strong);
+  font-size: 0.92rem;
+}
+
 .page-body form {
   display: grid;
   gap: 0.95rem;
@@ -371,7 +380,8 @@ select:focus {
 
 .provider-summary-card,
 .provider-panel,
-.panel {
+.panel,
+.settings-card {
   background: linear-gradient(180deg, rgba(18, 32, 54, 0.92), rgba(10, 18, 31, 0.96));
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -497,6 +507,23 @@ select:focus {
 
 .checkbox-field input {
   width: auto;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.settings-card strong {
+  display: block;
+  margin-top: 0.55rem;
+  font-size: 1.2rem;
+  letter-spacing: -0.03em;
+}
+
+.settings-card p {
+  margin-top: 0.55rem;
 }
 
 .usage-meta {
@@ -666,6 +693,13 @@ select:focus {
   color: var(--text);
 }
 
+.auth-social-group button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  filter: none;
+  transform: none;
+}
+
 .auth-toggle-group {
   margin-top: 1.25rem;
 }
@@ -677,6 +711,12 @@ select:focus {
 
 .auth-social-group button {
   background: rgba(255, 255, 255, 0.03);
+}
+
+.auth-provider-note {
+  margin-top: 0.9rem !important;
+  font-size: 0.9rem;
+  color: var(--muted-strong) !important;
 }
 
 .auth-toggle-group button:hover,
