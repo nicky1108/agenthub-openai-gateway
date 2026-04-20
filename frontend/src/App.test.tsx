@@ -171,5 +171,8 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("link", { name: "Providers" }));
     window.dispatchEvent(new HashChangeEvent("hashchange"));
     expect(await screen.findByText("Provider Registry")).toBeTruthy();
+    expect(screen.getByText("Runtime coverage")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "View models" })).toBeTruthy();
+    expect(screen.getAllByText("OpenAI-compatible HTTP").length).toBeGreaterThan(0);
   });
 });

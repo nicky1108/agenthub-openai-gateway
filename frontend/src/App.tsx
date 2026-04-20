@@ -61,6 +61,16 @@ function formatLastUsed(lastUsedAt: string | null): string {
   return new Date(lastUsedAt).toLocaleString();
 }
 
+function formatProviderState(health: ProviderHealth | undefined): string {
+  if (!health) {
+    return "Awaiting probe";
+  }
+  if (health.capabilities.http || health.capabilities.cli) {
+    return "Healthy";
+  }
+  return "Offline";
+}
+
 export default function App() {
   const [authUser, setAuthUser] = useState<AuthAccount | null>(null);
   const [authState, setAuthState] = useState<"loading" | "authenticated" | "unauthenticated">("loading");
@@ -217,6 +227,7 @@ export default function App() {
       cli_env_json: "{}",
     });
     setProviders((current) => current.concat(created));
+    setSelectedProviderName(created.name);
     setName("");
     setExposedModel("default");
     setRoutePolicy("http-first");
@@ -226,6 +237,8 @@ export default function App() {
     setCliCommand("");
     setChatCapable(true);
     setStreamCapable(true);
+    const models = await getProviderModels(created.name);
+    setProviderModels((current) => ({ ...current, [created.name]: models }));
   }
 
   async function loadSelectedProviderModels(providerName: string) {
@@ -233,10 +246,18 @@ export default function App() {
     setProviderModels((current) => ({ ...current, [providerName]: rows }));
   }
 
-  async function handleRediscoverModels() {
-    if (!selectedProviderName) return;
-    const rows = await rediscoverProviderModels(selectedProviderName);
-    setProviderModels((current) => ({ ...current, [selectedProviderName]: rows }));
+  async function handleRediscoverModels(providerNameOverride?: string) {
+    const providerName = providerNameOverride ?? selectedProviderName;
+    if (!providerName) return;
+    const rows = await rediscoverProviderModels(providerName);
+    setProviderModels((current) => ({ ...current, [providerName]: rows }));
+  }
+
+  async function handleOpenProviderModels(providerName: string) {
+    setSelectedProviderName(providerName);
+    await loadSelectedProviderModels(providerName);
+    window.location.hash = "#models";
+    setCurrentRoute("models");
   }
 
   async function handleToggleProviderModel(nativeModel: string, enabled: boolean) {
@@ -326,6 +347,11 @@ export default function App() {
   const providerActivity = aggregateUsage(usageOverview, "by_provider").slice(0, 5);
   const modelActivity = aggregateUsage(usageOverview, "by_model").slice(0, 5);
   const selectedProviderModels = selectedProviderName ? (providerModels[selectedProviderName] ?? []) : [];
+  const providerHealthByName = new Map(health.map((entry) => [entry.name, entry]));
+  const totalProviders = providers.length;
+  const httpProviders = providers.filter((provider) => provider.http_enabled).length;
+  const cliProviders = providers.filter((provider) => provider.cli_enabled).length;
+  const streamingProviders = providers.filter((provider) => provider.stream_capable).length;
 
   function renderCurrentPage() {
     switch (currentRoute) {
@@ -481,65 +507,164 @@ export default function App() {
         );
       case "providers":
         return (
-          <section id="providers">
+          <section id="providers" className="providers-page">
             <div className="section-header">
               <div>
                 <span className="section-eyebrow">Runtime</span>
                 <h2>Provider Registry</h2>
+                <p>Control transport policy, health posture, and model entry points for every upstream runtime.</p>
               </div>
             </div>
-            <form onSubmit={handleSubmit}>
-              <label>
-                Provider Name
-                <input value={name} onChange={(event) => setName(event.target.value)} />
-              </label>
-              <label>
-                Exposed Model
-                <input value={exposedModel} onChange={(event) => setExposedModel(event.target.value)} />
-              </label>
-              <label>
-                Route Policy
-                <select value={routePolicy} onChange={(event) => setRoutePolicy(event.target.value)}>
-                  <option value="http-first">http-first</option>
-                  <option value="cli-first">cli-first</option>
-                  <option value="fixed-http">fixed-http</option>
-                  <option value="fixed-cli">fixed-cli</option>
-                </select>
-              </label>
-              <label>
-                HTTP Enabled
-                <input type="checkbox" checked={httpEnabled} onChange={(event) => setHttpEnabled(event.target.checked)} />
-              </label>
-              <label>
-                CLI Enabled
-                <input type="checkbox" checked={cliEnabled} onChange={(event) => setCliEnabled(event.target.checked)} />
-              </label>
-              <label>
-                HTTP Base URL
-                <input required={httpEnabled} value={httpBaseUrl} onChange={(event) => setHttpBaseUrl(event.target.value)} />
-              </label>
-              <label>
-                CLI Command
-                <input required={cliEnabled} value={cliCommand} onChange={(event) => setCliCommand(event.target.value)} />
-              </label>
-              <label>
-                Chat Capable
-                <input type="checkbox" checked={chatCapable} onChange={(event) => setChatCapable(event.target.checked)} />
-              </label>
-              <label>
-                Stream Capable
-                <input type="checkbox" checked={streamCapable} onChange={(event) => setStreamCapable(event.target.checked)} />
-              </label>
-              <button type="submit">Add Provider</button>
-            </form>
-            <ul>
-              {providers.map((provider) => (
-                <li key={provider.id}>
-                  {provider.name} - {provider.exposed_model} - {provider.route_policy} - http:
-                  {String(provider.http_enabled)} - cli:{String(provider.cli_enabled)}
-                </li>
-              ))}
-            </ul>
+            <div className="provider-summary-grid">
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">Runtime coverage</span>
+                <strong>{totalProviders}</strong>
+                <p>Total configured providers in the gateway registry.</p>
+              </article>
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">OpenAI-compatible HTTP</span>
+                <strong>{httpProviders}</strong>
+                <p>Providers currently able to route through HTTP transport.</p>
+              </article>
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">CLI runtimes</span>
+                <strong>{cliProviders}</strong>
+                <p>Providers available through local command execution.</p>
+              </article>
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">Streaming ready</span>
+                <strong>{streamingProviders}</strong>
+                <p>Providers marked as stream-capable from the control plane.</p>
+              </article>
+            </div>
+            <div className="provider-layout">
+              <div className="provider-panel provider-registry-panel">
+                <div className="provider-panel-header">
+                  <div>
+                    <span className="section-eyebrow">Registry</span>
+                    <h3>Active providers</h3>
+                  </div>
+                </div>
+                <div className="provider-card-grid">
+                  {providers.map((provider) => {
+                    const providerHealth = providerHealthByName.get(provider.name);
+                    const providerModelsCount = providerModels[provider.name]?.length ?? 0;
+
+                    return (
+                      <article key={provider.id} className="provider-card">
+                        <div className="provider-card-topline">
+                          <span
+                            className={
+                              formatProviderState(providerHealth) === "Healthy"
+                                ? "provider-status provider-status--healthy"
+                                : "provider-status"
+                            }
+                          >
+                            {formatProviderState(providerHealth)}
+                          </span>
+                          <span className="provider-route-pill">{provider.route_policy}</span>
+                        </div>
+                        <h3>{provider.name}</h3>
+                        <p>Primary exposed model: {provider.exposed_model}</p>
+                        <div className="provider-chip-row">
+                          {provider.http_enabled ? <span className="provider-chip">OpenAI-compatible HTTP</span> : null}
+                          {provider.cli_enabled ? <span className="provider-chip">CLI runtime</span> : null}
+                          {provider.chat_capable ? <span className="provider-chip">Chat capable</span> : null}
+                          {provider.stream_capable ? <span className="provider-chip">Streaming</span> : null}
+                        </div>
+                        <div className="provider-detail-list">
+                          <div>
+                            <span>HTTP base</span>
+                            <strong>{provider.http_base_url ?? "Not configured"}</strong>
+                          </div>
+                          <div>
+                            <span>CLI command</span>
+                            <strong>{provider.cli_command ?? "Not configured"}</strong>
+                          </div>
+                          <div>
+                            <span>Model catalog</span>
+                            <strong>{providerModelsCount > 0 ? `${providerModelsCount} loaded` : "Open catalog"}</strong>
+                          </div>
+                        </div>
+                        <div className="inline-actions">
+                          <button type="button" onClick={() => void handleOpenProviderModels(provider.name)}>
+                            View models
+                          </button>
+                          <button type="button" onClick={() => void handleRediscoverModels(provider.name)}>
+                            Rediscover
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+              <aside className="provider-panel provider-compose-panel">
+                <div className="provider-panel-header">
+                  <div>
+                    <span className="section-eyebrow">Compose</span>
+                    <h3>Register provider</h3>
+                  </div>
+                  <p>Add a new upstream and decide which transport the gateway should prefer.</p>
+                </div>
+                <form onSubmit={handleSubmit} className="provider-form">
+                  <label>
+                    Provider Name
+                    <input value={name} onChange={(event) => setName(event.target.value)} />
+                  </label>
+                  <label>
+                    Exposed Model
+                    <input value={exposedModel} onChange={(event) => setExposedModel(event.target.value)} />
+                  </label>
+                  <label>
+                    Route Policy
+                    <select value={routePolicy} onChange={(event) => setRoutePolicy(event.target.value)}>
+                      <option value="http-first">http-first</option>
+                      <option value="cli-first">cli-first</option>
+                      <option value="fixed-http">fixed-http</option>
+                      <option value="fixed-cli">fixed-cli</option>
+                    </select>
+                  </label>
+                  <label className="checkbox-field">
+                    <span>HTTP Enabled</span>
+                    <input
+                      type="checkbox"
+                      checked={httpEnabled}
+                      onChange={(event) => setHttpEnabled(event.target.checked)}
+                    />
+                  </label>
+                  <label className="checkbox-field">
+                    <span>CLI Enabled</span>
+                    <input type="checkbox" checked={cliEnabled} onChange={(event) => setCliEnabled(event.target.checked)} />
+                  </label>
+                  <label>
+                    HTTP Base URL
+                    <input required={httpEnabled} value={httpBaseUrl} onChange={(event) => setHttpBaseUrl(event.target.value)} />
+                  </label>
+                  <label>
+                    CLI Command
+                    <input required={cliEnabled} value={cliCommand} onChange={(event) => setCliCommand(event.target.value)} />
+                  </label>
+                  <label className="checkbox-field">
+                    <span>Chat Capable</span>
+                    <input
+                      type="checkbox"
+                      checked={chatCapable}
+                      onChange={(event) => setChatCapable(event.target.checked)}
+                    />
+                  </label>
+                  <label className="checkbox-field">
+                    <span>Stream Capable</span>
+                    <input
+                      type="checkbox"
+                      checked={streamCapable}
+                      onChange={(event) => setStreamCapable(event.target.checked)}
+                    />
+                  </label>
+                  <button type="submit">Add Provider</button>
+                </form>
+              </aside>
+            </div>
           </section>
         );
       case "models":
@@ -550,7 +675,7 @@ export default function App() {
                 <span className="section-eyebrow">Catalog</span>
                 <h2>Models</h2>
               </div>
-              <button type="button" onClick={handleRediscoverModels}>
+              <button type="button" onClick={() => void handleRediscoverModels()}>
                 Rediscover
               </button>
             </div>
