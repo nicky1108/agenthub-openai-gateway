@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.base import ChatRequest
+from app.adapters.cli.codex import CodexCliAdapter
 from app.adapters.cli.gemini import GeminiCliAdapter
 from app.adapters.cli.process import ProcessCliAdapter
 from app.adapters.http.openai_compatible import OpenAICompatibleHttpAdapter
@@ -43,6 +44,14 @@ class ChatOrchestrator:
         )
 
     def _cli_adapter(self, provider: ProviderRecord):
+        if provider.name == "codex":
+            return CodexCliAdapter(
+                command=provider.cli_command or "",
+                args=json.loads(provider.cli_args_json),
+                env=json.loads(provider.cli_env_json),
+                cwd=provider.cli_cwd,
+                read_timeout_seconds=30,
+            )
         if provider.name == "gemini":
             return GeminiCliAdapter(
                 command=provider.cli_command or "",

@@ -3,6 +3,7 @@ import pathlib
 import pytest
 
 from app.adapters.base import ChatRequest
+from app.adapters.cli.codex import CodexCliAdapter
 from app.adapters.cli.gemini import GeminiCliAdapter
 from app.adapters.cli.process import ProcessCliAdapter
 
@@ -53,4 +54,30 @@ async def test_gemini_cli_adapter_parses_json_and_stream_output() -> None:
 
     assert result["choices"][0]["message"]["content"] == "gemini:gemini-2.5-flash:ok"
     assert "gemini-stream" in chunks[0]
+    assert chunks[-1] == "data: [DONE]\n\n"
+
+
+@pytest.mark.asyncio
+async def test_codex_cli_adapter_parses_jsonl_events() -> None:
+    fixture = pathlib.Path(__file__).parent / "fixtures" / "codex_stub.py"
+    command = str(pathlib.Path(__file__).resolve().parents[1] / ".venv" / "bin" / "python")
+    adapter = CodexCliAdapter(
+        command=command,
+        args=[str(fixture)],
+        env={},
+        cwd=str(pathlib.Path(__file__).resolve().parents[1].parent),
+        read_timeout_seconds=5,
+    )
+    request = ChatRequest(
+        provider_name="codex",
+        provider_model="gpt-5.4",
+        messages=[{"role": "user", "content": "hello"}],
+        stream=False,
+    )
+
+    result = await adapter.chat(request)
+    chunks = [chunk async for chunk in adapter.stream_chat(request)]
+
+    assert result["choices"][0]["message"]["content"] == "codex:gpt-5.4:ok"
+    assert "codex:gpt-5.4:ok" in chunks[0]
     assert chunks[-1] == "data: [DONE]\n\n"
