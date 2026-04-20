@@ -326,6 +326,14 @@ select:focus {
   color: var(--muted-strong);
 }
 
+.page-body li button {
+  margin-top: 0.75rem;
+  padding: 0.55rem 0.85rem;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
 #usage .split {
   margin-top: 1rem;
 }
@@ -341,6 +349,24 @@ select:focus {
 
 #usage .panel p {
   margin-top: 0.65rem;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.usage-meta {
+  margin-top: 0.3rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.usage-stats {
+  margin-top: 0.45rem;
+  color: var(--muted-strong);
 }
 
 [role="alert"] {

@@ -52,6 +52,20 @@ describe("App", () => {
             ]),
           );
         }
+        if (path.endsWith("/admin/providers/codex/models")) {
+          return new Response(
+            JSON.stringify([
+              {
+                id: 1,
+                native_model: "gpt-5.4",
+                exposed_model_id: "codex:gpt-5.4",
+                source: "discovered",
+                enabled: true,
+                manually_overridden: false,
+              },
+            ]),
+          );
+        }
         if (
           path.endsWith("/admin/accounts") &&
           (!init || init.method === undefined || init.method === "GET")
@@ -149,6 +163,10 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("link", { name: "Accounts" }));
     window.dispatchEvent(new HashChangeEvent("hashchange"));
     expect(await screen.findByRole("button", { name: "Add Account" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("link", { name: "Models" }));
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    expect(await screen.findByText("gpt-5.4")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("link", { name: "Providers" }));
     window.dispatchEvent(new HashChangeEvent("hashchange"));

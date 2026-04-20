@@ -79,6 +79,15 @@ export type UsageOverview = {
   by_model: Record<string, number>;
 };
 
+export type ProviderModel = {
+  id: number;
+  native_model: string;
+  exposed_model_id: string;
+  source: string;
+  enabled: boolean;
+  manually_overridden: boolean;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -133,6 +142,12 @@ export async function createApiKey(payload: Record<string, unknown>): Promise<Cr
   });
 }
 
+export async function revokeApiKey(keyId: number): Promise<ApiKey> {
+  return request<ApiKey>(`/admin/api-keys/${keyId}/revoke`, {
+    method: "POST",
+  });
+}
+
 export async function getApiKeyUsage(keyId: number): Promise<UsageSummary> {
   const payload = await request<Partial<UsageSummary>>(`/admin/api-keys/${keyId}/usage`);
   return {
@@ -152,6 +167,37 @@ export async function getUsageOverview(): Promise<UsageOverview> {
     by_provider: payload.by_provider ?? {},
     by_model: payload.by_model ?? {},
   };
+}
+
+export async function getProviderModels(providerName: string): Promise<ProviderModel[]> {
+  return request<ProviderModel[]>(`/admin/providers/${providerName}/models`);
+}
+
+export async function rediscoverProviderModels(providerName: string): Promise<ProviderModel[]> {
+  return request<ProviderModel[]>(`/admin/providers/${providerName}/rediscover`, {
+    method: "POST",
+  });
+}
+
+export async function patchProviderModel(
+  providerName: string,
+  nativeModel: string,
+  payload: { exposed_model_id?: string; enabled?: boolean },
+): Promise<ProviderModel> {
+  return request<ProviderModel>(`/admin/providers/${providerName}/models/${nativeModel}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createProviderModel(
+  providerName: string,
+  payload: { native_model: string; exposed_model_id: string; enabled: boolean },
+): Promise<ProviderModel> {
+  return request<ProviderModel>(`/admin/providers/${providerName}/models`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 async function authRequest<T>(path: string, init?: RequestInit): Promise<T> {

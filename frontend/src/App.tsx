@@ -3,19 +3,24 @@ import { type FormEvent, useEffect, useState } from "react";
 import {
   createAccount,
   createApiKey,
+  createProviderModel,
   createProvider,
   getDashboardSummary,
   getCurrentAccount,
   getAccounts,
   getApiKeys,
   getHealth,
+  getProviderModels,
   getProviders,
   getUsageOverview,
   loginWithPassword,
+  patchProviderModel,
+  revokeApiKey,
+  rediscoverProviderModels,
   logoutSession,
   registerWithPassword,
 } from "./api";
-import type { Account, ApiKey, AuthAccount, Provider, ProviderHealth, UsageOverview } from "./api";
+import type { Account, ApiKey, AuthAccount, Provider, ProviderHealth, ProviderModel, UsageOverview } from "./api";
 
 type DashboardSummary = Awaited<ReturnType<typeof getDashboardSummary>>;
 type RouteId = "dashboard" | "providers" | "models" | "accounts" | "api-keys" | "usage" | "settings";
@@ -70,6 +75,7 @@ export default function App() {
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [usageOverview, setUsageOverview] = useState<UsageOverview | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [providerModels, setProviderModels] = useState<Record<string, ProviderModel[]>>({});
   const [health, setHealth] = useState<ProviderHealth[]>([]);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
@@ -79,6 +85,9 @@ export default function App() {
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [apiKeyName, setApiKeyName] = useState("");
   const [createdApiKey, setCreatedApiKey] = useState<string | null>(null);
+  const [keyPerMinute, setKeyPerMinute] = useState("");
+  const [keyPerHour, setKeyPerHour] = useState("");
+  const [keyPerDay, setKeyPerDay] = useState("");
   const [name, setName] = useState("");
   const [exposedModel, setExposedModel] = useState("default");
   const [routePolicy, setRoutePolicy] = useState("http-first");
@@ -88,6 +97,9 @@ export default function App() {
   const [cliCommand, setCliCommand] = useState("");
   const [chatCapable, setChatCapable] = useState(true);
   const [streamCapable, setStreamCapable] = useState(true);
+  const [selectedProviderName, setSelectedProviderName] = useState("");
+  const [manualNativeModel, setManualNativeModel] = useState("");
+  const [manualExposedModelId, setManualExposedModelId] = useState("");
 
   async function loadAuthenticatedData() {
     const [accountRows, keyRows, providerRows, healthRows, dashboard, usage] = await Promise.all([
@@ -109,6 +121,12 @@ export default function App() {
     setUsageError(null);
     if (accountRows.length > 0) {
       setSelectedAccountId(String(accountRows[0].id));
+    }
+    if (providerRows.length > 0) {
+      const defaultProvider = providerRows[0].name;
+      setSelectedProviderName(defaultProvider);
+      const models = await getProviderModels(defaultProvider);
+      setProviderModels((current) => ({ ...current, [defaultProvider]: models }));
     }
   }
 
@@ -153,6 +171,9 @@ export default function App() {
     const created = await createApiKey({
       account_id: Number(selectedAccountId),
       name: apiKeyName,
+      per_minute: keyPerMinute ? Number(keyPerMinute) : null,
+      per_hour: keyPerHour ? Number(keyPerHour) : null,
+      per_day: keyPerDay ? Number(keyPerDay) : null,
     });
     setApiKeys((current) => current.concat(created));
     setUsageOverview((current) => ({
@@ -174,6 +195,9 @@ export default function App() {
     }));
     setCreatedApiKey(created.api_key);
     setApiKeyName("");
+    setKeyPerMinute("");
+    setKeyPerHour("");
+    setKeyPerDay("");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -202,6 +226,62 @@ export default function App() {
     setCliCommand("");
     setChatCapable(true);
     setStreamCapable(true);
+  }
+
+  async function loadSelectedProviderModels(providerName: string) {
+    const rows = await getProviderModels(providerName);
+    setProviderModels((current) => ({ ...current, [providerName]: rows }));
+  }
+
+  async function handleRediscoverModels() {
+    if (!selectedProviderName) return;
+    const rows = await rediscoverProviderModels(selectedProviderName);
+    setProviderModels((current) => ({ ...current, [selectedProviderName]: rows }));
+  }
+
+  async function handleToggleProviderModel(nativeModel: string, enabled: boolean) {
+    if (!selectedProviderName) return;
+    const updated = await patchProviderModel(selectedProviderName, nativeModel, { enabled: !enabled });
+    setProviderModels((current) => ({
+      ...current,
+      [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) =>
+        row.native_model === nativeModel ? updated : row,
+      ),
+    }));
+  }
+
+  async function handleRenameProviderModel(nativeModel: string, exposedModelId: string) {
+    if (!selectedProviderName) return;
+    const updated = await patchProviderModel(selectedProviderName, nativeModel, {
+      exposed_model_id: exposedModelId,
+    });
+    setProviderModels((current) => ({
+      ...current,
+      [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) =>
+        row.native_model === nativeModel ? updated : row,
+      ),
+    }));
+  }
+
+  async function handleManualModelSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProviderName) return;
+    const created = await createProviderModel(selectedProviderName, {
+      native_model: manualNativeModel,
+      exposed_model_id: manualExposedModelId,
+      enabled: true,
+    });
+    setProviderModels((current) => ({
+      ...current,
+      [selectedProviderName]: [...(current[selectedProviderName] ?? []), created],
+    }));
+    setManualNativeModel("");
+    setManualExposedModelId("");
+  }
+
+  async function handleRevokeKey(keyId: number) {
+    const revoked = await revokeApiKey(keyId);
+    setApiKeys((current) => current.map((row) => (row.id === keyId ? revoked : row)));
   }
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
@@ -245,6 +325,7 @@ export default function App() {
   });
   const providerActivity = aggregateUsage(usageOverview, "by_provider").slice(0, 5);
   const modelActivity = aggregateUsage(usageOverview, "by_model").slice(0, 5);
+  const selectedProviderModels = selectedProviderName ? (providerModels[selectedProviderName] ?? []) : [];
 
   function renderCurrentPage() {
     switch (currentRoute) {
@@ -335,7 +416,9 @@ export default function App() {
             <ul>
               {accounts.map((account) => (
                 <li key={account.id}>
-                  {account.name} - {account.status}
+                  <strong>{account.name}</strong>
+                  <div className="usage-meta">{account.status}</div>
+                  {account.notes ? <div className="usage-meta">{account.notes}</div> : null}
                 </li>
               ))}
             </ul>
@@ -365,13 +448,32 @@ export default function App() {
                 API Key Name
                 <input value={apiKeyName} onChange={(event) => setApiKeyName(event.target.value)} />
               </label>
+              <label>
+                Per Minute
+                <input value={keyPerMinute} onChange={(event) => setKeyPerMinute(event.target.value)} />
+              </label>
+              <label>
+                Per Hour
+                <input value={keyPerHour} onChange={(event) => setKeyPerHour(event.target.value)} />
+              </label>
+              <label>
+                Per Day
+                <input value={keyPerDay} onChange={(event) => setKeyPerDay(event.target.value)} />
+              </label>
               <button type="submit">Create API Key</button>
             </form>
             {createdApiKey ? <p>Last Created Key: {createdApiKey}</p> : null}
             <ul>
               {apiKeys.map((apiKey) => (
                 <li key={apiKey.id}>
-                  {apiKey.name} - {apiKey.key_prefix} - {apiKey.status}
+                  <strong>{apiKey.name}</strong>
+                  <div className="usage-meta">{apiKey.key_prefix} · {apiKey.status}</div>
+                  <div className="usage-meta">
+                    {apiKey.per_minute ?? "—"}/min · {apiKey.per_hour ?? "—"}/hr · {apiKey.per_day ?? "—"}/day
+                  </div>
+                  <button type="button" onClick={() => handleRevokeKey(apiKey.id)}>
+                    Revoke
+                  </button>
                 </li>
               ))}
             </ul>
@@ -445,17 +547,72 @@ export default function App() {
           <section id="models">
             <div className="section-header">
               <div>
-                <span className="section-eyebrow">Status</span>
-                <h2>Provider Health</h2>
+                <span className="section-eyebrow">Catalog</span>
+                <h2>Models</h2>
               </div>
+              <button type="button" onClick={handleRediscoverModels}>
+                Rediscover
+              </button>
             </div>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void loadSelectedProviderModels(selectedProviderName);
+              }}
+            >
+              <label>
+                Provider
+                <select
+                  value={selectedProviderName}
+                  onChange={(event) => {
+                    setSelectedProviderName(event.target.value);
+                    void loadSelectedProviderModels(event.target.value);
+                  }}
+                >
+                  {providers.map((provider) => (
+                    <option key={provider.id} value={provider.name}>
+                      {provider.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </form>
             <ul>
-              {health.map((item) => (
-                <li key={item.name}>
-                  {item.name} - http:{String(item.capabilities.http)} - cli:{String(item.capabilities.cli)}
+              {selectedProviderModels.map((model) => (
+                <li key={model.id}>
+                  <strong>{model.native_model}</strong>
+                  <div className="usage-meta">{model.source}</div>
+                  <div className="usage-meta">Exposed as {model.exposed_model_id}</div>
+                  <div className="inline-actions">
+                    <button type="button" onClick={() => handleToggleProviderModel(model.native_model, model.enabled)}>
+                      {model.enabled ? "Disable" : "Enable"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleRenameProviderModel(model.native_model, `${selectedProviderName}:${model.native_model}-alt`)
+                      }
+                    >
+                      Rename
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
+            <form onSubmit={handleManualModelSubmit}>
+              <label>
+                Native Model
+                <input value={manualNativeModel} onChange={(event) => setManualNativeModel(event.target.value)} />
+              </label>
+              <label>
+                Exposed Model ID
+                <input
+                  value={manualExposedModelId}
+                  onChange={(event) => setManualExposedModelId(event.target.value)}
+                />
+              </label>
+              <button type="submit">Add Manual Model</button>
+            </form>
           </section>
         );
       case "usage":
