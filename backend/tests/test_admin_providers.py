@@ -289,8 +289,8 @@ def test_admin_can_add_manual_provider_model(tmp_path, monkeypatch) -> None:
         add_response = client.post(
             "/admin/providers/codex/models",
             json={
-                "native_model": "gpt-5.4",
-                "exposed_model_id": "codex:gpt-5.4",
+                "native_model": "gpt-5.4-experimental",
+                "exposed_model_id": "codex:gpt-5.4-experimental",
                 "enabled": True,
             },
             headers={"x-admin-secret": "change-me"},
@@ -299,4 +299,4 @@ def test_admin_can_add_manual_provider_model(tmp_path, monkeypatch) -> None:
 
     assert add_response.status_code == 201
     assert add_response.json()["source"] == "manual_override"
-    assert "codex:gpt-5.4" in [item["id"] for item in models_response.json()["data"]]
+    assert "codex:gpt-5.4-experimental" in [item["id"] for item in models_response.json()["data"]]

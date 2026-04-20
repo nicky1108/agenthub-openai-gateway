@@ -18,6 +18,7 @@ class DiscoveredModel:
 class ProviderDiscoveryService:
     _CODEX_BOOTSTRAP_MODELS = (
         "gpt-5-codex",
+        "gpt-5.4",
         "gpt-5.3-codex",
         "gpt-5.2-codex",
         "gpt-5.1-codex",
@@ -30,6 +31,7 @@ class ProviderDiscoveryService:
         "gemini-2.5-flash",
         "gemini-2.0-flash",
         "gemini-2.0-flash-lite",
+        "gemini-3.1-pro-preview",
         "gemini-3-pro-preview",
     )
 
