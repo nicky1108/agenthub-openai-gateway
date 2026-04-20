@@ -56,6 +56,23 @@ export type UsageSummary = {
   by_model: Record<string, number>;
 };
 
+export type UsageActivityKey = {
+  api_key_id: number;
+  account_id: number;
+  name: string;
+  key_prefix: string;
+  status: string;
+  last_used_at: string | null;
+  total_requests: number;
+  limited_requests: number;
+};
+
+export type UsageOverview = {
+  key_activity: UsageActivityKey[];
+  by_provider: Record<string, number>;
+  by_model: Record<string, number>;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -117,6 +134,15 @@ export async function getApiKeyUsage(keyId: number): Promise<UsageSummary> {
     api_key_id: payload.api_key_id ?? keyId,
     total_requests: payload.total_requests ?? 0,
     limited_requests: payload.limited_requests ?? 0,
+    by_provider: payload.by_provider ?? {},
+    by_model: payload.by_model ?? {},
+  };
+}
+
+export async function getUsageOverview(): Promise<UsageOverview> {
+  const payload = await request<Partial<UsageOverview>>("/admin/usage/overview");
+  return {
+    key_activity: payload.key_activity ?? [],
     by_provider: payload.by_provider ?? {},
     by_model: payload.by_model ?? {},
   };

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, model_validator, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -132,6 +132,23 @@ class UsageSummary(BaseModel):
     api_key_id: int
     total_requests: int
     limited_requests: int
+    by_provider: dict[str, int]
+    by_model: dict[str, int]
+
+
+class UsageActivityKey(BaseModel):
+    api_key_id: int
+    account_id: int
+    name: str
+    key_prefix: str
+    status: str
+    last_used_at: str | None = None
+    total_requests: int
+    limited_requests: int
+
+
+class UsageOverview(BaseModel):
+    key_activity: list[UsageActivityKey]
     by_provider: dict[str, int]
     by_model: dict[str, int]
 
@@ -336,6 +353,60 @@ async def get_api_key_usage(
         limited_requests=sum(1 for row in usage_rows if row.outcome == "limited"),
         by_provider=by_provider,
         by_model=by_model,
+    )
+
+
+@router.get("/usage/overview", response_model=UsageOverview)
+async def get_usage_overview(
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> UsageOverview:
+    usage_by_key_rows = list(
+        await session.execute(
+            select(
+                UsageRecord.api_key_id,
+                func.count(UsageRecord.id),
+                func.sum(case((UsageRecord.outcome == "limited", 1), else_=0)),
+            ).group_by(UsageRecord.api_key_id)
+        )
+    )
+    usage_by_key = {
+        row[0]: {"total_requests": row[1], "limited_requests": row[2] or 0}
+        for row in usage_by_key_rows
+        if row[0] is not None
+    }
+    provider_rows = list(
+        await session.execute(
+            select(UsageRecord.provider_name, func.count(UsageRecord.id))
+            .where(UsageRecord.provider_name.is_not(None))
+            .group_by(UsageRecord.provider_name)
+        )
+    )
+    model_rows = list(
+        await session.execute(
+            select(UsageRecord.model_id, func.count(UsageRecord.id))
+            .where(UsageRecord.model_id.is_not(None))
+            .group_by(UsageRecord.model_id)
+        )
+    )
+    api_keys = list(await session.scalars(select(ApiKeyRecord).order_by(ApiKeyRecord.id.asc())))
+    key_activity = [
+        UsageActivityKey(
+            api_key_id=api_key.id,
+            account_id=api_key.account_id,
+            name=api_key.name,
+            key_prefix=api_key.key_prefix,
+            status=api_key.status,
+            last_used_at=api_key.last_used_at.isoformat() if api_key.last_used_at else None,
+            total_requests=usage_by_key.get(api_key.id, {}).get("total_requests", 0),
+            limited_requests=usage_by_key.get(api_key.id, {}).get("limited_requests", 0),
+        )
+        for api_key in api_keys
+    ]
+    return UsageOverview(
+        key_activity=key_activity,
+        by_provider={name: count for name, count in provider_rows if name},
+        by_model={name: count for name, count in model_rows if name},
     )
 
 

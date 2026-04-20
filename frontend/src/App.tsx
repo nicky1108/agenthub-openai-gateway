@@ -6,11 +6,11 @@ import {
   createProvider,
   getAccounts,
   getApiKeys,
-  getApiKeyUsage,
   getHealth,
   getProviders,
+  getUsageOverview,
 } from "./api";
-import type { Account, ApiKey, Provider, ProviderHealth, UsageSummary } from "./api";
+import type { Account, ApiKey, Provider, ProviderHealth, UsageActivityKey, UsageOverview } from "./api";
 
 type DashboardSummary = {
   total_requests: number;
@@ -40,30 +40,14 @@ async function getDashboardSummary(): Promise<DashboardSummary> {
   };
 }
 
-function createEmptyUsageSummary(accountId: number, apiKeyId: number): UsageSummary {
-  return {
-    account_id: accountId,
-    api_key_id: apiKeyId,
-    total_requests: 0,
-    limited_requests: 0,
-    by_provider: {},
-    by_model: {},
-  };
-}
-
 function aggregateUsage(
-  usageSummaries: Record<number, UsageSummary>,
+  usageSummary: UsageOverview | null,
   field: "by_provider" | "by_model",
 ): Array<[string, number]> {
-  const totals = new Map<string, number>();
-
-  for (const usage of Object.values(usageSummaries)) {
-    for (const [name, count] of Object.entries(usage[field])) {
-      totals.set(name, (totals.get(name) ?? 0) + count);
-    }
+  if (!usageSummary) {
+    return [];
   }
-
-  return Array.from(totals.entries()).sort((left, right) => right[1] - left[1]);
+  return Object.entries(usageSummary[field]).sort((left, right) => right[1] - left[1]);
 }
 
 function formatLastUsed(lastUsedAt: string | null): string {
@@ -77,7 +61,7 @@ function formatLastUsed(lastUsedAt: string | null): string {
 export default function App() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
-  const [usageByKeyId, setUsageByKeyId] = useState<Record<number, UsageSummary>>({});
+  const [usageOverview, setUsageOverview] = useState<UsageOverview | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [health, setHealth] = useState<ProviderHealth[]>([]);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
@@ -98,16 +82,18 @@ export default function App() {
   const [streamCapable, setStreamCapable] = useState(true);
 
   useEffect(() => {
-    void Promise.all([getAccounts(), getApiKeys(), getProviders(), getHealth(), getDashboardSummary()])
-      .then(async ([accountRows, keyRows, providerRows, healthRows, dashboard]) => {
-        const usageRows = await Promise.all(keyRows.map((key) => getApiKeyUsage(key.id)));
-        const usageMap = Object.fromEntries(usageRows.map((usage) => [usage.api_key_id, usage])) as Record<
-          number,
-          UsageSummary
-        >;
+    void Promise.all([
+      getAccounts(),
+      getApiKeys(),
+      getProviders(),
+      getHealth(),
+      getDashboardSummary(),
+      getUsageOverview(),
+    ])
+      .then(([accountRows, keyRows, providerRows, healthRows, dashboard, usage]) => {
         setAccounts(accountRows);
         setApiKeys(keyRows);
-        setUsageByKeyId(usageMap);
+        setUsageOverview(usage);
         setProviders(providerRows);
         setHealth(healthRows);
         setDashboardSummary(dashboard);
@@ -119,7 +105,7 @@ export default function App() {
       })
       .catch((error: unknown) => {
         setDashboardSummary(null);
-        setUsageByKeyId({});
+        setUsageOverview(null);
         setDashboardError(error instanceof Error ? error.message : "dashboard unavailable");
         setUsageError(error instanceof Error ? error.message : "usage unavailable");
       });
@@ -140,9 +126,22 @@ export default function App() {
       name: apiKeyName,
     });
     setApiKeys((current) => current.concat(created));
-    setUsageByKeyId((current) => ({
-      ...current,
-      [created.id]: createEmptyUsageSummary(created.account_id, created.id),
+    setUsageOverview((current) => ({
+      key_activity: [
+        ...(current?.key_activity ?? []),
+        {
+          api_key_id: created.id,
+          account_id: created.account_id,
+          name: created.name,
+          key_prefix: created.key_prefix,
+          status: created.status,
+          last_used_at: created.last_used_at,
+          total_requests: 0,
+          limited_requests: 0,
+        },
+      ],
+      by_provider: current?.by_provider ?? {},
+      by_model: current?.by_model ?? {},
     }));
     setCreatedApiKey(created.api_key);
     setApiKeyName("");
@@ -176,18 +175,13 @@ export default function App() {
     setStreamCapable(true);
   }
 
-  const recentKeyActivity = apiKeys
-    .map((apiKey) => ({
-      apiKey,
-      usage: usageByKeyId[apiKey.id] ?? createEmptyUsageSummary(apiKey.account_id, apiKey.id),
-    }))
-    .sort((left, right) => {
-      const leftTime = left.apiKey.last_used_at ? new Date(left.apiKey.last_used_at).getTime() : 0;
-      const rightTime = right.apiKey.last_used_at ? new Date(right.apiKey.last_used_at).getTime() : 0;
-      return rightTime - leftTime || right.usage.total_requests - left.usage.total_requests;
+  const recentKeyActivity = [...(usageOverview?.key_activity ?? [])].sort((left, right) => {
+      const leftTime = left.last_used_at ? new Date(left.last_used_at).getTime() : 0;
+      const rightTime = right.last_used_at ? new Date(right.last_used_at).getTime() : 0;
+      return rightTime - leftTime || right.total_requests - left.total_requests;
     });
-  const providerActivity = aggregateUsage(usageByKeyId, "by_provider").slice(0, 5);
-  const modelActivity = aggregateUsage(usageByKeyId, "by_model").slice(0, 5);
+  const providerActivity = aggregateUsage(usageOverview, "by_provider").slice(0, 5);
+  const modelActivity = aggregateUsage(usageOverview, "by_model").slice(0, 5);
 
   return (
     <main className="app-shell">
@@ -409,10 +403,10 @@ export default function App() {
                   <p>No API keys yet.</p>
                 ) : (
                   <ul>
-                    {recentKeyActivity.map(({ apiKey, usage }) => (
-                      <li key={apiKey.id}>
-                        <strong>{apiKey.name}</strong> ({apiKey.key_prefix}) - {usage.total_requests} requests,{" "}
-                        {usage.limited_requests} limited, last used {formatLastUsed(apiKey.last_used_at)}
+                    {recentKeyActivity.map((apiKey) => (
+                      <li key={apiKey.api_key_id}>
+                        <strong>{apiKey.name}</strong> ({apiKey.key_prefix}) - {apiKey.total_requests} requests,{" "}
+                        {apiKey.limited_requests} limited, last used {formatLastUsed(apiKey.last_used_at)}
                       </li>
                     ))}
                   </ul>

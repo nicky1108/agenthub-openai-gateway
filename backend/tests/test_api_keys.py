@@ -130,3 +130,30 @@ def test_admin_usage_summary_exposes_provider_and_model_activity(tmp_path, monke
     assert response.json()["total_requests"] == 1
     assert response.json()["by_provider"] == {"missing": 1}
     assert response.json()["by_model"] == {"missing:default": 1}
+
+
+def test_admin_usage_overview_batches_key_activity(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        _, api_key, _ = _create_account_and_key(client)
+        completion_response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "missing:default",
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+        assert completion_response.status_code == 404
+
+        response = client.get(
+            "/admin/usage/overview",
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["by_provider"] == {"missing": 1}
+    assert payload["by_model"] == {"missing:default": 1}
+    assert payload["key_activity"][0]["total_requests"] == 1
