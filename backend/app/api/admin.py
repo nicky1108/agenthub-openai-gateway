@@ -10,11 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.service import generate_api_key, hash_api_key
 from app.discovery.service import ProviderDiscoveryService
 from app.core.db import get_session
-from app.core.models import AccountRecord, ApiKeyRecord, ProviderModelRecord, ProviderRecord, UsageRecord
+from app.core.models import AccountRecord, ApiKeyRecord, ModelPricingRecord, ProviderModelRecord, ProviderRecord, UsageRecord
+from app.pricing.service import OfficialPricingService
 from app.core.settings import Settings
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 discovery = ProviderDiscoveryService()
+pricing = OfficialPricingService()
 
 
 class ProviderCreate(BaseModel):
@@ -73,6 +75,24 @@ class ProviderHealth(BaseModel):
     capabilities: dict[str, bool]
 
 
+class ModelPricingRead(BaseModel):
+    provider_name: str
+    native_model: str
+    source_url: str
+    source_label: str
+    currency: str
+    unit: str
+    input_price: float | None = None
+    cached_input_price: float | None = None
+    output_price: float | None = None
+    input_price_high: float | None = None
+    cached_input_price_high: float | None = None
+    output_price_high: float | None = None
+    high_price_threshold_tokens: int | None = None
+    notes: str | None = None
+    synced_at: str
+
+
 class ProviderModelRead(BaseModel):
     id: int
     native_model: str
@@ -80,6 +100,7 @@ class ProviderModelRead(BaseModel):
     source: str
     enabled: bool
     manually_overridden: bool
+    pricing: ModelPricingRead | None = None
 
 
 class ProviderModelPatch(BaseModel):
@@ -239,6 +260,7 @@ async def create_provider(
         ) from exc
     await session.refresh(record)
     await discovery.sync_provider_models(session, record)
+    await pricing.sync_provider_pricing(session, record.name)
     return ProviderRead.model_validate(record, from_attributes=True)
 
 
@@ -567,12 +589,33 @@ async def list_provider_models(
     provider = await session.scalar(select(ProviderRecord).where(ProviderRecord.name == provider_name))
     if provider is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider not found")
-    rows = await session.scalars(
+    rows = list(
+        await session.scalars(
         select(ProviderModelRecord)
         .where(ProviderModelRecord.provider_id == provider.id)
         .order_by(ProviderModelRecord.native_model.asc())
+        )
     )
-    return [ProviderModelRead.model_validate(row, from_attributes=True) for row in rows]
+    pricing_rows = list(
+        await session.scalars(
+            select(ModelPricingRecord)
+            .where(ModelPricingRecord.provider_name == provider_name)
+            .order_by(ModelPricingRecord.native_model.asc())
+        )
+    )
+    pricing_by_model = {row.native_model: row for row in pricing_rows}
+    return [
+        ProviderModelRead(
+            id=row.id,
+            native_model=row.native_model,
+            exposed_model_id=row.exposed_model_id,
+            source=row.source,
+            enabled=row.enabled,
+            manually_overridden=row.manually_overridden,
+            pricing=serialize_pricing(pricing_by_model.get(row.native_model)),
+        )
+        for row in rows
+    ]
 
 
 @router.post("/providers/{provider_name}/rediscover", response_model=list[ProviderModelRead])
@@ -584,8 +627,24 @@ async def rediscover_provider_models(
     provider = await session.scalar(select(ProviderRecord).where(ProviderRecord.name == provider_name))
     if provider is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider not found")
+    await pricing.sync_provider_pricing(session, provider.name)
     rows = await discovery.sync_provider_models(session, provider)
-    return [ProviderModelRead.model_validate(row, from_attributes=True) for row in rows]
+    pricing_rows = list(
+        await session.scalars(select(ModelPricingRecord).where(ModelPricingRecord.provider_name == provider_name))
+    )
+    pricing_by_model = {row.native_model: row for row in pricing_rows}
+    return [
+        ProviderModelRead(
+            id=row.id,
+            native_model=row.native_model,
+            exposed_model_id=row.exposed_model_id,
+            source=row.source,
+            enabled=row.enabled,
+            manually_overridden=row.manually_overridden,
+            pricing=serialize_pricing(pricing_by_model.get(row.native_model)),
+        )
+        for row in rows
+    ]
 
 
 @router.patch("/providers/{provider_name}/models/{native_model}", response_model=ProviderModelRead)
@@ -615,7 +674,21 @@ async def patch_provider_model(
         row.manually_overridden = True
     await session.commit()
     await session.refresh(row)
-    return ProviderModelRead.model_validate(row, from_attributes=True)
+    pricing_row = await session.scalar(
+        select(ModelPricingRecord).where(
+            ModelPricingRecord.provider_name == provider_name,
+            ModelPricingRecord.native_model == row.native_model,
+        )
+    )
+    return ProviderModelRead(
+        id=row.id,
+        native_model=row.native_model,
+        exposed_model_id=row.exposed_model_id,
+        source=row.source,
+        enabled=row.enabled,
+        manually_overridden=row.manually_overridden,
+        pricing=serialize_pricing(pricing_row),
+    )
 
 
 @router.post("/providers/{provider_name}/models", response_model=ProviderModelRead, status_code=status.HTTP_201_CREATED)
@@ -643,4 +716,41 @@ async def create_provider_model(
         await session.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="provider model already exists") from exc
     await session.refresh(row)
-    return ProviderModelRead.model_validate(row, from_attributes=True)
+    pricing_row = await session.scalar(
+        select(ModelPricingRecord).where(
+            ModelPricingRecord.provider_name == provider_name,
+            ModelPricingRecord.native_model == row.native_model,
+        )
+    )
+    return ProviderModelRead(
+        id=row.id,
+        native_model=row.native_model,
+        exposed_model_id=row.exposed_model_id,
+        source=row.source,
+        enabled=row.enabled,
+        manually_overridden=row.manually_overridden,
+        pricing=serialize_pricing(pricing_row),
+    )
+
+
+def serialize_pricing(row: ModelPricingRecord | None) -> ModelPricingRead | None:
+    if row is None:
+        return None
+
+    return ModelPricingRead(
+        provider_name=row.provider_name,
+        native_model=row.native_model,
+        source_url=row.source_url,
+        source_label=row.source_label,
+        currency=row.currency,
+        unit=row.unit,
+        input_price=row.input_price,
+        cached_input_price=row.cached_input_price,
+        output_price=row.output_price,
+        input_price_high=row.input_price_high,
+        cached_input_price_high=row.cached_input_price_high,
+        output_price_high=row.output_price_high,
+        high_price_threshold_tokens=row.high_price_threshold_tokens,
+        notes=row.notes,
+        synced_at=row.synced_at.isoformat(),
+    )

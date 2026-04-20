@@ -232,6 +232,49 @@ def test_admin_lists_discovered_provider_models(tmp_path, monkeypatch) -> None:
     assert "gemini-2.5-flash" in native_models
 
 
+def test_admin_lists_official_pricing_for_provider_models(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        create_response = client.post(
+            "/admin/providers",
+            json={
+                "name": "codex",
+                "http_enabled": True,
+                "cli_enabled": False,
+                "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        assert create_response.status_code == 201
+
+        response = client.get(
+            "/admin/providers/codex/models",
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert response.status_code == 200
+    gpt54 = next(item for item in response.json() if item["native_model"] == "gpt-5.4")
+    assert gpt54["pricing"] == {
+        "provider_name": "codex",
+        "native_model": "gpt-5.4",
+        "source_url": "https://openai.com/api/pricing/",
+        "source_label": "OpenAI API Pricing",
+        "currency": "USD",
+        "unit": "1M tokens",
+        "input_price": 2.5,
+        "cached_input_price": 0.25,
+        "output_price": 15.0,
+        "input_price_high": 5.0,
+        "cached_input_price_high": 0.5,
+        "output_price_high": 22.5,
+        "high_price_threshold_tokens": 270000,
+        "notes": "Standard pricing. Higher short-context price applies above 270k context.",
+        "synced_at": gpt54["pricing"]["synced_at"],
+    }
+
+
 def test_admin_can_override_provider_model_exposure(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 

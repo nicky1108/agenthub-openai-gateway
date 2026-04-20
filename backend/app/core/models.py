@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -40,6 +40,32 @@ class ProviderModelRecord(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     manually_overridden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ModelPricingRecord(Base):
+    __tablename__ = "model_pricing"
+    __table_args__ = (UniqueConstraint("provider_name", "native_model", name="uq_model_pricing_provider_model"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    native_model: Mapped[str] = mapped_column(String(200), nullable=False)
+    source_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    source_label: Mapped[str] = mapped_column(String(200), nullable=False)
+    currency: Mapped[str] = mapped_column(String(16), nullable=False, default="USD")
+    unit: Mapped[str] = mapped_column(String(32), nullable=False, default="1M tokens")
+    input_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cached_input_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    output_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    input_price_high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cached_input_price_high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    output_price_high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    high_price_threshold_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
 
 
 class AccountRecord(Base):

@@ -593,6 +593,20 @@ select:focus {
   font-size: 0.9rem;
 }
 
+.pricing-block {
+  margin-top: 0.8rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(102, 210, 255, 0.05);
+}
+
+.pricing-primary {
+  margin-top: 0.4rem;
+  color: var(--text);
+  font-weight: 700;
+}
+
 .usage-stats {
   margin-top: 0.45rem;
   color: var(--muted-strong);

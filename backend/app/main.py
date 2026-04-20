@@ -11,6 +11,7 @@ from app.core.db import get_engine, get_session_factory
 from app.core.models import Base, ProviderRecord
 from app.core.settings import Settings
 from app.discovery.service import ProviderDiscoveryService
+from app.pricing.service import OfficialPricingService
 from sqlalchemy import select
 
 
@@ -117,6 +118,7 @@ async def lifespan(_: FastAPI):
         await connection.run_sync(backfill_sqlite_account_auth_columns)
     session_factory = get_session_factory(settings.database_url)
     discovery = ProviderDiscoveryService()
+    pricing = OfficialPricingService()
     async with session_factory() as session:
         providers = await session.scalars(
             select(ProviderRecord).where(
@@ -125,6 +127,7 @@ async def lifespan(_: FastAPI):
         )
         for provider in providers:
             await discovery.sync_provider_models(session, provider)
+            await pricing.sync_provider_pricing(session, provider.name)
     yield
 
 

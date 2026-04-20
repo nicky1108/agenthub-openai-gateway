@@ -152,20 +152,27 @@ type Copy = {
     chatCapableChip: string;
     streaming: string;
   };
-  models: {
-    eyebrow: string;
-    title: string;
-    provider: string;
-    noProviders: string;
-    source: string;
-    exposedAs: (modelId: string) => string;
-    disable: string;
-    enable: string;
-    rename: string;
-    nativeModel: string;
-    exposedModelId: string;
-    addManualModel: string;
-  };
+    models: {
+      eyebrow: string;
+      title: string;
+      provider: string;
+      noProviders: string;
+      source: string;
+      exposedAs: (modelId: string) => string;
+      disable: string;
+      enable: string;
+      rename: string;
+      nativeModel: string;
+      exposedModelId: string;
+      addManualModel: string;
+      officialPrice: string;
+      noOfficialPrice: string;
+      pricingSummary: (input: string, output: string) => string;
+      cachedPrice: (value: string) => string;
+      pricingTier: (threshold: number, input: string, output: string) => string;
+      sourceLink: string;
+      syncedAt: (value: string) => string;
+    };
   usage: {
     eyebrow: string;
     title: string;
@@ -372,6 +379,13 @@ export const messages: Record<Locale, Copy> = {
       nativeModel: "Native Model",
       exposedModelId: "Exposed Model ID",
       addManualModel: "Add Manual Model",
+      officialPrice: "Official API Price",
+      noOfficialPrice: "No official API price snapshot is available for this model yet.",
+      pricingSummary: (input, output) => `${input} in · ${output} out`,
+      cachedPrice: (value) => `${value} cached input`,
+      pricingTier: (threshold, input, output) => `Above ${threshold.toLocaleString()} tokens: ${input} in · ${output} out`,
+      sourceLink: "Source",
+      syncedAt: (value) => `Synced ${value}`,
     },
     usage: {
       eyebrow: "Activity",
@@ -573,6 +587,13 @@ export const messages: Record<Locale, Copy> = {
       nativeModel: "原生模型名",
       exposedModelId: "暴露模型 ID",
       addManualModel: "手动新增模型",
+      officialPrice: "官方 API 定价",
+      noOfficialPrice: "该模型目前没有可用的官方 API 定价快照。",
+      pricingSummary: (input, output) => `输入 ${input} · 输出 ${output}`,
+      cachedPrice: (value) => `缓存输入 ${value}`,
+      pricingTier: (threshold, input, output) => `超过 ${threshold.toLocaleString()} tokens：输入 ${input} · 输出 ${output}`,
+      sourceLink: "来源",
+      syncedAt: (value) => `同步时间 ${value}`,
     },
     usage: {
       eyebrow: "活跃度",

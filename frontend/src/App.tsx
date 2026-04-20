@@ -27,6 +27,7 @@ import type { Account, ApiKey, AuthAccount, Provider, ProviderHealth, ProviderMo
 import type {
   AuthProviderStatus,
   DashboardTimeseries,
+  ModelPricing,
   SettingsOverview,
 } from "./api";
 import { LOCALE_STORAGE_KEY, messages, type Locale } from "./i18n";
@@ -99,6 +100,17 @@ function describeSeries(series: DashboardTimeseries | null, localeCopy: (typeof 
     return localeCopy.dashboard.noRuntimeActivity;
   }
   return localeCopy.dashboard.peakTraffic(busiest.total_requests, busiest.label);
+}
+
+function formatUsdPerMillion(value: number | null): string {
+  if (value === null) {
+    return "—";
+  }
+  return `$${value.toFixed(2)}`;
+}
+
+function formatPricingSync(value: string, locale: Locale): string {
+  return new Date(value).toLocaleString(locale === "zh" ? "zh-CN" : "en-US");
 }
 
 export default function App() {
@@ -883,6 +895,47 @@ export default function App() {
                   <strong>{model.native_model}</strong>
                   <div className="usage-meta">{model.source}</div>
                   <div className="usage-meta">{copy.models.exposedAs(model.exposed_model_id)}</div>
+                  <div className="pricing-block">
+                    <span className="provider-summary-label">{copy.models.officialPrice}</span>
+                    {model.pricing && model.pricing.input_price !== null && model.pricing.output_price !== null ? (
+                      <>
+                        <div className="pricing-primary">
+                          {copy.models.pricingSummary(
+                            formatUsdPerMillion(model.pricing.input_price),
+                            formatUsdPerMillion(model.pricing.output_price),
+                          )}
+                        </div>
+                        {model.pricing.cached_input_price !== null ? (
+                          <div className="usage-meta">
+                            {copy.models.cachedPrice(formatUsdPerMillion(model.pricing.cached_input_price))}
+                          </div>
+                        ) : null}
+                        {model.pricing.high_price_threshold_tokens && model.pricing.input_price_high !== null && model.pricing.output_price_high !== null ? (
+                          <div className="usage-meta">
+                            {copy.models.pricingTier(
+                              model.pricing.high_price_threshold_tokens,
+                              formatUsdPerMillion(model.pricing.input_price_high),
+                              formatUsdPerMillion(model.pricing.output_price_high),
+                            )}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <div className="usage-meta">{copy.models.noOfficialPrice}</div>
+                    )}
+                    {model.pricing ? (
+                      <>
+                        {model.pricing.notes ? <div className="usage-meta">{model.pricing.notes}</div> : null}
+                        <div className="usage-meta">
+                          {copy.models.sourceLink}:{" "}
+                          <a href={model.pricing.source_url} target="_blank" rel="noreferrer">
+                            {model.pricing.source_label}
+                          </a>
+                        </div>
+                        <div className="usage-meta">{copy.models.syncedAt(formatPricingSync(model.pricing.synced_at, locale))}</div>
+                      </>
+                    ) : null}
+                  </div>
                   <div className="inline-actions">
                     <button type="button" onClick={() => handleToggleProviderModel(model.native_model, model.enabled)}>
                       {model.enabled ? copy.models.disable : copy.models.enable}

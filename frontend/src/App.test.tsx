@@ -85,6 +85,23 @@ describe("App", () => {
                 source: "discovered",
                 enabled: true,
                 manually_overridden: false,
+                pricing: {
+                  provider_name: "codex",
+                  native_model: "gpt-5.4",
+                  source_url: "https://openai.com/api/pricing/",
+                  source_label: "OpenAI API Pricing",
+                  currency: "USD",
+                  unit: "1M tokens",
+                  input_price: 2.5,
+                  cached_input_price: 0.25,
+                  output_price: 15,
+                  input_price_high: 5,
+                  cached_input_price_high: 0.5,
+                  output_price_high: 22.5,
+                  high_price_threshold_tokens: 270000,
+                  notes: "Standard pricing. Higher short-context price applies above 270k context.",
+                  synced_at: "2026-04-21T00:00:00Z",
+                },
               },
             ]),
           );
@@ -218,6 +235,8 @@ describe("App", () => {
     window.dispatchEvent(new HashChangeEvent("hashchange"));
     expect(await screen.findByText("gpt-5.4")).toBeTruthy();
     expect(screen.getByRole("tab", { name: "codex" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("$2.50 in · $15.00 out")).toBeTruthy();
+    expect(screen.getByText("OpenAI API Pricing")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("link", { name: "Providers" }));
     window.dispatchEvent(new HashChangeEvent("hashchange"));

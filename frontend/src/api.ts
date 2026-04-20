@@ -92,6 +92,25 @@ export type ProviderModel = {
   source: string;
   enabled: boolean;
   manually_overridden: boolean;
+  pricing: ModelPricing | null;
+};
+
+export type ModelPricing = {
+  provider_name: string;
+  native_model: string;
+  source_url: string;
+  source_label: string;
+  currency: string;
+  unit: string;
+  input_price: number | null;
+  cached_input_price: number | null;
+  output_price: number | null;
+  input_price_high: number | null;
+  cached_input_price_high: number | null;
+  output_price_high: number | null;
+  high_price_threshold_tokens: number | null;
+  notes: string | null;
+  synced_at: string;
 };
 
 export type DashboardTimeseriesBucket = {
