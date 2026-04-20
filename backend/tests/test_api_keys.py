@@ -104,3 +104,29 @@ def test_api_key_per_minute_limit_is_enforced(tmp_path, monkeypatch) -> None:
     assert second_response.json() == {"detail": "minute rate limit exceeded"}
     assert usage_response.status_code == 200
     assert usage_response.json()["limited_requests"] == 1
+
+
+def test_admin_usage_summary_exposes_provider_and_model_activity(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        _, api_key, key_id = _create_account_and_key(client)
+        completion_response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "missing:default",
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+        assert completion_response.status_code == 404
+
+        response = client.get(
+            f"/admin/api-keys/{key_id}/usage",
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["total_requests"] == 1
+    assert response.json()["by_provider"] == {"missing": 1}
+    assert response.json()["by_model"] == {"missing:default": 1}

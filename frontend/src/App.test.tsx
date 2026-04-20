@@ -87,7 +87,7 @@ describe("App", () => {
     expect(screen.getByText("Models")).toBeTruthy();
     expect(screen.getByText("Accounts")).toBeTruthy();
     expect(screen.getByText("API Keys")).toBeTruthy();
-    expect(screen.getByText("Usage")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Usage" })).toBeTruthy();
     expect(screen.getByText("Settings")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add Account" })).toBeTruthy();
     expect(screen.getByText("Provider Registry")).toBeTruthy();

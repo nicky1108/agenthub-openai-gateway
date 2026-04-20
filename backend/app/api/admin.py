@@ -132,6 +132,8 @@ class UsageSummary(BaseModel):
     api_key_id: int
     total_requests: int
     limited_requests: int
+    by_provider: dict[str, int]
+    by_model: dict[str, int]
 
 
 class DashboardSummary(BaseModel):
@@ -320,11 +322,20 @@ async def get_api_key_usage(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api key not found")
     rows = await session.scalars(select(UsageRecord).where(UsageRecord.api_key_id == key_id))
     usage_rows = list(rows)
+    by_provider: dict[str, int] = {}
+    by_model: dict[str, int] = {}
+    for row in usage_rows:
+        if row.provider_name:
+            by_provider[row.provider_name] = by_provider.get(row.provider_name, 0) + 1
+        if row.model_id:
+            by_model[row.model_id] = by_model.get(row.model_id, 0) + 1
     return UsageSummary(
         account_id=key.account_id,
         api_key_id=key.id,
         total_requests=len(usage_rows),
         limited_requests=sum(1 for row in usage_rows if row.outcome == "limited"),
+        by_provider=by_provider,
+        by_model=by_model,
     )
 
 

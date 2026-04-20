@@ -1,7 +1,16 @@
 import { type FormEvent, useEffect, useState } from "react";
 
-import { createAccount, createApiKey, createProvider, getAccounts, getApiKeys, getHealth, getProviders } from "./api";
-import type { Account, ApiKey, Provider, ProviderHealth } from "./api";
+import {
+  createAccount,
+  createApiKey,
+  createProvider,
+  getAccounts,
+  getApiKeys,
+  getApiKeyUsage,
+  getHealth,
+  getProviders,
+} from "./api";
+import type { Account, ApiKey, Provider, ProviderHealth, UsageSummary } from "./api";
 
 type DashboardSummary = {
   total_requests: number;
@@ -31,13 +40,49 @@ async function getDashboardSummary(): Promise<DashboardSummary> {
   };
 }
 
+function createEmptyUsageSummary(accountId: number, apiKeyId: number): UsageSummary {
+  return {
+    account_id: accountId,
+    api_key_id: apiKeyId,
+    total_requests: 0,
+    limited_requests: 0,
+    by_provider: {},
+    by_model: {},
+  };
+}
+
+function aggregateUsage(
+  usageSummaries: Record<number, UsageSummary>,
+  field: "by_provider" | "by_model",
+): Array<[string, number]> {
+  const totals = new Map<string, number>();
+
+  for (const usage of Object.values(usageSummaries)) {
+    for (const [name, count] of Object.entries(usage[field])) {
+      totals.set(name, (totals.get(name) ?? 0) + count);
+    }
+  }
+
+  return Array.from(totals.entries()).sort((left, right) => right[1] - left[1]);
+}
+
+function formatLastUsed(lastUsedAt: string | null): string {
+  if (!lastUsedAt) {
+    return "No activity yet";
+  }
+
+  return new Date(lastUsedAt).toLocaleString();
+}
+
 export default function App() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [usageByKeyId, setUsageByKeyId] = useState<Record<number, UsageSummary>>({});
   const [providers, setProviders] = useState<Provider[]>([]);
   const [health, setHealth] = useState<ProviderHealth[]>([]);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [usageError, setUsageError] = useState<string | null>(null);
   const [accountName, setAccountName] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [apiKeyName, setApiKeyName] = useState("");
@@ -54,20 +99,29 @@ export default function App() {
 
   useEffect(() => {
     void Promise.all([getAccounts(), getApiKeys(), getProviders(), getHealth(), getDashboardSummary()])
-      .then(([accountRows, keyRows, providerRows, healthRows, dashboard]) => {
+      .then(async ([accountRows, keyRows, providerRows, healthRows, dashboard]) => {
+        const usageRows = await Promise.all(keyRows.map((key) => getApiKeyUsage(key.id)));
+        const usageMap = Object.fromEntries(usageRows.map((usage) => [usage.api_key_id, usage])) as Record<
+          number,
+          UsageSummary
+        >;
         setAccounts(accountRows);
         setApiKeys(keyRows);
+        setUsageByKeyId(usageMap);
         setProviders(providerRows);
         setHealth(healthRows);
         setDashboardSummary(dashboard);
         setDashboardError(null);
+        setUsageError(null);
         if (accountRows.length > 0) {
           setSelectedAccountId(String(accountRows[0].id));
         }
       })
       .catch((error: unknown) => {
         setDashboardSummary(null);
+        setUsageByKeyId({});
         setDashboardError(error instanceof Error ? error.message : "dashboard unavailable");
+        setUsageError(error instanceof Error ? error.message : "usage unavailable");
       });
   }, []);
 
@@ -86,6 +140,10 @@ export default function App() {
       name: apiKeyName,
     });
     setApiKeys((current) => current.concat(created));
+    setUsageByKeyId((current) => ({
+      ...current,
+      [created.id]: createEmptyUsageSummary(created.account_id, created.id),
+    }));
     setCreatedApiKey(created.api_key);
     setApiKeyName("");
   }
@@ -117,6 +175,19 @@ export default function App() {
     setChatCapable(true);
     setStreamCapable(true);
   }
+
+  const recentKeyActivity = apiKeys
+    .map((apiKey) => ({
+      apiKey,
+      usage: usageByKeyId[apiKey.id] ?? createEmptyUsageSummary(apiKey.account_id, apiKey.id),
+    }))
+    .sort((left, right) => {
+      const leftTime = left.apiKey.last_used_at ? new Date(left.apiKey.last_used_at).getTime() : 0;
+      const rightTime = right.apiKey.last_used_at ? new Date(right.apiKey.last_used_at).getTime() : 0;
+      return rightTime - leftTime || right.usage.total_requests - left.usage.total_requests;
+    });
+  const providerActivity = aggregateUsage(usageByKeyId, "by_provider").slice(0, 5);
+  const modelActivity = aggregateUsage(usageByKeyId, "by_model").slice(0, 5);
 
   return (
     <main className="app-shell">
@@ -326,11 +397,43 @@ export default function App() {
           </section>
 
           <section id="usage">
-            <h2>Gateway Logs</h2>
-            <p>
-              Request logs land in the backend first. Keep the frontend read-only here until log
-              pagination exists.
-            </p>
+            <h2>Usage</h2>
+            {usageError ? <p role="alert">Usage unavailable: {usageError}</p> : null}
+            <div
+              className="split"
+              style={{ display: "grid", gap: "1rem", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
+            >
+              <div className="panel" style={{ border: "1px solid #d1d5db", borderRadius: "16px", padding: "1rem" }}>
+                <h3>Recent key activity</h3>
+                {recentKeyActivity.length === 0 ? (
+                  <p>No API keys yet.</p>
+                ) : (
+                  <ul>
+                    {recentKeyActivity.map(({ apiKey, usage }) => (
+                      <li key={apiKey.id}>
+                        <strong>{apiKey.name}</strong> ({apiKey.key_prefix}) - {usage.total_requests} requests,{" "}
+                        {usage.limited_requests} limited, last used {formatLastUsed(apiKey.last_used_at)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="panel" style={{ border: "1px solid #d1d5db", borderRadius: "16px", padding: "1rem" }}>
+                <h3>Top providers / models</h3>
+                <p>
+                  Providers:{" "}
+                  {providerActivity.length === 0
+                    ? "No attributed usage yet."
+                    : providerActivity.map(([name, count]) => `${name} (${count})`).join(", ")}
+                </p>
+                <p>
+                  Models:{" "}
+                  {modelActivity.length === 0
+                    ? "No model activity yet."
+                    : modelActivity.map(([name, count]) => `${name} (${count})`).join(", ")}
+                </p>
+              </div>
+            </div>
           </section>
           <section id="settings">
             <h2>Platform Settings</h2>

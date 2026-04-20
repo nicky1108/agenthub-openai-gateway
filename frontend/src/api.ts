@@ -47,6 +47,15 @@ export type CreatedApiKey = ApiKey & {
   api_key: string;
 };
 
+export type UsageSummary = {
+  account_id: number;
+  api_key_id: number;
+  total_requests: number;
+  limited_requests: number;
+  by_provider: Record<string, number>;
+  by_model: Record<string, number>;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -99,4 +108,16 @@ export async function createApiKey(payload: Record<string, unknown>): Promise<Cr
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function getApiKeyUsage(keyId: number): Promise<UsageSummary> {
+  const payload = await request<Partial<UsageSummary>>(`/admin/api-keys/${keyId}/usage`);
+  return {
+    account_id: payload.account_id ?? 0,
+    api_key_id: payload.api_key_id ?? keyId,
+    total_requests: payload.total_requests ?? 0,
+    limited_requests: payload.limited_requests ?? 0,
+    by_provider: payload.by_provider ?? {},
+    by_model: payload.by_model ?? {},
+  };
 }
