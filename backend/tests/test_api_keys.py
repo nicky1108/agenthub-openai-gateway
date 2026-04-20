@@ -10,6 +10,11 @@ def _create_account_and_key(client: TestClient, *, per_minute: int | None = None
         headers={"x-admin-secret": "change-me"},
     )
     account_id = account_response.json()["id"]
+    client.post(
+        f"/admin/accounts/{account_id}/credits/adjust",
+        json={"credits_delta": 5000, "notes": "test credits"},
+        headers={"x-admin-secret": "change-me"},
+    )
     key_response = client.post(
         "/admin/api-keys",
         json={

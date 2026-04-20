@@ -85,6 +85,8 @@ def backfill_sqlite_account_auth_columns(connection: Connection) -> None:
         connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN oauth_subject VARCHAR(255)")
     if "created_at" not in column_names:
         connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN created_at DATETIME")
+    if "credit_balance" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN credit_balance INTEGER NOT NULL DEFAULT 0")
 
     index_rows = connection.exec_driver_sql("PRAGMA index_list(accounts)").mappings().all()
     has_unique_email_index = False
@@ -108,6 +110,46 @@ def backfill_sqlite_account_auth_columns(connection: Connection) -> None:
     )
 
 
+def backfill_sqlite_usage_billing_columns(connection: Connection) -> None:
+    if connection.dialect.name != "sqlite":
+        return
+
+    table_rows = connection.exec_driver_sql("PRAGMA table_info(usage_records)").mappings().all()
+    column_names = {row["name"] for row in table_rows}
+    if not column_names:
+        return
+
+    if "input_tokens" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE usage_records ADD COLUMN input_tokens INTEGER")
+    if "output_tokens" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE usage_records ADD COLUMN output_tokens INTEGER")
+    if "cached_input_tokens" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE usage_records ADD COLUMN cached_input_tokens INTEGER")
+    if "usd_amount" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE usage_records ADD COLUMN usd_amount FLOAT")
+    if "credits_charged" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE usage_records ADD COLUMN credits_charged INTEGER")
+    if "pricing_source" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE usage_records ADD COLUMN pricing_source VARCHAR(32)")
+    if "token_source" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE usage_records ADD COLUMN token_source VARCHAR(32)")
+
+
+def backfill_sqlite_model_pricing_columns(connection: Connection) -> None:
+    if connection.dialect.name != "sqlite":
+        return
+
+    table_rows = connection.exec_driver_sql("PRAGMA table_info(model_pricing)").mappings().all()
+    column_names = {row["name"] for row in table_rows}
+    if not column_names:
+        return
+
+    if "source_kind" not in column_names:
+        connection.exec_driver_sql(
+            "ALTER TABLE model_pricing ADD COLUMN source_kind VARCHAR(32) NOT NULL DEFAULT 'official_snapshot'"
+        )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = Settings()
@@ -116,6 +158,8 @@ async def lifespan(_: FastAPI):
         await connection.run_sync(Base.metadata.create_all)
         await connection.run_sync(backfill_sqlite_provider_capability_columns)
         await connection.run_sync(backfill_sqlite_account_auth_columns)
+        await connection.run_sync(backfill_sqlite_usage_billing_columns)
+        await connection.run_sync(backfill_sqlite_model_pricing_columns)
     session_factory = get_session_factory(settings.database_url)
     discovery = ProviderDiscoveryService()
     pricing = OfficialPricingService()

@@ -259,6 +259,7 @@ def test_admin_lists_official_pricing_for_provider_models(tmp_path, monkeypatch)
     assert gpt54["pricing"] == {
         "provider_name": "codex",
         "native_model": "gpt-5.4",
+        "source_kind": "official_snapshot",
         "source_url": "https://openai.com/api/pricing/",
         "source_label": "OpenAI API Pricing",
         "currency": "USD",
@@ -273,6 +274,40 @@ def test_admin_lists_official_pricing_for_provider_models(tmp_path, monkeypatch)
         "notes": "Standard pricing. Higher short-context price applies above 270k context.",
         "synced_at": gpt54["pricing"]["synced_at"],
     }
+
+
+def test_admin_can_override_provider_model_pricing(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        create_response = client.post(
+            "/admin/providers",
+            json={
+                "name": "gemini",
+                "http_enabled": False,
+                "cli_enabled": True,
+                "route_policy": "fixed-cli",
+                "cli_command": "/bin/echo",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        assert create_response.status_code == 201
+
+        patch_response = client.patch(
+            "/admin/providers/gemini/models/gemini-3.1-pro-preview/pricing",
+            json={
+                "input_price": 3.5,
+                "cached_input_price": 0.35,
+                "output_price": 18.0,
+                "notes": "Temporary manual override",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert patch_response.status_code == 200
+    assert patch_response.json()["source_kind"] == "manual_override"
+    assert patch_response.json()["input_price"] == 3.5
+    assert patch_response.json()["notes"] == "Temporary manual override"
 
 
 def test_admin_can_override_provider_model_exposure(tmp_path, monkeypatch) -> None:

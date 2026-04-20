@@ -89,9 +89,16 @@ type Copy = {
     totalAccounts: string;
     activeAccounts: string;
     pendingNotes: string;
+    credits: string;
+    selectedBalance: (value: number) => string;
     activeOnly: string;
     noteCount: (count: number) => string;
     empty: string;
+    creditDelta: string;
+    adjustmentNotes: string;
+    applyCreditAdjustment: string;
+    ledgerEmpty: string;
+    balanceAfter: (value: number) => string;
   };
   apiKeys: {
     eyebrow: string;
@@ -172,6 +179,17 @@ type Copy = {
       pricingTier: (threshold: number, input: string, output: string) => string;
       sourceLink: string;
       syncedAt: (value: string) => string;
+      refreshOfficialPricing: string;
+      pricingTargetModel: string;
+      inputPrice: string;
+      cachedInputPrice: string;
+      outputPrice: string;
+      highTierInput: string;
+      highTierCachedInput: string;
+      highTierOutput: string;
+      highTierThreshold: string;
+      pricingNotes: string;
+      savePricingOverride: string;
     };
   usage: {
     eyebrow: string;
@@ -303,9 +321,16 @@ export const messages: Record<Locale, Copy> = {
       totalAccounts: "Total Accounts",
       activeAccounts: "Active Accounts",
       pendingNotes: "Accounts With Notes",
+      credits: "Credits",
+      selectedBalance: (value) => `Current account balance ${value}`,
       activeOnly: "Active only",
       noteCount: (count) => `${count} with notes`,
       empty: "No accounts yet.",
+      creditDelta: "Credits delta",
+      adjustmentNotes: "Notes",
+      applyCreditAdjustment: "Apply Credit Adjustment",
+      ledgerEmpty: "No credit ledger entries yet.",
+      balanceAfter: (value) => `balance ${value}`,
     },
     apiKeys: {
       eyebrow: "Access",
@@ -386,6 +411,17 @@ export const messages: Record<Locale, Copy> = {
       pricingTier: (threshold, input, output) => `Above ${threshold.toLocaleString()} tokens: ${input} in · ${output} out`,
       sourceLink: "Source",
       syncedAt: (value) => `Synced ${value}`,
+      refreshOfficialPricing: "Refresh Official Pricing",
+      pricingTargetModel: "Pricing target model",
+      inputPrice: "Input price",
+      cachedInputPrice: "Cached input price",
+      outputPrice: "Output price",
+      highTierInput: "High-tier input",
+      highTierCachedInput: "High-tier cached input",
+      highTierOutput: "High-tier output",
+      highTierThreshold: "High-tier threshold tokens",
+      pricingNotes: "Pricing notes",
+      savePricingOverride: "Save Pricing Override",
     },
     usage: {
       eyebrow: "Activity",
@@ -511,9 +547,16 @@ export const messages: Record<Locale, Copy> = {
       totalAccounts: "账户总数",
       activeAccounts: "活跃账户",
       pendingNotes: "含备注账户",
+      credits: "信用点",
+      selectedBalance: (value) => `当前账户余额 ${value}`,
       activeOnly: "全部活跃",
       noteCount: (count) => `${count} 个带备注`,
       empty: "暂无账户。",
+      creditDelta: "信用点变动",
+      adjustmentNotes: "备注",
+      applyCreditAdjustment: "提交信用点调整",
+      ledgerEmpty: "暂无信用点流水。",
+      balanceAfter: (value) => `余额 ${value}`,
     },
     apiKeys: {
       eyebrow: "访问",
@@ -594,6 +637,17 @@ export const messages: Record<Locale, Copy> = {
       pricingTier: (threshold, input, output) => `超过 ${threshold.toLocaleString()} tokens：输入 ${input} · 输出 ${output}`,
       sourceLink: "来源",
       syncedAt: (value) => `同步时间 ${value}`,
+      refreshOfficialPricing: "刷新官方价格",
+      pricingTargetModel: "价格目标模型",
+      inputPrice: "输入价格",
+      cachedInputPrice: "缓存输入价格",
+      outputPrice: "输出价格",
+      highTierInput: "高阶输入价",
+      highTierCachedInput: "高阶缓存输入价",
+      highTierOutput: "高阶输出价",
+      highTierThreshold: "高阶阈值 tokens",
+      pricingNotes: "价格备注",
+      savePricingOverride: "保存价格覆盖",
     },
     usage: {
       eyebrow: "活跃度",

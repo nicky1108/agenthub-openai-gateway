@@ -49,6 +49,7 @@ class ModelPricingRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     provider_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     native_model: Mapped[str] = mapped_column(String(200), nullable=False)
+    source_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="official_snapshot")
     source_url: Mapped[str] = mapped_column(String(500), nullable=False)
     source_label: Mapped[str] = mapped_column(String(200), nullable=False)
     currency: Mapped[str] = mapped_column(String(16), nullable=False, default="USD")
@@ -78,6 +79,7 @@ class AccountRecord(Base):
     oauth_provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
     oauth_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    credit_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -131,6 +133,38 @@ class UsageRecord(Base):
     provider_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     model_id: Mapped[str | None] = mapped_column(String(300), nullable=True)
     outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cached_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    usd_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    credits_charged: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pricing_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    token_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
+class CreditLedgerRecord(Base):
+    __tablename__ = "credit_ledger"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False, index=True)
+    api_key_id: Mapped[int | None] = mapped_column(ForeignKey("api_keys.id"), nullable=True, index=True)
+    usage_record_id: Mapped[int | None] = mapped_column(ForeignKey("usage_records.id"), nullable=True, index=True)
+    entry_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    credits_delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    balance_after: Mapped[int] = mapped_column(Integer, nullable=False)
+    usd_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    provider_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    model_id: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cached_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pricing_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -1,10 +1,12 @@
 import { type FormEvent, useEffect, useState } from "react";
 
 import {
+  adjustAccountCredits,
   createAccount,
   createApiKey,
   createProviderModel,
   createProvider,
+  getAccountCreditLedger,
   getAuthProviders,
   getDashboardSummary,
   getDashboardTimeseries,
@@ -18,12 +20,14 @@ import {
   getUsageOverview,
   loginWithPassword,
   patchProviderModel,
+  patchProviderModelPricing,
+  refreshProviderPricing,
   revokeApiKey,
   rediscoverProviderModels,
   logoutSession,
   registerWithPassword,
 } from "./api";
-import type { Account, ApiKey, AuthAccount, Provider, ProviderHealth, ProviderModel, UsageOverview } from "./api";
+import type { Account, ApiKey, AuthAccount, CreditLedgerEntry, Provider, ProviderHealth, ProviderModel, UsageOverview } from "./api";
 import type {
   AuthProviderStatus,
   DashboardTimeseries,
@@ -145,8 +149,11 @@ export default function App() {
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [usageError, setUsageError] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [creditLedger, setCreditLedger] = useState<Record<number, CreditLedgerEntry[]>>({});
 
   const [accountName, setAccountName] = useState("");
+  const [creditAdjustment, setCreditAdjustment] = useState("");
+  const [creditAdjustmentNotes, setCreditAdjustmentNotes] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [apiKeyName, setApiKeyName] = useState("");
   const [createdApiKey, setCreatedApiKey] = useState<string | null>(null);
@@ -165,6 +172,15 @@ export default function App() {
   const [selectedProviderName, setSelectedProviderName] = useState("");
   const [manualNativeModel, setManualNativeModel] = useState("");
   const [manualExposedModelId, setManualExposedModelId] = useState("");
+  const [pricingNativeModel, setPricingNativeModel] = useState("");
+  const [pricingInput, setPricingInput] = useState("");
+  const [pricingCachedInput, setPricingCachedInput] = useState("");
+  const [pricingOutput, setPricingOutput] = useState("");
+  const [pricingInputHigh, setPricingInputHigh] = useState("");
+  const [pricingCachedInputHigh, setPricingCachedInputHigh] = useState("");
+  const [pricingOutputHigh, setPricingOutputHigh] = useState("");
+  const [pricingThreshold, setPricingThreshold] = useState("");
+  const [pricingNotes, setPricingNotes] = useState("");
   const copy = messages[locale];
   const NAV_ITEMS: Array<{ id: RouteId; label: string }> = [
     { id: "dashboard", label: copy.nav.dashboard },
@@ -205,12 +221,17 @@ export default function App() {
     setSettingsError(null);
     if (accountRows.length > 0) {
       setSelectedAccountId(String(accountRows[0].id));
+      const firstAccountLedger = await getAccountCreditLedger(accountRows[0].id);
+      setCreditLedger((current) => ({ ...current, [accountRows[0].id]: firstAccountLedger }));
     }
     if (providerRows.length > 0) {
       const defaultProvider = providerRows[0].name;
       setSelectedProviderName(defaultProvider);
       const models = await getProviderModels(defaultProvider);
       setProviderModels((current) => ({ ...current, [defaultProvider]: models }));
+      if (models.length > 0) {
+        setPricingNativeModel(models[0].native_model);
+      }
     }
   }
 
@@ -269,6 +290,19 @@ export default function App() {
   }, [providers, selectedProviderName]);
 
   useEffect(() => {
+    if (!selectedAccountId) {
+      return;
+    }
+    const accountId = Number(selectedAccountId);
+    if (creditLedger[accountId]) {
+      return;
+    }
+    void getAccountCreditLedger(accountId).then((ledger) => {
+      setCreditLedger((current) => ({ ...current, [accountId]: ledger }));
+    });
+  }, [selectedAccountId, creditLedger]);
+
+  useEffect(() => {
     if (authState !== "authenticated") {
       return;
     }
@@ -288,6 +322,20 @@ export default function App() {
     setAccounts((current) => current.concat(created));
     setSelectedAccountId(String(created.id));
     setAccountName("");
+    setCreditLedger((current) => ({ ...current, [created.id]: [] }));
+  }
+
+  async function handleCreditAdjustmentSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const adjusted = await adjustAccountCredits(Number(selectedAccountId), {
+      credits_delta: Number(creditAdjustment),
+      notes: creditAdjustmentNotes || null,
+    });
+    setAccounts((current) => current.map((row) => (row.id === adjusted.id ? adjusted : row)));
+    const ledger = await getAccountCreditLedger(adjusted.id);
+    setCreditLedger((current) => ({ ...current, [adjusted.id]: ledger }));
+    setCreditAdjustment("");
+    setCreditAdjustmentNotes("");
   }
 
   async function handleApiKeySubmit(event: FormEvent<HTMLFormElement>) {
@@ -358,6 +406,9 @@ export default function App() {
   async function loadSelectedProviderModels(providerName: string) {
     const rows = await getProviderModels(providerName);
     setProviderModels((current) => ({ ...current, [providerName]: rows }));
+    if (rows.length > 0) {
+      setPricingNativeModel(rows[0].native_model);
+    }
   }
 
   async function handleRediscoverModels(providerNameOverride?: string) {
@@ -365,6 +416,36 @@ export default function App() {
     if (!providerName) return;
     const rows = await rediscoverProviderModels(providerName);
     setProviderModels((current) => ({ ...current, [providerName]: rows }));
+    if (rows.length > 0) {
+      setPricingNativeModel(rows[0].native_model);
+    }
+  }
+
+  async function handleRefreshPricing() {
+    if (!selectedProviderName) return;
+    const rows = await refreshProviderPricing(selectedProviderName);
+    setProviderModels((current) => ({ ...current, [selectedProviderName]: rows }));
+  }
+
+  async function handlePricingOverrideSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProviderName || !pricingNativeModel) return;
+    const pricing = await patchProviderModelPricing(selectedProviderName, pricingNativeModel, {
+      input_price: pricingInput ? Number(pricingInput) : null,
+      cached_input_price: pricingCachedInput ? Number(pricingCachedInput) : null,
+      output_price: pricingOutput ? Number(pricingOutput) : null,
+      input_price_high: pricingInputHigh ? Number(pricingInputHigh) : null,
+      cached_input_price_high: pricingCachedInputHigh ? Number(pricingCachedInputHigh) : null,
+      output_price_high: pricingOutputHigh ? Number(pricingOutputHigh) : null,
+      high_price_threshold_tokens: pricingThreshold ? Number(pricingThreshold) : null,
+      notes: pricingNotes || null,
+    });
+    setProviderModels((current) => ({
+      ...current,
+      [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) =>
+        row.native_model === pricingNativeModel ? { ...row, pricing } : row,
+      ),
+    }));
   }
 
   async function handleOpenProviderModels(providerName: string) {
@@ -474,11 +555,13 @@ export default function App() {
   const totalSeriesLimited = (dashboardSeries?.buckets ?? []).reduce((sum, bucket) => sum + bucket.limited_requests, 0);
   const activeAccounts = accounts.filter((account) => account.status === "active").length;
   const accountsWithNotes = accounts.filter((account) => Boolean(account.notes)).length;
+  const totalCredits = accounts.reduce((sum, account) => sum + account.credit_balance, 0);
   const activeApiKeys = apiKeys.filter((apiKey) => apiKey.status === "active").length;
   const revokedApiKeys = apiKeys.filter((apiKey) => apiKey.status === "revoked").length;
   const quotaConfiguredKeys = apiKeys.filter(
     (apiKey) => apiKey.per_minute !== null || apiKey.per_hour !== null || apiKey.per_day !== null,
   ).length;
+  const selectedAccountLedger = selectedAccountId ? (creditLedger[Number(selectedAccountId)] ?? []) : [];
 
   function renderCurrentPage() {
     switch (currentRoute) {
@@ -590,6 +673,11 @@ export default function App() {
                 <strong>{accountsWithNotes}</strong>
                 <p>{copy.accounts.noteCount(accountsWithNotes)}</p>
               </article>
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">{copy.accounts.credits}</span>
+                <strong>{totalCredits}</strong>
+                <p>{selectedAccountId ? copy.accounts.selectedBalance(accounts.find((row) => String(row.id) === selectedAccountId)?.credit_balance ?? 0) : copy.common.noData}</p>
+              </article>
             </div>
             <form onSubmit={handleAccountSubmit}>
               <label>
@@ -602,10 +690,47 @@ export default function App() {
               {accounts.length === 0 ? <li>{copy.accounts.empty}</li> : accounts.map((account) => (
                 <li key={account.id}>
                   <strong>{account.name}</strong>
-                  <div className="usage-meta">{account.status}</div>
+                  <div className="usage-meta">{account.status} · {account.credit_balance} credits</div>
                   {account.notes ? <div className="usage-meta">{account.notes}</div> : null}
                 </li>
               ))}
+            </ul>
+            <form onSubmit={handleCreditAdjustmentSubmit}>
+              <label>
+                {copy.apiKeys.account}
+                <select value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {copy.accounts.creditDelta}
+                <input value={creditAdjustment} onChange={(event) => setCreditAdjustment(event.target.value)} />
+              </label>
+              <label>
+                {copy.accounts.adjustmentNotes}
+                <input value={creditAdjustmentNotes} onChange={(event) => setCreditAdjustmentNotes(event.target.value)} />
+              </label>
+              <button type="submit">{copy.accounts.applyCreditAdjustment}</button>
+            </form>
+            <ul>
+              {selectedAccountLedger.length === 0 ? (
+                <li>{copy.accounts.ledgerEmpty}</li>
+              ) : (
+                selectedAccountLedger.map((entry) => (
+                  <li key={entry.id}>
+                    <strong>{entry.entry_type}</strong>
+                    <div className="usage-meta">
+                      {entry.credits_delta} {copy.accounts.credits} · {copy.accounts.balanceAfter(entry.balance_after)}
+                    </div>
+                    {entry.model_id ? <div className="usage-meta">{entry.model_id}</div> : null}
+                    {entry.notes ? <div className="usage-meta">{entry.notes}</div> : null}
+                  </li>
+                ))
+              )}
             </ul>
           </section>
         );
@@ -851,9 +976,14 @@ export default function App() {
                 <span className="section-eyebrow">{copy.models.eyebrow}</span>
                 <h2>{copy.models.title}</h2>
               </div>
-              <button type="button" onClick={() => void handleRediscoverModels()} disabled={!selectedProviderName}>
-                {copy.common.rediscover}
-              </button>
+              <div className="inline-actions">
+                <button type="button" onClick={() => void handleRediscoverModels()} disabled={!selectedProviderName}>
+                  {copy.common.rediscover}
+                </button>
+                <button type="button" onClick={() => void handleRefreshPricing()} disabled={!selectedProviderName}>
+                  {copy.models.refreshOfficialPricing}
+                </button>
+              </div>
             </div>
             {providers.length === 0 ? (
               <p>{copy.models.noProviders}</p>
@@ -965,6 +1095,45 @@ export default function App() {
                 />
               </label>
               <button type="submit">{copy.models.addManualModel}</button>
+            </form>
+            <form onSubmit={handlePricingOverrideSubmit}>
+              <label>
+                {copy.models.pricingTargetModel}
+                <input value={pricingNativeModel} onChange={(event) => setPricingNativeModel(event.target.value)} />
+              </label>
+              <label>
+                {copy.models.inputPrice}
+                <input value={pricingInput} onChange={(event) => setPricingInput(event.target.value)} />
+              </label>
+              <label>
+                {copy.models.cachedInputPrice}
+                <input value={pricingCachedInput} onChange={(event) => setPricingCachedInput(event.target.value)} />
+              </label>
+              <label>
+                {copy.models.outputPrice}
+                <input value={pricingOutput} onChange={(event) => setPricingOutput(event.target.value)} />
+              </label>
+              <label>
+                {copy.models.highTierInput}
+                <input value={pricingInputHigh} onChange={(event) => setPricingInputHigh(event.target.value)} />
+              </label>
+              <label>
+                {copy.models.highTierCachedInput}
+                <input value={pricingCachedInputHigh} onChange={(event) => setPricingCachedInputHigh(event.target.value)} />
+              </label>
+              <label>
+                {copy.models.highTierOutput}
+                <input value={pricingOutputHigh} onChange={(event) => setPricingOutputHigh(event.target.value)} />
+              </label>
+              <label>
+                {copy.models.highTierThreshold}
+                <input value={pricingThreshold} onChange={(event) => setPricingThreshold(event.target.value)} />
+              </label>
+              <label>
+                {copy.models.pricingNotes}
+                <input value={pricingNotes} onChange={(event) => setPricingNotes(event.target.value)} />
+              </label>
+              <button type="submit">{copy.models.savePricingOverride}</button>
             </form>
           </section>
         );

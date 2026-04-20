@@ -15,6 +15,7 @@ class PricingSnapshot:
     native_model: str
     source_url: str
     source_label: str
+    source_kind: str = "official_snapshot"
     currency: str = "USD"
     unit: str = "1M tokens"
     input_price: float | None = None
@@ -194,6 +195,7 @@ class OfficialPricingService:
                     ModelPricingRecord(
                         provider_name=snapshot.provider_name,
                         native_model=snapshot.native_model,
+                        source_kind=snapshot.source_kind,
                         source_url=snapshot.source_url,
                         source_label=snapshot.source_label,
                         currency=snapshot.currency,
@@ -211,6 +213,10 @@ class OfficialPricingService:
                 )
                 continue
 
+            if row.source_kind == "manual_override":
+                continue
+
+            row.source_kind = snapshot.source_kind
             row.source_url = snapshot.source_url
             row.source_label = snapshot.source_label
             row.currency = snapshot.currency

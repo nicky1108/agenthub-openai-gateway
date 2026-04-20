@@ -75,6 +75,8 @@ class ChatOrchestrator:
     ) -> tuple[ChatRequest, ProviderRecord]:
         request = self._build_request(payload)
         provider = await self.registry.get_provider(session, request.provider_name)
+        if request.provider_model == "default":
+            request.provider_model = provider.exposed_model
         return request, provider
 
     async def run(self, payload: dict[str, object], session: AsyncSession) -> dict[str, object]:

@@ -28,6 +28,7 @@ export type Account = {
   id: number;
   name: string;
   status: string;
+  credit_balance: number;
   notes?: string | null;
 };
 
@@ -98,6 +99,7 @@ export type ProviderModel = {
 export type ModelPricing = {
   provider_name: string;
   native_model: string;
+  source_kind: string;
   source_url: string;
   source_label: string;
   currency: string;
@@ -135,6 +137,25 @@ export type SettingsOverview = {
   github_oauth_enabled: boolean;
   google_oauth_enabled: boolean;
   admin_secret_configured: boolean;
+};
+
+export type CreditLedgerEntry = {
+  id: number;
+  account_id: number;
+  api_key_id: number | null;
+  usage_record_id: number | null;
+  entry_type: string;
+  credits_delta: number;
+  balance_after: number;
+  usd_amount: number | null;
+  provider_name: string | null;
+  model_id: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cached_input_tokens: number | null;
+  pricing_source: string | null;
+  notes: string | null;
+  created_at: string;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -178,6 +199,20 @@ export async function createAccount(payload: Record<string, unknown>): Promise<A
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function adjustAccountCredits(
+  accountId: number,
+  payload: { credits_delta: number; notes?: string | null },
+): Promise<Account> {
+  return request<Account>(`/admin/accounts/${accountId}/credits/adjust`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getAccountCreditLedger(accountId: number): Promise<CreditLedgerEntry[]> {
+  return request<CreditLedgerEntry[]>(`/admin/accounts/${accountId}/credits/ledger`);
 }
 
 export async function getApiKeys(): Promise<ApiKey[]> {
@@ -245,6 +280,32 @@ export async function createProviderModel(
 ): Promise<ProviderModel> {
   return request<ProviderModel>(`/admin/providers/${providerName}/models`, {
     method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function refreshProviderPricing(providerName: string): Promise<ProviderModel[]> {
+  return request<ProviderModel[]>(`/admin/providers/${providerName}/pricing/refresh`, {
+    method: "POST",
+  });
+}
+
+export async function patchProviderModelPricing(
+  providerName: string,
+  nativeModel: string,
+  payload: {
+    input_price?: number | null;
+    cached_input_price?: number | null;
+    output_price?: number | null;
+    input_price_high?: number | null;
+    cached_input_price_high?: number | null;
+    output_price_high?: number | null;
+    high_price_threshold_tokens?: number | null;
+    notes?: string | null;
+  },
+): Promise<ModelPricing> {
+  return request<ModelPricing>(`/admin/providers/${providerName}/models/${nativeModel}/pricing`, {
+    method: "PATCH",
     body: JSON.stringify(payload),
   });
 }

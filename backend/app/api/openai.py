@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,6 +7,7 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.service import AuthContext, auth_service, require_api_key
+from app.billing.service import billing_service
 from app.core.db import get_session
 from app.orchestration.chat import ChatOrchestrator
 from app.registry.service import ProviderNotFoundError, ProviderRegistry
@@ -54,13 +56,80 @@ async def create_chat_completion(
     try:
         if request_payload["stream"]:
             request, provider = await orchestrator.prepare(request_payload, session)
-            await auth_service.record_usage(session, auth, provider.name, payload.model, "success")
+            quote = await billing_service.quote_request(
+                session,
+                auth.account,
+                request.provider_name,
+                request.provider_model,
+                request.messages,
+                request.max_tokens,
+            )
+
+            async def billable_stream():
+                assistant_text = ""
+                usage_payload: dict[str, Any] | None = None
+                try:
+                    async for chunk in orchestrator.stream_prepared(request, provider):
+                        if chunk.startswith("data: "):
+                            data = chunk.removeprefix("data: ").strip()
+                            if data and data != "[DONE]":
+                                try:
+                                    payload_chunk = json.loads(data)
+                                except json.JSONDecodeError:
+                                    payload_chunk = None
+                                if isinstance(payload_chunk, dict):
+                                    usage = payload_chunk.get("usage")
+                                    if isinstance(usage, dict):
+                                        usage_payload = usage
+                                    choices = payload_chunk.get("choices")
+                                    if isinstance(choices, list):
+                                        for choice in choices:
+                                            delta = choice.get("delta", {})
+                                            if isinstance(delta, dict):
+                                                assistant_text += str(delta.get("content", ""))
+                        yield chunk
+                except Exception:
+                    await auth_service.record_usage(session, auth, provider.name, payload.model, "error")
+                    raise
+                usage = billing_service.usage_from_stream(request.messages, assistant_text, usage_payload)
+                await billing_service.settle_inference(
+                    session,
+                    auth,
+                    provider.name,
+                    payload.model,
+                    quote.pricing,
+                    usage,
+                )
+
             return StreamingResponse(
-                orchestrator.stream_prepared(request, provider),
+                billable_stream(),
                 media_type="text/event-stream",
             )
-        result = await orchestrator.run(request_payload, session)
-        await auth_service.record_usage(session, auth, provider_name, payload.model, "success")
+        request, provider = await orchestrator.prepare(request_payload, session)
+        quote = await billing_service.quote_request(
+            session,
+            auth.account,
+            request.provider_name,
+            request.provider_model,
+            request.messages,
+            request.max_tokens,
+        )
+        result = await orchestrator.run(
+            {
+                **request_payload,
+                "model": f"{request.provider_name}:{request.provider_model}",
+            },
+            session,
+        )
+        usage = billing_service.usage_from_result(payload.messages, result)
+        await billing_service.settle_inference(
+            session,
+            auth,
+            provider.name,
+            payload.model,
+            quote.pricing,
+            usage,
+        )
         return result
     except ProviderNotFoundError as exc:
         await auth_service.record_usage(session, auth, exc.provider_name, payload.model, "error")

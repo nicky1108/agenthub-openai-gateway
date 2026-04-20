@@ -12,10 +12,10 @@ def seed_dashboard_data(database_path) -> None:
     try:
         connection.execute(
             """
-            INSERT INTO accounts (name, email, status, created_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO accounts (name, email, status, credit_balance, created_at)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            ("dashboard-account", "dashboard@example.com", "active", now.isoformat()),
+            ("dashboard-account", "dashboard@example.com", "active", 0, now.isoformat()),
         )
         account_id = connection.execute("SELECT id FROM accounts WHERE email = ?", ("dashboard@example.com",)).fetchone()[0]
         connection.execute(

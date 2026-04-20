@@ -1,7 +1,10 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from types import SimpleNamespace
+
 from app.adapters.http.base import MockHttpAdapter
+from app.billing.service import billing_service
 from app.api import openai as openai_api
 from app.main import create_app
 
@@ -12,6 +15,11 @@ def _create_api_key(client: TestClient) -> str:
         json={"name": "chat-http-account"},
         headers={"x-admin-secret": "change-me"},
     )
+    client.post(
+        f"/admin/accounts/{account_response.json()['id']}/credits/adjust",
+        json={"credits_delta": 5000, "notes": "test credits"},
+        headers={"x-admin-secret": "change-me"},
+    )
     key_response = client.post(
         "/admin/api-keys",
         json={"account_id": account_response.json()["id"], "name": "chat-http-key"},
@@ -20,9 +28,19 @@ def _create_api_key(client: TestClient) -> str:
     return key_response.json()["api_key"]
 
 
+async def _fake_quote_request(*args, **kwargs):
+    return SimpleNamespace(pricing=None)
+
+
+async def _fake_settle_inference(*args, **kwargs):
+    return None
+
+
 def test_chat_completions_returns_openai_shaped_response(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
     monkeypatch.setattr(openai_api.orchestrator, "_http_adapter", lambda provider: MockHttpAdapter())
+    monkeypatch.setattr(billing_service, "quote_request", _fake_quote_request)
+    monkeypatch.setattr(billing_service, "settle_inference", _fake_settle_inference)
 
     with TestClient(create_app()) as client:
         api_key = _create_api_key(client)
@@ -56,6 +74,8 @@ def test_chat_completions_returns_openai_shaped_response(tmp_path, monkeypatch) 
 
 def test_chat_completions_returns_404_for_unknown_provider(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setattr(billing_service, "quote_request", _fake_quote_request)
+    monkeypatch.setattr(billing_service, "settle_inference", _fake_settle_inference)
 
     with TestClient(create_app()) as client:
         api_key = _create_api_key(client)

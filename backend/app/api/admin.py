@@ -8,9 +8,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.service import generate_api_key, hash_api_key
+from app.billing.service import billing_service
 from app.discovery.service import ProviderDiscoveryService
 from app.core.db import get_session
-from app.core.models import AccountRecord, ApiKeyRecord, ModelPricingRecord, ProviderModelRecord, ProviderRecord, UsageRecord
+from app.core.models import (
+    AccountRecord,
+    ApiKeyRecord,
+    CreditLedgerRecord,
+    ModelPricingRecord,
+    ProviderModelRecord,
+    ProviderRecord,
+    UsageRecord,
+)
 from app.pricing.service import OfficialPricingService
 from app.core.settings import Settings
 
@@ -78,6 +87,7 @@ class ProviderHealth(BaseModel):
 class ModelPricingRead(BaseModel):
     provider_name: str
     native_model: str
+    source_kind: str
     source_url: str
     source_label: str
     currency: str
@@ -114,6 +124,17 @@ class ProviderModelCreate(BaseModel):
     enabled: bool = True
 
 
+class PricingOverridePatch(BaseModel):
+    input_price: float | None = None
+    cached_input_price: float | None = None
+    output_price: float | None = None
+    input_price_high: float | None = None
+    cached_input_price_high: float | None = None
+    output_price_high: float | None = None
+    high_price_threshold_tokens: int | None = None
+    notes: str | None = None
+
+
 class AccountCreate(BaseModel):
     name: str
     notes: str | None = None
@@ -123,7 +144,32 @@ class AccountRead(BaseModel):
     id: int
     name: str
     status: str
+    credit_balance: int
     notes: str | None = None
+
+
+class CreditAdjustmentCreate(BaseModel):
+    credits_delta: int
+    notes: str | None = None
+
+
+class CreditLedgerRead(BaseModel):
+    id: int
+    account_id: int
+    api_key_id: int | None = None
+    usage_record_id: int | None = None
+    entry_type: str
+    credits_delta: int
+    balance_after: int
+    usd_amount: float | None = None
+    provider_name: str | None = None
+    model_id: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cached_input_tokens: int | None = None
+    pricing_source: str | None = None
+    notes: str | None = None
+    created_at: str
 
 
 class ApiKeyCreate(BaseModel):
@@ -248,7 +294,13 @@ async def create_provider(
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ProviderRead:
-    record = ProviderRecord(**payload.model_dump())
+    record_payload = payload.model_dump()
+    if record_payload["exposed_model"] == "default":
+        if record_payload["name"] == "codex":
+            record_payload["exposed_model"] = "gpt-5.4"
+        elif record_payload["name"] == "gemini":
+            record_payload["exposed_model"] = "gemini-2.5-pro"
+    record = ProviderRecord(**record_payload)
     session.add(record)
     try:
         await session.commit()
@@ -318,6 +370,57 @@ async def list_accounts(
 ) -> list[AccountRead]:
     rows = await session.scalars(select(AccountRecord).order_by(AccountRecord.id.asc()))
     return [AccountRead.model_validate(row, from_attributes=True) for row in rows]
+
+
+@router.post("/accounts/{account_id}/credits/adjust", response_model=AccountRead)
+async def adjust_account_credits(
+    account_id: int,
+    payload: CreditAdjustmentCreate,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AccountRead:
+    account = await session.scalar(select(AccountRecord).where(AccountRecord.id == account_id))
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+    await billing_service.record_manual_adjustment(session, account, payload.credits_delta, payload.notes)
+    await session.refresh(account)
+    return AccountRead.model_validate(account, from_attributes=True)
+
+
+@router.get("/accounts/{account_id}/credits/ledger", response_model=list[CreditLedgerRead])
+async def list_account_credit_ledger(
+    account_id: int,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[CreditLedgerRead]:
+    rows = list(
+        await session.scalars(
+            select(CreditLedgerRecord)
+            .where(CreditLedgerRecord.account_id == account_id)
+            .order_by(CreditLedgerRecord.created_at.desc(), CreditLedgerRecord.id.desc())
+        )
+    )
+    return [
+        CreditLedgerRead(
+            id=row.id,
+            account_id=row.account_id,
+            api_key_id=row.api_key_id,
+            usage_record_id=row.usage_record_id,
+            entry_type=row.entry_type,
+            credits_delta=row.credits_delta,
+            balance_after=row.balance_after,
+            usd_amount=row.usd_amount,
+            provider_name=row.provider_name,
+            model_id=row.model_id,
+            input_tokens=row.input_tokens,
+            output_tokens=row.output_tokens,
+            cached_input_tokens=row.cached_input_tokens,
+            pricing_source=row.pricing_source,
+            notes=row.notes,
+            created_at=row.created_at.isoformat(),
+        )
+        for row in rows
+    ]
 
 
 @router.post("/api-keys", response_model=ApiKeyCreated, status_code=status.HTTP_201_CREATED)
@@ -740,6 +843,7 @@ def serialize_pricing(row: ModelPricingRecord | None) -> ModelPricingRead | None
     return ModelPricingRead(
         provider_name=row.provider_name,
         native_model=row.native_model,
+        source_kind=row.source_kind,
         source_url=row.source_url,
         source_label=row.source_label,
         currency=row.currency,
@@ -754,3 +858,59 @@ def serialize_pricing(row: ModelPricingRecord | None) -> ModelPricingRead | None
         notes=row.notes,
         synced_at=row.synced_at.isoformat(),
     )
+
+
+@router.post("/providers/{provider_name}/pricing/refresh", response_model=list[ProviderModelRead])
+async def refresh_provider_pricing(
+    provider_name: str,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[ProviderModelRead]:
+    provider = await session.scalar(select(ProviderRecord).where(ProviderRecord.name == provider_name))
+    if provider is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider not found")
+    await pricing.sync_provider_pricing(session, provider_name)
+    return await list_provider_models(provider_name, None, session)
+
+
+@router.patch("/providers/{provider_name}/models/{native_model}/pricing", response_model=ModelPricingRead)
+async def patch_provider_model_pricing(
+    provider_name: str,
+    native_model: str,
+    payload: PricingOverridePatch,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ModelPricingRead:
+    row = await session.scalar(
+        select(ModelPricingRecord).where(
+            ModelPricingRecord.provider_name == provider_name,
+            ModelPricingRecord.native_model == native_model,
+        )
+    )
+    if row is None:
+        row = ModelPricingRecord(
+            provider_name=provider_name,
+            native_model=native_model,
+            source_kind="manual_override",
+            source_url="manual://admin",
+            source_label="Manual Pricing Override",
+            currency="USD",
+            unit="1M tokens",
+        )
+        session.add(row)
+
+    row.source_kind = "manual_override"
+    row.source_url = "manual://admin"
+    row.source_label = "Manual Pricing Override"
+    row.input_price = payload.input_price
+    row.cached_input_price = payload.cached_input_price
+    row.output_price = payload.output_price
+    row.input_price_high = payload.input_price_high
+    row.cached_input_price_high = payload.cached_input_price_high
+    row.output_price_high = payload.output_price_high
+    row.high_price_threshold_tokens = payload.high_price_threshold_tokens
+    row.notes = payload.notes
+    row.synced_at = datetime.now(timezone.utc)
+    await session.commit()
+    await session.refresh(row)
+    return serialize_pricing(row)  # type: ignore[return-value]

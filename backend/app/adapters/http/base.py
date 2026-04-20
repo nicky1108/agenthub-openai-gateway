@@ -17,6 +17,11 @@ class MockHttpAdapter:
                     "finish_reason": "stop",
                 }
             ],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "prompt_tokens_details": {"cached_tokens": 0},
+            },
         }
 
     async def stream_chat(self, request: ChatRequest) -> AsyncIterator[str]:

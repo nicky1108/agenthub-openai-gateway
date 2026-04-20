@@ -88,6 +88,7 @@ describe("App", () => {
                 pricing: {
                   provider_name: "codex",
                   native_model: "gpt-5.4",
+                  source_kind: "official_snapshot",
                   source_url: "https://openai.com/api/pricing/",
                   source_label: "OpenAI API Pricing",
                   currency: "USD",
@@ -116,6 +117,31 @@ describe("App", () => {
                 id: 1,
                 name: "default-account",
                 status: "active",
+                credit_balance: 500,
+              },
+            ]),
+          );
+        }
+        if (path.endsWith("/admin/accounts/1/credits/ledger")) {
+          return new Response(
+            JSON.stringify([
+              {
+                id: 1,
+                account_id: 1,
+                api_key_id: null,
+                usage_record_id: null,
+                entry_type: "manual_adjustment",
+                credits_delta: 500,
+                balance_after: 500,
+                usd_amount: null,
+                provider_name: null,
+                model_id: null,
+                input_tokens: null,
+                output_tokens: null,
+                cached_input_tokens: null,
+                pricing_source: null,
+                notes: "bootstrap",
+                created_at: "2026-04-21T00:00:00Z",
               },
             ]),
           );
