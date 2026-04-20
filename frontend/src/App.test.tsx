@@ -6,6 +6,19 @@ import App from "./App";
 describe("App", () => {
   beforeEach(() => {
     window.location.hash = "";
+    const storage = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value);
+      },
+      removeItem: (key: string) => {
+        storage.delete(key);
+      },
+      clear: () => {
+        storage.clear();
+      },
+    });
     const getPath = (input: RequestInfo | URL): string => {
       if (typeof input === "string") {
         return input;
@@ -204,6 +217,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("link", { name: "Models" }));
     window.dispatchEvent(new HashChangeEvent("hashchange"));
     expect(await screen.findByText("gpt-5.4")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "codex" }).getAttribute("aria-selected")).toBe("true");
 
     fireEvent.click(screen.getByRole("link", { name: "Providers" }));
     window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -251,5 +265,20 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Continue with GitHub" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByRole("button", { name: "Continue with Google" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByText("GitHub needs configuration · Google needs configuration")).toBeTruthy();
+  });
+
+  it("switches the shell to Chinese and persists the locale", async () => {
+    render(<App />);
+
+    expect(await screen.findByText("alice@example.com")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "中文" })[0]);
+
+    expect((await screen.findAllByText("总览")).length).toBeGreaterThan(0);
+    expect(screen.getByText("服务提供方")).toBeTruthy();
+    expect(screen.getByText("平台概览")).toBeTruthy();
+    window.location.hash = "#settings";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    expect(await screen.findByText("网关地址")).toBeTruthy();
+    expect(window.localStorage.getItem("agh_locale")).toBe("zh");
   });
 });

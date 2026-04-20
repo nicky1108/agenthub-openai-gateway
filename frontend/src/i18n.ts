@@ -1,0 +1,611 @@
+export type Locale = "en" | "zh";
+
+type Copy = {
+  localeLabel: string;
+  shell: {
+    productName: string;
+    productTagline: string;
+    navigation: string;
+    runtime: string;
+    gateway: string;
+    developerPlatform: string;
+    gatewayOperations: string;
+    signOut: string;
+    language: string;
+  };
+  nav: {
+    dashboard: string;
+    providers: string;
+    models: string;
+    accounts: string;
+    apiKeys: string;
+    usage: string;
+    settings: string;
+  };
+  common: {
+    noData: string;
+    enabled: string;
+    disabled: string;
+    yes: string;
+    no: string;
+    defaultLabel: string;
+    create: string;
+    add: string;
+    revoke: string;
+    rediscover: string;
+    viewModels: string;
+    noActivityYet: string;
+    notConfigured: string;
+    loadedCount: (count: number) => string;
+  };
+  auth: {
+    checkingSession: string;
+    signInTitle: string;
+    registerTitle: string;
+    description: string;
+    featureTraffic: string;
+    featureProviders: string;
+    featureKeys: string;
+    primaryAccess: string;
+    createWorkspaceAccess: string;
+    emailSignIn: string;
+    emailRegister: string;
+    authFailed: string;
+    name: string;
+    email: string;
+    password: string;
+    signIn: string;
+    createAccount: string;
+    useEmailLogin: string;
+    continueWithGithub: string;
+    continueWithGoogle: string;
+    providerNote: (githubReady: boolean, googleReady: boolean) => string;
+    ready: string;
+    needsConfiguration: string;
+  };
+  dashboard: {
+    overview: string;
+    platformOverview: string;
+    requests: string;
+    requestsSubtitle: string;
+    activeKeys: string;
+    activeKeysSubtitle: string;
+    errorRate: string;
+    errorRateSubtitle: string;
+    rateLimitHits: string;
+    rateLimitHitsSubtitle: string;
+    traffic: string;
+    noRuntimeActivity: string;
+    peakTraffic: (count: number, label: string) => string;
+    requestsInWindow: (count: number) => string;
+    errorCount: (count: number) => string;
+    limitedCount: (count: number) => string;
+  };
+  accounts: {
+    eyebrow: string;
+    title: string;
+    accountName: string;
+    addAccount: string;
+    totalAccounts: string;
+    activeAccounts: string;
+    pendingNotes: string;
+    activeOnly: string;
+    noteCount: (count: number) => string;
+    empty: string;
+  };
+  apiKeys: {
+    eyebrow: string;
+    title: string;
+    account: string;
+    keyName: string;
+    perMinute: string;
+    perHour: string;
+    perDay: string;
+    createKey: string;
+    lastCreatedKey: string;
+    activeKeys: string;
+    revokedKeys: string;
+    quotaCoverage: string;
+    quotaCoverageValue: (count: number, total: number) => string;
+    noKeys: string;
+    requestsPerMin: string;
+    requestsPerHour: string;
+    requestsPerDay: string;
+  };
+  providers: {
+    eyebrow: string;
+    title: string;
+    description: string;
+    runtimeCoverage: string;
+    runtimeCoverageDescription: string;
+    httpTransport: string;
+    httpTransportDescription: string;
+    cliRuntimes: string;
+    cliRuntimesDescription: string;
+    streamingReady: string;
+    streamingReadyDescription: string;
+    registry: string;
+    activeProviders: string;
+    compose: string;
+    registerProvider: string;
+    registerDescription: string;
+    providerName: string;
+    exposedModel: string;
+    routePolicy: string;
+    httpEnabled: string;
+    cliEnabled: string;
+    httpBaseUrl: string;
+    cliCommand: string;
+    chatCapable: string;
+    streamCapable: string;
+    addProvider: string;
+    primaryModel: (model: string) => string;
+    healthy: string;
+    offline: string;
+    awaitingProbe: string;
+    httpBase: string;
+    cliCommandLabel: string;
+    modelCatalog: string;
+    openCatalog: string;
+    openAiHttp: string;
+    cliRuntime: string;
+    chatCapableChip: string;
+    streaming: string;
+  };
+  models: {
+    eyebrow: string;
+    title: string;
+    provider: string;
+    noProviders: string;
+    source: string;
+    exposedAs: (modelId: string) => string;
+    disable: string;
+    enable: string;
+    rename: string;
+    nativeModel: string;
+    exposedModelId: string;
+    addManualModel: string;
+  };
+  usage: {
+    eyebrow: string;
+    title: string;
+    recentKeyActivity: string;
+    topProvidersModels: string;
+    noKeys: string;
+    noAttributedUsage: string;
+    noModelActivity: string;
+    providers: string;
+    models: string;
+    requestsLimited: (requests: number, limited: number) => string;
+    lastUsed: (value: string) => string;
+    totalTrackedKeys: string;
+    trackedKeyCount: (count: number) => string;
+    attributedProviders: string;
+    attributedModels: string;
+  };
+  settings: {
+    eyebrow: string;
+    title: string;
+    gatewayEndpoint: string;
+    frontendBaseUrl: (url: string) => string;
+    database: (scheme: string) => string;
+    authentication: string;
+    primarySignIn: string;
+    githubOauth: (enabled: boolean, enabledText: string, disabledText: string) => string;
+    googleOauth: (enabled: boolean, enabledText: string, disabledText: string) => string;
+    controlPlane: string;
+    adminBoundary: string;
+    adminSecretConfigured: (configured: boolean, yes: string, no: string) => string;
+    authSeparation: string;
+    interfaceLanguage: string;
+  };
+};
+
+export const LOCALE_STORAGE_KEY = "agh_locale";
+
+export const messages: Record<Locale, Copy> = {
+  en: {
+    localeLabel: "English",
+    shell: {
+      productName: "AgentHub",
+      productTagline: "Developer Platform",
+      navigation: "Navigation",
+      runtime: "Runtime",
+      gateway: "OpenAI-compatible gateway",
+      developerPlatform: "Developer Platform",
+      gatewayOperations: "Gateway operations",
+      signOut: "Sign out",
+      language: "Language",
+    },
+    nav: {
+      dashboard: "Dashboard",
+      providers: "Providers",
+      models: "Models",
+      accounts: "Accounts",
+      apiKeys: "API Keys",
+      usage: "Usage",
+      settings: "Settings",
+    },
+    common: {
+      noData: "No data yet.",
+      enabled: "Enabled",
+      disabled: "Disabled",
+      yes: "Yes",
+      no: "No",
+      defaultLabel: "default",
+      create: "Create",
+      add: "Add",
+      revoke: "Revoke",
+      rediscover: "Rediscover",
+      viewModels: "View models",
+      noActivityYet: "No activity yet",
+      notConfigured: "Not configured",
+      loadedCount: (count) => `${count} loaded`,
+    },
+    auth: {
+      checkingSession: "Checking session…",
+      signInTitle: "Sign in to your platform",
+      registerTitle: "Create your operator account",
+      description: "Manage providers, keys, model catalogs, quotas, and traffic from one dark developer console.",
+      featureTraffic: "Track request volume, key activity, and rate-limit hits",
+      featureProviders: "Control HTTP and CLI providers from the same shell",
+      featureKeys: "Keep OpenAI-compatible access behind managed API keys",
+      primaryAccess: "Primary access",
+      createWorkspaceAccess: "Create workspace access",
+      emailSignIn: "Email sign in",
+      emailRegister: "Register with email",
+      authFailed: "Authentication failed",
+      name: "Name",
+      email: "Email",
+      password: "Password",
+      signIn: "Sign In",
+      createAccount: "Create Account",
+      useEmailLogin: "Use Email Login",
+      continueWithGithub: "Continue with GitHub",
+      continueWithGoogle: "Continue with Google",
+      providerNote: (githubReady, googleReady) =>
+        `GitHub ${githubReady ? "is ready" : "needs configuration"} · Google ${
+          googleReady ? "is ready" : "needs configuration"
+        }`,
+      ready: "is ready",
+      needsConfiguration: "needs configuration",
+    },
+    dashboard: {
+      overview: "Overview",
+      platformOverview: "Platform Overview",
+      requests: "Requests",
+      requestsSubtitle: "Gateway traffic volume",
+      activeKeys: "Active Keys",
+      activeKeysSubtitle: "Live access credentials",
+      errorRate: "Error Rate",
+      errorRateSubtitle: "Failed request ratio",
+      rateLimitHits: "Rate Limit Hits",
+      rateLimitHitsSubtitle: "Quota pressure",
+      traffic: "Traffic",
+      noRuntimeActivity: "No runtime activity recorded yet.",
+      peakTraffic: (count, label) => `Peak traffic hit ${count} requests during ${label}.`,
+      requestsInWindow: (count) => `${count} requests in window`,
+      errorCount: (count) => `${count} errors`,
+      limitedCount: (count) => `${count} limited`,
+    },
+    accounts: {
+      eyebrow: "Identity",
+      title: "Account Management",
+      accountName: "Account Name",
+      addAccount: "Add Account",
+      totalAccounts: "Total Accounts",
+      activeAccounts: "Active Accounts",
+      pendingNotes: "Accounts With Notes",
+      activeOnly: "Active only",
+      noteCount: (count) => `${count} with notes`,
+      empty: "No accounts yet.",
+    },
+    apiKeys: {
+      eyebrow: "Access",
+      title: "Key Management",
+      account: "Account",
+      keyName: "API Key Name",
+      perMinute: "Per Minute",
+      perHour: "Per Hour",
+      perDay: "Per Day",
+      createKey: "Create API Key",
+      lastCreatedKey: "Last Created Key",
+      activeKeys: "Active Keys",
+      revokedKeys: "Revoked Keys",
+      quotaCoverage: "Quota Coverage",
+      quotaCoverageValue: (count, total) => `${count} / ${total} keys have explicit limits`,
+      noKeys: "No API keys yet.",
+      requestsPerMin: "min",
+      requestsPerHour: "hr",
+      requestsPerDay: "day",
+    },
+    providers: {
+      eyebrow: "Runtime",
+      title: "Provider Registry",
+      description: "Control transport policy, health posture, and model entry points for every upstream runtime.",
+      runtimeCoverage: "Runtime coverage",
+      runtimeCoverageDescription: "Total configured providers in the gateway registry.",
+      httpTransport: "OpenAI-compatible HTTP",
+      httpTransportDescription: "Providers currently able to route through HTTP transport.",
+      cliRuntimes: "CLI runtimes",
+      cliRuntimesDescription: "Providers available through local command execution.",
+      streamingReady: "Streaming ready",
+      streamingReadyDescription: "Providers marked as stream-capable from the control plane.",
+      registry: "Registry",
+      activeProviders: "Active providers",
+      compose: "Compose",
+      registerProvider: "Register provider",
+      registerDescription: "Add a new upstream and decide which transport the gateway should prefer.",
+      providerName: "Provider Name",
+      exposedModel: "Exposed Model",
+      routePolicy: "Route Policy",
+      httpEnabled: "HTTP Enabled",
+      cliEnabled: "CLI Enabled",
+      httpBaseUrl: "HTTP Base URL",
+      cliCommand: "CLI Command",
+      chatCapable: "Chat Capable",
+      streamCapable: "Stream Capable",
+      addProvider: "Add Provider",
+      primaryModel: (model) => `Primary exposed model: ${model}`,
+      healthy: "Healthy",
+      offline: "Offline",
+      awaitingProbe: "Awaiting probe",
+      httpBase: "HTTP base",
+      cliCommandLabel: "CLI command",
+      modelCatalog: "Model catalog",
+      openCatalog: "Open catalog",
+      openAiHttp: "OpenAI-compatible HTTP",
+      cliRuntime: "CLI runtime",
+      chatCapableChip: "Chat capable",
+      streaming: "Streaming",
+    },
+    models: {
+      eyebrow: "Catalog",
+      title: "Models",
+      provider: "Provider",
+      noProviders: "No providers registered yet. Add one in Providers before managing model catalogs.",
+      source: "Source",
+      exposedAs: (modelId) => `Exposed as ${modelId}`,
+      disable: "Disable",
+      enable: "Enable",
+      rename: "Rename",
+      nativeModel: "Native Model",
+      exposedModelId: "Exposed Model ID",
+      addManualModel: "Add Manual Model",
+    },
+    usage: {
+      eyebrow: "Activity",
+      title: "Usage",
+      recentKeyActivity: "Recent key activity",
+      topProvidersModels: "Top providers / models",
+      noKeys: "No API keys yet.",
+      noAttributedUsage: "No attributed usage yet.",
+      noModelActivity: "No model activity yet.",
+      providers: "Providers",
+      models: "Models",
+      requestsLimited: (requests, limited) => `${requests} requests · ${limited} limited`,
+      lastUsed: (value) => `Last used ${value}`,
+      totalTrackedKeys: "Tracked Keys",
+      trackedKeyCount: (count) => `${count} keys`,
+      attributedProviders: "Attributed Providers",
+      attributedModels: "Attributed Models",
+    },
+    settings: {
+      eyebrow: "Configuration",
+      title: "Platform Settings",
+      gatewayEndpoint: "Gateway endpoint",
+      frontendBaseUrl: (url) => `Frontend base URL: ${url}`,
+      database: (scheme) => `Database: ${scheme}`,
+      authentication: "Authentication",
+      primarySignIn: "Primary sign-in: Email + password",
+      githubOauth: (enabled, enabledText, disabledText) => `GitHub OAuth: ${enabled ? enabledText : disabledText}`,
+      googleOauth: (enabled, enabledText, disabledText) => `Google OAuth: ${enabled ? enabledText : disabledText}`,
+      controlPlane: "Control plane",
+      adminBoundary: "Admin boundary",
+      adminSecretConfigured: (configured, yes, no) => `Admin secret configured: ${configured ? yes : no}`,
+      authSeparation: "Session auth and gateway API keys remain separated by design.",
+      interfaceLanguage: "Interface language",
+    },
+  },
+  zh: {
+    localeLabel: "中文",
+    shell: {
+      productName: "AgentHub",
+      productTagline: "开发者平台",
+      navigation: "导航",
+      runtime: "运行时",
+      gateway: "兼容 OpenAI 的网关",
+      developerPlatform: "开发者平台",
+      gatewayOperations: "网关控制台",
+      signOut: "退出登录",
+      language: "语言",
+    },
+    nav: {
+      dashboard: "总览",
+      providers: "服务提供方",
+      models: "模型",
+      accounts: "账户",
+      apiKeys: "密钥",
+      usage: "用量",
+      settings: "设置",
+    },
+    common: {
+      noData: "暂无数据。",
+      enabled: "启用",
+      disabled: "停用",
+      yes: "是",
+      no: "否",
+      defaultLabel: "默认",
+      create: "创建",
+      add: "新增",
+      revoke: "吊销",
+      rediscover: "重新发现",
+      viewModels: "查看模型",
+      noActivityYet: "暂无调用",
+      notConfigured: "未配置",
+      loadedCount: (count) => `已加载 ${count} 个`,
+    },
+    auth: {
+      checkingSession: "正在检查会话…",
+      signInTitle: "登录到你的平台",
+      registerTitle: "创建操作账户",
+      description: "在同一个深色控制台里管理 provider、密钥、模型目录、限额和流量。",
+      featureTraffic: "查看请求量、密钥活跃度和限流命中",
+      featureProviders: "在同一控制台管理 HTTP 和 CLI provider",
+      featureKeys: "用托管 API Key 暴露兼容 OpenAI 的访问入口",
+      primaryAccess: "主登录方式",
+      createWorkspaceAccess: "创建工作区访问",
+      emailSignIn: "邮箱登录",
+      emailRegister: "邮箱注册",
+      authFailed: "认证失败",
+      name: "名称",
+      email: "邮箱",
+      password: "密码",
+      signIn: "登录",
+      createAccount: "创建账户",
+      useEmailLogin: "使用邮箱登录",
+      continueWithGithub: "使用 GitHub 继续",
+      continueWithGoogle: "使用 Google 继续",
+      providerNote: (githubReady, googleReady) =>
+        `GitHub ${githubReady ? "已就绪" : "未配置"} · Google ${googleReady ? "已就绪" : "未配置"}`,
+      ready: "已就绪",
+      needsConfiguration: "未配置",
+    },
+    dashboard: {
+      overview: "总览",
+      platformOverview: "平台概览",
+      requests: "请求数",
+      requestsSubtitle: "网关总流量",
+      activeKeys: "活跃密钥",
+      activeKeysSubtitle: "当前可用凭据",
+      errorRate: "错误率",
+      errorRateSubtitle: "失败请求占比",
+      rateLimitHits: "限流命中",
+      rateLimitHitsSubtitle: "配额压力",
+      traffic: "流量",
+      noRuntimeActivity: "当前还没有运行时流量。",
+      peakTraffic: (count, label) => `${label} 时段峰值为 ${count} 次请求。`,
+      requestsInWindow: (count) => `窗口内 ${count} 次请求`,
+      errorCount: (count) => `${count} 次错误`,
+      limitedCount: (count) => `${count} 次限流`,
+    },
+    accounts: {
+      eyebrow: "身份",
+      title: "账户管理",
+      accountName: "账户名称",
+      addAccount: "新增账户",
+      totalAccounts: "账户总数",
+      activeAccounts: "活跃账户",
+      pendingNotes: "含备注账户",
+      activeOnly: "全部活跃",
+      noteCount: (count) => `${count} 个带备注`,
+      empty: "暂无账户。",
+    },
+    apiKeys: {
+      eyebrow: "访问",
+      title: "密钥管理",
+      account: "账户",
+      keyName: "密钥名称",
+      perMinute: "每分钟",
+      perHour: "每小时",
+      perDay: "每天",
+      createKey: "创建 API Key",
+      lastCreatedKey: "最近创建的密钥",
+      activeKeys: "活跃密钥",
+      revokedKeys: "已吊销密钥",
+      quotaCoverage: "限额覆盖率",
+      quotaCoverageValue: (count, total) => `${total} 个密钥中有 ${count} 个设置了明确限额`,
+      noKeys: "暂无 API Key。",
+      requestsPerMin: "分钟",
+      requestsPerHour: "小时",
+      requestsPerDay: "天",
+    },
+    providers: {
+      eyebrow: "运行时",
+      title: "服务提供方目录",
+      description: "统一管理每个上游运行时的路由策略、健康状态和模型入口。",
+      runtimeCoverage: "运行覆盖",
+      runtimeCoverageDescription: "当前网关中已注册的 provider 总数。",
+      httpTransport: "OpenAI HTTP",
+      httpTransportDescription: "当前可通过 HTTP 传输访问的 provider。",
+      cliRuntimes: "CLI 运行时",
+      cliRuntimesDescription: "当前可通过本地命令执行的 provider。",
+      streamingReady: "支持流式",
+      streamingReadyDescription: "控制面标记为支持流式输出的 provider。",
+      registry: "注册表",
+      activeProviders: "已启用 provider",
+      compose: "新建",
+      registerProvider: "注册 provider",
+      registerDescription: "新增上游并决定网关优先使用哪种传输方式。",
+      providerName: "Provider 名称",
+      exposedModel: "暴露模型",
+      routePolicy: "路由策略",
+      httpEnabled: "启用 HTTP",
+      cliEnabled: "启用 CLI",
+      httpBaseUrl: "HTTP Base URL",
+      cliCommand: "CLI 命令",
+      chatCapable: "支持聊天",
+      streamCapable: "支持流式",
+      addProvider: "新增 Provider",
+      primaryModel: (model) => `主暴露模型：${model}`,
+      healthy: "健康",
+      offline: "离线",
+      awaitingProbe: "等待探测",
+      httpBase: "HTTP 地址",
+      cliCommandLabel: "CLI 命令",
+      modelCatalog: "模型目录",
+      openCatalog: "打开目录",
+      openAiHttp: "OpenAI HTTP",
+      cliRuntime: "CLI 运行时",
+      chatCapableChip: "支持聊天",
+      streaming: "流式输出",
+    },
+    models: {
+      eyebrow: "目录",
+      title: "模型目录",
+      provider: "Provider",
+      noProviders: "当前还没有 provider。请先在服务提供方页面新增。",
+      source: "来源",
+      exposedAs: (modelId) => `暴露为 ${modelId}`,
+      disable: "停用",
+      enable: "启用",
+      rename: "重命名",
+      nativeModel: "原生模型名",
+      exposedModelId: "暴露模型 ID",
+      addManualModel: "手动新增模型",
+    },
+    usage: {
+      eyebrow: "活跃度",
+      title: "用量",
+      recentKeyActivity: "最近密钥活跃度",
+      topProvidersModels: "热门 provider / 模型",
+      noKeys: "暂无 API Key。",
+      noAttributedUsage: "暂无带归因的用量。",
+      noModelActivity: "暂无模型活动。",
+      providers: "Provider",
+      models: "模型",
+      requestsLimited: (requests, limited) => `${requests} 次请求 · ${limited} 次限流`,
+      lastUsed: (value) => `最近使用：${value}`,
+      totalTrackedKeys: "追踪中的密钥",
+      trackedKeyCount: (count) => `${count} 个密钥`,
+      attributedProviders: "归因 Provider",
+      attributedModels: "归因模型",
+    },
+    settings: {
+      eyebrow: "配置",
+      title: "平台设置",
+      gatewayEndpoint: "网关地址",
+      frontendBaseUrl: (url) => `前端地址：${url}`,
+      database: (scheme) => `数据库：${scheme}`,
+      authentication: "认证方式",
+      primarySignIn: "主登录方式：邮箱 + 密码",
+      githubOauth: (enabled, enabledText, disabledText) => `GitHub OAuth：${enabled ? enabledText : disabledText}`,
+      googleOauth: (enabled, enabledText, disabledText) => `Google OAuth：${enabled ? enabledText : disabledText}`,
+      controlPlane: "控制面",
+      adminBoundary: "管理边界",
+      adminSecretConfigured: (configured, yes, no) => `已配置 Admin Secret：${configured ? yes : no}`,
+      authSeparation: "会话认证和网关 API Key 仍然保持分离。",
+      interfaceLanguage: "界面语言",
+    },
+  },
+};

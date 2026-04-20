@@ -29,24 +29,17 @@ import type {
   DashboardTimeseries,
   SettingsOverview,
 } from "./api";
+import { LOCALE_STORAGE_KEY, messages, type Locale } from "./i18n";
 
 type DashboardSummary = Awaited<ReturnType<typeof getDashboardSummary>>;
 type RouteId = "dashboard" | "providers" | "models" | "accounts" | "api-keys" | "usage" | "settings";
 type DashboardWindow = "24h" | "7d";
 
-const NAV_ITEMS: Array<{ id: RouteId; label: string }> = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "providers", label: "Providers" },
-  { id: "models", label: "Models" },
-  { id: "accounts", label: "Accounts" },
-  { id: "api-keys", label: "API Keys" },
-  { id: "usage", label: "Usage" },
-  { id: "settings", label: "Settings" },
-];
+const ROUTE_IDS: RouteId[] = ["dashboard", "providers", "models", "accounts", "api-keys", "usage", "settings"];
 
 function getRouteFromHash(hash: string): RouteId {
   const value = hash.replace(/^#/, "");
-  if (NAV_ITEMS.some((item) => item.id === value)) {
+  if (ROUTE_IDS.some((item) => item === value)) {
     return value as RouteId;
   }
   return "dashboard";
@@ -62,22 +55,22 @@ function aggregateUsage(
   return Object.entries(usageSummary[field]).sort((left, right) => right[1] - left[1]);
 }
 
-function formatLastUsed(lastUsedAt: string | null): string {
+function formatLastUsed(lastUsedAt: string | null, locale: Locale, noActivityLabel: string): string {
   if (!lastUsedAt) {
-    return "No activity yet";
+    return noActivityLabel;
   }
 
-  return new Date(lastUsedAt).toLocaleString();
+  return new Date(lastUsedAt).toLocaleString(locale === "zh" ? "zh-CN" : "en-US");
 }
 
-function formatProviderState(health: ProviderHealth | undefined): string {
+function formatProviderState(health: ProviderHealth | undefined, localeCopy: (typeof messages)["en"]): string {
   if (!health) {
-    return "Awaiting probe";
+    return localeCopy.providers.awaitingProbe;
   }
   if (health.capabilities.http || health.capabilities.cli) {
-    return "Healthy";
+    return localeCopy.providers.healthy;
   }
-  return "Offline";
+  return localeCopy.providers.offline;
 }
 
 function buildTrafficPath(series: DashboardTimeseries | null): { stroke: string; fill: string; maxValue: number } {
@@ -97,18 +90,22 @@ function buildTrafficPath(series: DashboardTimeseries | null): { stroke: string;
   return { stroke, fill, maxValue };
 }
 
-function describeSeries(series: DashboardTimeseries | null): string {
+function describeSeries(series: DashboardTimeseries | null, localeCopy: (typeof messages)["en"]): string {
   if (!series || series.buckets.length === 0) {
-    return "No runtime activity recorded yet.";
+    return localeCopy.dashboard.noRuntimeActivity;
   }
   const busiest = [...series.buckets].sort((left, right) => right.total_requests - left.total_requests)[0];
   if (!busiest || busiest.total_requests === 0) {
-    return "No runtime activity recorded yet.";
+    return localeCopy.dashboard.noRuntimeActivity;
   }
-  return `Peak traffic hit ${busiest.total_requests} requests during ${busiest.label}.`;
+  return localeCopy.dashboard.peakTraffic(busiest.total_requests, busiest.label);
 }
 
 export default function App() {
+  const [locale, setLocale] = useState<Locale>(() => {
+    const stored = globalThis.localStorage?.getItem(LOCALE_STORAGE_KEY);
+    return stored === "zh" ? "zh" : "en";
+  });
   const [authUser, setAuthUser] = useState<AuthAccount | null>(null);
   const [authState, setAuthState] = useState<"loading" | "authenticated" | "unauthenticated">("loading");
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
@@ -156,6 +153,20 @@ export default function App() {
   const [selectedProviderName, setSelectedProviderName] = useState("");
   const [manualNativeModel, setManualNativeModel] = useState("");
   const [manualExposedModelId, setManualExposedModelId] = useState("");
+  const copy = messages[locale];
+  const NAV_ITEMS: Array<{ id: RouteId; label: string }> = [
+    { id: "dashboard", label: copy.nav.dashboard },
+    { id: "providers", label: copy.nav.providers },
+    { id: "models", label: copy.nav.models },
+    { id: "accounts", label: copy.nav.accounts },
+    { id: "api-keys", label: copy.nav.apiKeys },
+    { id: "usage", label: copy.nav.usage },
+    { id: "settings", label: copy.nav.settings },
+  ];
+
+  useEffect(() => {
+    globalThis.localStorage?.setItem(LOCALE_STORAGE_KEY, locale);
+  }, [locale]);
 
   async function loadAuthenticatedData() {
     const [accountRows, keyRows, providerRows, healthRows, dashboard, usage, series, settingsData] = await Promise.all([
@@ -230,6 +241,20 @@ export default function App() {
         setAuthState("unauthenticated");
       });
   }, []);
+
+  useEffect(() => {
+    if (providers.length === 0) {
+      if (selectedProviderName !== "") {
+        setSelectedProviderName("");
+      }
+      return;
+    }
+
+    const currentStillExists = providers.some((provider) => provider.name === selectedProviderName);
+    if (!currentStillExists) {
+      setSelectedProviderName(providers[0].name);
+    }
+  }, [providers, selectedProviderName]);
 
   useEffect(() => {
     if (authState !== "authenticated") {
@@ -435,6 +460,13 @@ export default function App() {
   const totalSeriesRequests = (dashboardSeries?.buckets ?? []).reduce((sum, bucket) => sum + bucket.total_requests, 0);
   const totalSeriesErrors = (dashboardSeries?.buckets ?? []).reduce((sum, bucket) => sum + bucket.error_requests, 0);
   const totalSeriesLimited = (dashboardSeries?.buckets ?? []).reduce((sum, bucket) => sum + bucket.limited_requests, 0);
+  const activeAccounts = accounts.filter((account) => account.status === "active").length;
+  const accountsWithNotes = accounts.filter((account) => Boolean(account.notes)).length;
+  const activeApiKeys = apiKeys.filter((apiKey) => apiKey.status === "active").length;
+  const revokedApiKeys = apiKeys.filter((apiKey) => apiKey.status === "revoked").length;
+  const quotaConfiguredKeys = apiKeys.filter(
+    (apiKey) => apiKey.per_minute !== null || apiKey.per_hour !== null || apiKey.per_day !== null,
+  ).length;
 
   function renderCurrentPage() {
     switch (currentRoute) {
@@ -443,39 +475,39 @@ export default function App() {
           <section id="dashboard" className="dashboard">
             <div className="section-header">
               <div>
-                <span className="section-eyebrow">Overview</span>
-                <h2>Platform Overview</h2>
+                <span className="section-eyebrow">{copy.dashboard.overview}</span>
+                <h2>{copy.dashboard.platformOverview}</h2>
               </div>
-              <div className="status-pill">{dashboardWindow} default</div>
+              <div className="status-pill">{dashboardWindow} {copy.common.defaultLabel}</div>
             </div>
-            {dashboardError ? <p role="alert">Dashboard unavailable: {dashboardError}</p> : null}
+            {dashboardError ? <p role="alert">{copy.nav.dashboard}: {dashboardError}</p> : null}
             <div className="kpi-grid">
               <div className="kpi-card">
-                <strong>Requests</strong>
-                <span className="kpi-subtitle">Gateway traffic volume</span>
+                <strong>{copy.dashboard.requests}</strong>
+                <span className="kpi-subtitle">{copy.dashboard.requestsSubtitle}</span>
                 <div>{dashboardSummary?.total_requests ?? "—"}</div>
               </div>
               <div className="kpi-card">
-                <strong>Active Keys</strong>
-                <span className="kpi-subtitle">Live access credentials</span>
+                <strong>{copy.dashboard.activeKeys}</strong>
+                <span className="kpi-subtitle">{copy.dashboard.activeKeysSubtitle}</span>
                 <div>{dashboardSummary?.active_api_keys ?? "—"}</div>
               </div>
               <div className="kpi-card">
-                <strong>Error Rate</strong>
-                <span className="kpi-subtitle">Failed request ratio</span>
+                <strong>{copy.dashboard.errorRate}</strong>
+                <span className="kpi-subtitle">{copy.dashboard.errorRateSubtitle}</span>
                 <div>{dashboardSummary ? `${(dashboardSummary.error_rate * 100).toFixed(1)}%` : "—"}</div>
               </div>
               <div className="kpi-card">
-                <strong>Rate Limit Hits</strong>
-                <span className="kpi-subtitle">Quota pressure</span>
+                <strong>{copy.dashboard.rateLimitHits}</strong>
+                <span className="kpi-subtitle">{copy.dashboard.rateLimitHitsSubtitle}</span>
                 <div>{dashboardSummary?.rate_limit_hits ?? "—"}</div>
               </div>
             </div>
             <div className="hero-chart">
               <div className="chart-header">
                 <div>
-                  <strong>Traffic</strong>
-                  <p>{describeSeries(dashboardSeries)}</p>
+                  <strong>{copy.dashboard.traffic}</strong>
+                  <p>{describeSeries(dashboardSeries, copy)}</p>
                 </div>
                 <div className="chart-toggle">
                   <button
@@ -514,9 +546,9 @@ export default function App() {
                 />
               </svg>
               <div className="chart-footer">
-                <span>{totalSeriesRequests} requests in window</span>
-                <span>{totalSeriesErrors} errors</span>
-                <span>{totalSeriesLimited} limited</span>
+                <span>{copy.dashboard.requestsInWindow(totalSeriesRequests)}</span>
+                <span>{copy.dashboard.errorCount(totalSeriesErrors)}</span>
+                <span>{copy.dashboard.limitedCount(totalSeriesLimited)}</span>
               </div>
             </div>
           </section>
@@ -526,19 +558,36 @@ export default function App() {
           <section id="accounts">
             <div className="section-header">
               <div>
-                <span className="section-eyebrow">Identity</span>
-                <h2>Account Management</h2>
+                <span className="section-eyebrow">{copy.accounts.eyebrow}</span>
+                <h2>{copy.accounts.title}</h2>
               </div>
+            </div>
+            <div className="provider-summary-grid">
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">{copy.accounts.totalAccounts}</span>
+                <strong>{accounts.length}</strong>
+                <p>{copy.accounts.empty}</p>
+              </article>
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">{copy.accounts.activeAccounts}</span>
+                <strong>{activeAccounts}</strong>
+                <p>{copy.accounts.activeOnly}</p>
+              </article>
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">{copy.accounts.pendingNotes}</span>
+                <strong>{accountsWithNotes}</strong>
+                <p>{copy.accounts.noteCount(accountsWithNotes)}</p>
+              </article>
             </div>
             <form onSubmit={handleAccountSubmit}>
               <label>
-                Account Name
+                {copy.accounts.accountName}
                 <input value={accountName} onChange={(event) => setAccountName(event.target.value)} />
               </label>
-              <button type="submit">Add Account</button>
+              <button type="submit">{copy.accounts.addAccount}</button>
             </form>
             <ul>
-              {accounts.map((account) => (
+              {accounts.length === 0 ? <li>{copy.accounts.empty}</li> : accounts.map((account) => (
                 <li key={account.id}>
                   <strong>{account.name}</strong>
                   <div className="usage-meta">{account.status}</div>
@@ -553,13 +602,30 @@ export default function App() {
           <section id="api-keys">
             <div className="section-header">
               <div>
-                <span className="section-eyebrow">Access</span>
-                <h2>Key Management</h2>
+                <span className="section-eyebrow">{copy.apiKeys.eyebrow}</span>
+                <h2>{copy.apiKeys.title}</h2>
               </div>
+            </div>
+            <div className="provider-summary-grid">
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">{copy.apiKeys.activeKeys}</span>
+                <strong>{activeApiKeys}</strong>
+                <p>{copy.apiKeys.quotaCoverageValue(activeApiKeys, apiKeys.length)}</p>
+              </article>
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">{copy.apiKeys.revokedKeys}</span>
+                <strong>{revokedApiKeys}</strong>
+                <p>{revokedApiKeys === 0 ? copy.common.noData : copy.apiKeys.quotaCoverageValue(revokedApiKeys, apiKeys.length)}</p>
+              </article>
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">{copy.apiKeys.quotaCoverage}</span>
+                <strong>{quotaConfiguredKeys}</strong>
+                <p>{copy.apiKeys.quotaCoverageValue(quotaConfiguredKeys, apiKeys.length)}</p>
+              </article>
             </div>
             <form onSubmit={handleApiKeySubmit}>
               <label>
-                Account
+                {copy.apiKeys.account}
                 <select value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>
                   {accounts.map((account) => (
                     <option key={account.id} value={account.id}>
@@ -569,34 +635,34 @@ export default function App() {
                 </select>
               </label>
               <label>
-                API Key Name
+                {copy.apiKeys.keyName}
                 <input value={apiKeyName} onChange={(event) => setApiKeyName(event.target.value)} />
               </label>
               <label>
-                Per Minute
+                {copy.apiKeys.perMinute}
                 <input value={keyPerMinute} onChange={(event) => setKeyPerMinute(event.target.value)} />
               </label>
               <label>
-                Per Hour
+                {copy.apiKeys.perHour}
                 <input value={keyPerHour} onChange={(event) => setKeyPerHour(event.target.value)} />
               </label>
               <label>
-                Per Day
+                {copy.apiKeys.perDay}
                 <input value={keyPerDay} onChange={(event) => setKeyPerDay(event.target.value)} />
               </label>
-              <button type="submit">Create API Key</button>
+              <button type="submit">{copy.apiKeys.createKey}</button>
             </form>
-            {createdApiKey ? <p>Last Created Key: {createdApiKey}</p> : null}
+            {createdApiKey ? <p>{copy.apiKeys.lastCreatedKey}: {createdApiKey}</p> : null}
             <ul>
-              {apiKeys.map((apiKey) => (
+              {apiKeys.length === 0 ? <li>{copy.apiKeys.noKeys}</li> : apiKeys.map((apiKey) => (
                 <li key={apiKey.id}>
                   <strong>{apiKey.name}</strong>
                   <div className="usage-meta">{apiKey.key_prefix} · {apiKey.status}</div>
                   <div className="usage-meta">
-                    {apiKey.per_minute ?? "—"}/min · {apiKey.per_hour ?? "—"}/hr · {apiKey.per_day ?? "—"}/day
+                    {apiKey.per_minute ?? "—"}/{copy.apiKeys.requestsPerMin} · {apiKey.per_hour ?? "—"}/{copy.apiKeys.requestsPerHour} · {apiKey.per_day ?? "—"}/{copy.apiKeys.requestsPerDay}
                   </div>
                   <button type="button" onClick={() => handleRevokeKey(apiKey.id)}>
-                    Revoke
+                    {copy.common.revoke}
                   </button>
                 </li>
               ))}
@@ -608,39 +674,39 @@ export default function App() {
           <section id="providers" className="providers-page">
             <div className="section-header">
               <div>
-                <span className="section-eyebrow">Runtime</span>
-                <h2>Provider Registry</h2>
-                <p>Control transport policy, health posture, and model entry points for every upstream runtime.</p>
+                <span className="section-eyebrow">{copy.providers.eyebrow}</span>
+                <h2>{copy.providers.title}</h2>
+                <p>{copy.providers.description}</p>
               </div>
             </div>
             <div className="provider-summary-grid">
               <article className="provider-summary-card">
-                <span className="provider-summary-label">Runtime coverage</span>
+                <span className="provider-summary-label">{copy.providers.runtimeCoverage}</span>
                 <strong>{totalProviders}</strong>
-                <p>Total configured providers in the gateway registry.</p>
+                <p>{copy.providers.runtimeCoverageDescription}</p>
               </article>
               <article className="provider-summary-card">
-                <span className="provider-summary-label">OpenAI-compatible HTTP</span>
+                <span className="provider-summary-label">{copy.providers.httpTransport}</span>
                 <strong>{httpProviders}</strong>
-                <p>Providers currently able to route through HTTP transport.</p>
+                <p>{copy.providers.httpTransportDescription}</p>
               </article>
               <article className="provider-summary-card">
-                <span className="provider-summary-label">CLI runtimes</span>
+                <span className="provider-summary-label">{copy.providers.cliRuntimes}</span>
                 <strong>{cliProviders}</strong>
-                <p>Providers available through local command execution.</p>
+                <p>{copy.providers.cliRuntimesDescription}</p>
               </article>
               <article className="provider-summary-card">
-                <span className="provider-summary-label">Streaming ready</span>
+                <span className="provider-summary-label">{copy.providers.streamingReady}</span>
                 <strong>{streamingProviders}</strong>
-                <p>Providers marked as stream-capable from the control plane.</p>
+                <p>{copy.providers.streamingReadyDescription}</p>
               </article>
             </div>
             <div className="provider-layout">
               <div className="provider-panel provider-registry-panel">
                 <div className="provider-panel-header">
                   <div>
-                    <span className="section-eyebrow">Registry</span>
-                    <h3>Active providers</h3>
+                    <span className="section-eyebrow">{copy.providers.registry}</span>
+                    <h3>{copy.providers.activeProviders}</h3>
                   </div>
                 </div>
                 <div className="provider-card-grid">
@@ -653,43 +719,43 @@ export default function App() {
                         <div className="provider-card-topline">
                           <span
                             className={
-                              formatProviderState(providerHealth) === "Healthy"
+                              formatProviderState(providerHealth, copy) === copy.providers.healthy
                                 ? "provider-status provider-status--healthy"
                                 : "provider-status"
                             }
                           >
-                            {formatProviderState(providerHealth)}
+                            {formatProviderState(providerHealth, copy)}
                           </span>
                           <span className="provider-route-pill">{provider.route_policy}</span>
                         </div>
                         <h3>{provider.name}</h3>
-                        <p>Primary exposed model: {provider.exposed_model}</p>
+                        <p>{copy.providers.primaryModel(provider.exposed_model)}</p>
                         <div className="provider-chip-row">
-                          {provider.http_enabled ? <span className="provider-chip">OpenAI-compatible HTTP</span> : null}
-                          {provider.cli_enabled ? <span className="provider-chip">CLI runtime</span> : null}
-                          {provider.chat_capable ? <span className="provider-chip">Chat capable</span> : null}
-                          {provider.stream_capable ? <span className="provider-chip">Streaming</span> : null}
+                          {provider.http_enabled ? <span className="provider-chip">{copy.providers.openAiHttp}</span> : null}
+                          {provider.cli_enabled ? <span className="provider-chip">{copy.providers.cliRuntime}</span> : null}
+                          {provider.chat_capable ? <span className="provider-chip">{copy.providers.chatCapableChip}</span> : null}
+                          {provider.stream_capable ? <span className="provider-chip">{copy.providers.streaming}</span> : null}
                         </div>
                         <div className="provider-detail-list">
                           <div>
-                            <span>HTTP base</span>
-                            <strong>{provider.http_base_url ?? "Not configured"}</strong>
+                            <span>{copy.providers.httpBase}</span>
+                            <strong>{provider.http_base_url ?? copy.common.notConfigured}</strong>
                           </div>
                           <div>
-                            <span>CLI command</span>
-                            <strong>{provider.cli_command ?? "Not configured"}</strong>
+                            <span>{copy.providers.cliCommandLabel}</span>
+                            <strong>{provider.cli_command ?? copy.common.notConfigured}</strong>
                           </div>
                           <div>
-                            <span>Model catalog</span>
-                            <strong>{providerModelsCount > 0 ? `${providerModelsCount} loaded` : "Open catalog"}</strong>
+                            <span>{copy.providers.modelCatalog}</span>
+                            <strong>{providerModelsCount > 0 ? copy.common.loadedCount(providerModelsCount) : copy.providers.openCatalog}</strong>
                           </div>
                         </div>
                         <div className="inline-actions">
                           <button type="button" onClick={() => void handleOpenProviderModels(provider.name)}>
-                            View models
+                            {copy.common.viewModels}
                           </button>
                           <button type="button" onClick={() => void handleRediscoverModels(provider.name)}>
-                            Rediscover
+                            {copy.common.rediscover}
                           </button>
                         </div>
                       </article>
@@ -700,22 +766,22 @@ export default function App() {
               <aside className="provider-panel provider-compose-panel">
                 <div className="provider-panel-header">
                   <div>
-                    <span className="section-eyebrow">Compose</span>
-                    <h3>Register provider</h3>
+                    <span className="section-eyebrow">{copy.providers.compose}</span>
+                    <h3>{copy.providers.registerProvider}</h3>
                   </div>
-                  <p>Add a new upstream and decide which transport the gateway should prefer.</p>
+                  <p>{copy.providers.registerDescription}</p>
                 </div>
                 <form onSubmit={handleSubmit} className="provider-form">
                   <label>
-                    Provider Name
+                    {copy.providers.providerName}
                     <input value={name} onChange={(event) => setName(event.target.value)} />
                   </label>
                   <label>
-                    Exposed Model
+                    {copy.providers.exposedModel}
                     <input value={exposedModel} onChange={(event) => setExposedModel(event.target.value)} />
                   </label>
                   <label>
-                    Route Policy
+                    {copy.providers.routePolicy}
                     <select value={routePolicy} onChange={(event) => setRoutePolicy(event.target.value)}>
                       <option value="http-first">http-first</option>
                       <option value="cli-first">cli-first</option>
@@ -724,7 +790,7 @@ export default function App() {
                     </select>
                   </label>
                   <label className="checkbox-field">
-                    <span>HTTP Enabled</span>
+                    <span>{copy.providers.httpEnabled}</span>
                     <input
                       type="checkbox"
                       checked={httpEnabled}
@@ -732,19 +798,19 @@ export default function App() {
                     />
                   </label>
                   <label className="checkbox-field">
-                    <span>CLI Enabled</span>
+                    <span>{copy.providers.cliEnabled}</span>
                     <input type="checkbox" checked={cliEnabled} onChange={(event) => setCliEnabled(event.target.checked)} />
                   </label>
                   <label>
-                    HTTP Base URL
+                    {copy.providers.httpBaseUrl}
                     <input required={httpEnabled} value={httpBaseUrl} onChange={(event) => setHttpBaseUrl(event.target.value)} />
                   </label>
                   <label>
-                    CLI Command
+                    {copy.providers.cliCommand}
                     <input required={cliEnabled} value={cliCommand} onChange={(event) => setCliCommand(event.target.value)} />
                   </label>
                   <label className="checkbox-field">
-                    <span>Chat Capable</span>
+                    <span>{copy.providers.chatCapable}</span>
                     <input
                       type="checkbox"
                       checked={chatCapable}
@@ -752,14 +818,14 @@ export default function App() {
                     />
                   </label>
                   <label className="checkbox-field">
-                    <span>Stream Capable</span>
+                    <span>{copy.providers.streamCapable}</span>
                     <input
                       type="checkbox"
                       checked={streamCapable}
                       onChange={(event) => setStreamCapable(event.target.checked)}
                     />
                   </label>
-                  <button type="submit">Add Provider</button>
+                  <button type="submit">{copy.providers.addProvider}</button>
                 </form>
               </aside>
             </div>
@@ -770,45 +836,56 @@ export default function App() {
           <section id="models">
             <div className="section-header">
               <div>
-                <span className="section-eyebrow">Catalog</span>
-                <h2>Models</h2>
+                <span className="section-eyebrow">{copy.models.eyebrow}</span>
+                <h2>{copy.models.title}</h2>
               </div>
-              <button type="button" onClick={() => void handleRediscoverModels()}>
-                Rediscover
+              <button type="button" onClick={() => void handleRediscoverModels()} disabled={!selectedProviderName}>
+                {copy.common.rediscover}
               </button>
             </div>
+            {providers.length === 0 ? (
+              <p>{copy.models.noProviders}</p>
+            ) : null}
             <form
               onSubmit={(event) => {
                 event.preventDefault();
                 void loadSelectedProviderModels(selectedProviderName);
               }}
             >
-              <label>
-                Provider
-                <select
-                  value={selectedProviderName}
-                  onChange={(event) => {
-                    setSelectedProviderName(event.target.value);
-                    void loadSelectedProviderModels(event.target.value);
-                  }}
-                >
+              <div className="provider-selector">
+                <span className="provider-selector-label">{copy.models.provider}</span>
+                <div className="provider-selector-grid" role="tablist" aria-label="Provider">
                   {providers.map((provider) => (
-                    <option key={provider.id} value={provider.name}>
+                    <button
+                      key={provider.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={selectedProviderName === provider.name}
+                      className={
+                        selectedProviderName === provider.name
+                          ? "provider-selector-pill provider-selector-pill--active"
+                          : "provider-selector-pill"
+                      }
+                      onClick={() => {
+                        setSelectedProviderName(provider.name);
+                        void loadSelectedProviderModels(provider.name);
+                      }}
+                    >
                       {provider.name}
-                    </option>
+                    </button>
                   ))}
-                </select>
-              </label>
+                </div>
+              </div>
             </form>
             <ul>
               {selectedProviderModels.map((model) => (
                 <li key={model.id}>
                   <strong>{model.native_model}</strong>
                   <div className="usage-meta">{model.source}</div>
-                  <div className="usage-meta">Exposed as {model.exposed_model_id}</div>
+                  <div className="usage-meta">{copy.models.exposedAs(model.exposed_model_id)}</div>
                   <div className="inline-actions">
                     <button type="button" onClick={() => handleToggleProviderModel(model.native_model, model.enabled)}>
-                      {model.enabled ? "Disable" : "Enable"}
+                      {model.enabled ? copy.models.disable : copy.models.enable}
                     </button>
                     <button
                       type="button"
@@ -816,7 +893,7 @@ export default function App() {
                         handleRenameProviderModel(model.native_model, `${selectedProviderName}:${model.native_model}-alt`)
                       }
                     >
-                      Rename
+                      {copy.models.rename}
                     </button>
                   </div>
                 </li>
@@ -824,17 +901,17 @@ export default function App() {
             </ul>
             <form onSubmit={handleManualModelSubmit}>
               <label>
-                Native Model
+                {copy.models.nativeModel}
                 <input value={manualNativeModel} onChange={(event) => setManualNativeModel(event.target.value)} />
               </label>
               <label>
-                Exposed Model ID
+                {copy.models.exposedModelId}
                 <input
                   value={manualExposedModelId}
                   onChange={(event) => setManualExposedModelId(event.target.value)}
                 />
               </label>
-              <button type="submit">Add Manual Model</button>
+              <button type="submit">{copy.models.addManualModel}</button>
             </form>
           </section>
         );
@@ -843,16 +920,33 @@ export default function App() {
           <section id="usage">
             <div className="section-header">
               <div>
-                <span className="section-eyebrow">Activity</span>
-                <h2>Usage</h2>
+                <span className="section-eyebrow">{copy.usage.eyebrow}</span>
+                <h2>{copy.usage.title}</h2>
               </div>
             </div>
-            {usageError ? <p role="alert">Usage unavailable: {usageError}</p> : null}
+            {usageError ? <p role="alert">{copy.usage.title}: {usageError}</p> : null}
+            <div className="provider-summary-grid">
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">{copy.usage.totalTrackedKeys}</span>
+                <strong>{recentKeyActivity.length}</strong>
+                <p>{copy.usage.trackedKeyCount(recentKeyActivity.length)}</p>
+              </article>
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">{copy.usage.attributedProviders}</span>
+                <strong>{providerActivity.length}</strong>
+                <p>{providerActivity.length === 0 ? copy.usage.noAttributedUsage : providerActivity.map(([name]) => name).join(", ")}</p>
+              </article>
+              <article className="provider-summary-card">
+                <span className="provider-summary-label">{copy.usage.attributedModels}</span>
+                <strong>{modelActivity.length}</strong>
+                <p>{modelActivity.length === 0 ? copy.usage.noModelActivity : modelActivity.map(([name]) => name).join(", ")}</p>
+              </article>
+            </div>
             <div className="split">
               <div className="panel">
-                <h3>Recent key activity</h3>
+                <h3>{copy.usage.recentKeyActivity}</h3>
                 {recentKeyActivity.length === 0 ? (
-                  <p>No API keys yet.</p>
+                  <p>{copy.usage.noKeys}</p>
                 ) : (
                   <ul>
                     {recentKeyActivity.map((apiKey) => (
@@ -860,26 +954,26 @@ export default function App() {
                         <strong>{apiKey.name}</strong>
                         <div className="usage-meta">{apiKey.key_prefix} · {apiKey.status}</div>
                         <div className="usage-stats">
-                          {apiKey.total_requests} requests · {apiKey.limited_requests} limited
+                          {copy.usage.requestsLimited(apiKey.total_requests, apiKey.limited_requests)}
                         </div>
-                        <div className="usage-meta">Last used {formatLastUsed(apiKey.last_used_at)}</div>
+                        <div className="usage-meta">{copy.usage.lastUsed(formatLastUsed(apiKey.last_used_at, locale, copy.common.noActivityYet))}</div>
                       </li>
                     ))}
                   </ul>
                 )}
               </div>
               <div className="panel">
-                <h3>Top providers / models</h3>
+                <h3>{copy.usage.topProvidersModels}</h3>
                 <p>
-                  Providers:{" "}
+                  {copy.usage.providers}:{" "}
                   {providerActivity.length === 0
-                    ? "No attributed usage yet."
+                    ? copy.usage.noAttributedUsage
                     : providerActivity.map(([name, count]) => `${name} (${count})`).join(", ")}
                 </p>
                 <p>
-                  Models:{" "}
+                  {copy.usage.models}:{" "}
                   {modelActivity.length === 0
-                    ? "No model activity yet."
+                    ? copy.usage.noModelActivity
                     : modelActivity.map(([name, count]) => `${name} (${count})`).join(", ")}
                 </p>
               </div>
@@ -891,31 +985,36 @@ export default function App() {
           <section id="settings">
             <div className="section-header">
               <div>
-                <span className="section-eyebrow">Configuration</span>
-                <h2>Platform Settings</h2>
+                <span className="section-eyebrow">{copy.settings.eyebrow}</span>
+                <h2>{copy.settings.title}</h2>
               </div>
             </div>
-            {settingsError ? <p role="alert">Settings unavailable: {settingsError}</p> : null}
+            {settingsError ? <p role="alert">{copy.settings.title}: {settingsError}</p> : null}
             <div className="settings-grid">
               <article className="settings-card">
-                <span className="provider-summary-label">Gateway endpoint</span>
+                <span className="provider-summary-label">{copy.settings.gatewayEndpoint}</span>
                 <strong>
                   {settingsOverview?.gateway_host ?? "—"}:{settingsOverview?.gateway_port ?? "—"}
                 </strong>
-                <p>Frontend base URL: {settingsOverview?.frontend_base_url ?? "—"}</p>
-                <p>Database: {settingsOverview?.database_scheme ?? "—"}</p>
+                <p>{copy.settings.frontendBaseUrl(settingsOverview?.frontend_base_url ?? "—")}</p>
+                <p>{copy.settings.database(settingsOverview?.database_scheme ?? "—")}</p>
               </article>
               <article className="settings-card">
-                <span className="provider-summary-label">Authentication</span>
-                <strong>Primary sign-in: Email + password</strong>
-                <p>GitHub OAuth: {settingsOverview?.github_oauth_enabled ? "Enabled" : "Disabled"}</p>
-                <p>Google OAuth: {settingsOverview?.google_oauth_enabled ? "Enabled" : "Disabled"}</p>
+                <span className="provider-summary-label">{copy.settings.authentication}</span>
+                <strong>{copy.settings.primarySignIn}</strong>
+                <p>{copy.settings.githubOauth(Boolean(settingsOverview?.github_oauth_enabled), copy.common.enabled, copy.common.disabled)}</p>
+                <p>{copy.settings.googleOauth(Boolean(settingsOverview?.google_oauth_enabled), copy.common.enabled, copy.common.disabled)}</p>
               </article>
               <article className="settings-card">
-                <span className="provider-summary-label">Control plane</span>
-                <strong>Admin boundary</strong>
-                <p>Admin secret configured: {settingsOverview?.admin_secret_configured ? "Yes" : "No"}</p>
-                <p>Session auth and gateway API keys remain separated by design.</p>
+                <span className="provider-summary-label">{copy.settings.controlPlane}</span>
+                <strong>{copy.settings.adminBoundary}</strong>
+                <p>{copy.settings.adminSecretConfigured(Boolean(settingsOverview?.admin_secret_configured), copy.common.yes, copy.common.no)}</p>
+                <p>{copy.settings.authSeparation}</p>
+              </article>
+              <article className="settings-card">
+                <span className="provider-summary-label">{copy.settings.interfaceLanguage}</span>
+                <strong>{messages[locale].localeLabel}</strong>
+                <p>{copy.shell.language}: {locale === "en" ? "English / 中文" : "中文 / English"}</p>
               </article>
             </div>
           </section>
@@ -932,11 +1031,19 @@ export default function App() {
           <div className="auth-brand-lockup">
             <div className="auth-brand-mark">AG</div>
             <div>
-              <h1>AgentHub</h1>
-              <p className="auth-kicker">Gateway control plane</p>
+              <h1>{copy.shell.productName}</h1>
+              <p className="auth-kicker">{copy.shell.gatewayOperations}</p>
             </div>
           </div>
-          <p>Checking session…</p>
+          <div className="language-toggle">
+            <button type="button" className={locale === "en" ? "language-toggle-active" : undefined} onClick={() => setLocale("en")}>
+              English
+            </button>
+            <button type="button" className={locale === "zh" ? "language-toggle-active" : undefined} onClick={() => setLocale("zh")}>
+              中文
+            </button>
+          </div>
+          <p>{copy.auth.checkingSession}</p>
         </section>
       </main>
     );
@@ -951,40 +1058,45 @@ export default function App() {
               <div className="auth-brand-lockup">
                 <div className="auth-brand-mark">AG</div>
                 <div>
-                  <h1>AgentHub</h1>
-                  <p className="auth-kicker">Gateway control plane</p>
+                  <h1>{copy.shell.productName}</h1>
+                  <p className="auth-kicker">{copy.shell.gatewayOperations}</p>
                 </div>
               </div>
-              <h2>{authMode === "login" ? "Sign in to your platform" : "Create your operator account"}</h2>
-              <p>
-                Manage providers, keys, model catalogs, quotas, and traffic from one dark developer
-                console.
-              </p>
+              <h2>{authMode === "login" ? copy.auth.signInTitle : copy.auth.registerTitle}</h2>
+              <p>{copy.auth.description}</p>
               <ul className="auth-feature-list">
-                <li>Track request volume, key activity, and rate-limit hits</li>
-                <li>Control HTTP and CLI providers from the same shell</li>
-                <li>Keep OpenAI-compatible access behind managed API keys</li>
+                <li>{copy.auth.featureTraffic}</li>
+                <li>{copy.auth.featureProviders}</li>
+                <li>{copy.auth.featureKeys}</li>
               </ul>
             </div>
             <div className="auth-form-panel">
-              <div className="auth-form-header">
-                <span className="auth-eyebrow">{authMode === "login" ? "Primary access" : "Create workspace access"}</span>
-                <h3>{authMode === "login" ? "Email sign in" : "Register with email"}</h3>
+              <div className="language-toggle">
+                <button type="button" className={locale === "en" ? "language-toggle-active" : undefined} onClick={() => setLocale("en")}>
+                  English
+                </button>
+                <button type="button" className={locale === "zh" ? "language-toggle-active" : undefined} onClick={() => setLocale("zh")}>
+                  中文
+                </button>
               </div>
-              {authError ? <p role="alert">Authentication failed: {authError}</p> : null}
+              <div className="auth-form-header">
+                <span className="auth-eyebrow">{authMode === "login" ? copy.auth.primaryAccess : copy.auth.createWorkspaceAccess}</span>
+                <h3>{authMode === "login" ? copy.auth.emailSignIn : copy.auth.emailRegister}</h3>
+              </div>
+              {authError ? <p role="alert">{copy.auth.authFailed}: {authError}</p> : null}
               <form className="auth-form" onSubmit={handleAuthSubmit}>
                 {authMode === "register" ? (
                   <label className="auth-field">
-                    <span className="auth-label">Name</span>
+                    <span className="auth-label">{copy.auth.name}</span>
                     <input value={authName} onChange={(event) => setAuthName(event.target.value)} />
                   </label>
                 ) : null}
                 <label className="auth-field">
-                  <span className="auth-label">Email</span>
+                  <span className="auth-label">{copy.auth.email}</span>
                   <input value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} />
                 </label>
                 <label className="auth-field">
-                  <span className="auth-label">Password</span>
+                  <span className="auth-label">{copy.auth.password}</span>
                   <input
                     type="password"
                     value={authPassword}
@@ -992,7 +1104,7 @@ export default function App() {
                   />
                 </label>
                 <button className="auth-submit" type="submit">
-                  {authMode === "login" ? "Sign In" : "Create Account"}
+                  {authMode === "login" ? copy.auth.signIn : copy.auth.createAccount}
                 </button>
               </form>
               <div className="auth-toggle-group">
@@ -1001,14 +1113,14 @@ export default function App() {
                   type="button"
                   onClick={() => setAuthMode("login")}
                 >
-                  Use Email Login
+                  {copy.auth.useEmailLogin}
                 </button>
                 <button
                   className={authMode === "register" ? "auth-secondary auth-secondary--active" : "auth-secondary"}
                   type="button"
                   onClick={() => setAuthMode("register")}
                 >
-                  Create Account
+                  {copy.auth.createAccount}
                 </button>
               </div>
               <div className="auth-social-group">
@@ -1020,7 +1132,7 @@ export default function App() {
                     window.location.href = "/auth/oauth/github";
                   }}
                 >
-                  Continue with GitHub
+                  {copy.auth.continueWithGithub}
                 </button>
                 <button
                   className="auth-social-button"
@@ -1030,12 +1142,11 @@ export default function App() {
                     window.location.href = "/auth/oauth/google";
                   }}
                 >
-                  Continue with Google
+                  {copy.auth.continueWithGoogle}
                 </button>
               </div>
               <p className="auth-provider-note">
-                GitHub {authProviders.github_enabled ? "is ready" : "needs configuration"} · Google{" "}
-                {authProviders.google_enabled ? "is ready" : "needs configuration"}
+                {copy.auth.providerNote(authProviders.github_enabled, authProviders.google_enabled)}
               </p>
             </div>
           </div>
@@ -1050,11 +1161,11 @@ export default function App() {
         <div className="sidebar-header">
           <div className="sidebar-mark">AG</div>
           <div>
-            <h1>AgentHub</h1>
-            <p>Developer Platform</p>
+            <h1>{copy.shell.productName}</h1>
+            <p>{copy.shell.productTagline}</p>
           </div>
         </div>
-        <div className="sidebar-section-label">Navigation</div>
+        <div className="sidebar-section-label">{copy.shell.navigation}</div>
         <nav>
           {NAV_ITEMS.map((item) => (
             <a key={item.id} href={`#${item.id}`} aria-current={currentRoute === item.id ? "page" : undefined}>
@@ -1063,20 +1174,28 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-footer">
-          <span className="sidebar-footer-label">Runtime</span>
-          <strong>OpenAI-compatible gateway</strong>
+          <span className="sidebar-footer-label">{copy.shell.runtime}</span>
+          <strong>{copy.shell.gateway}</strong>
         </div>
       </aside>
       <section className="content">
         <header className="topbar">
           <div className="topbar-title-group">
-            <span className="topbar-eyebrow">Developer Platform</span>
-            <strong>Gateway operations</strong>
+            <span className="topbar-eyebrow">{copy.shell.developerPlatform}</span>
+            <strong>{copy.shell.gatewayOperations}</strong>
           </div>
           <div className="topbar-user">
+            <div className="language-toggle language-toggle--compact">
+              <button type="button" className={locale === "en" ? "language-toggle-active" : undefined} onClick={() => setLocale("en")}>
+                English
+              </button>
+              <button type="button" className={locale === "zh" ? "language-toggle-active" : undefined} onClick={() => setLocale("zh")}>
+                中文
+              </button>
+            </div>
             <span className="topbar-user-email">{authUser?.email ?? "Signed in"}</span>
             <button className="topbar-logout" type="button" onClick={handleLogout}>
-              Sign out
+              {copy.shell.signOut}
             </button>
           </div>
         </header>
