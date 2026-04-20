@@ -21,6 +21,10 @@ describe("App", () => {
                 route_policy: "http-first",
                 http_enabled: true,
                 cli_enabled: false,
+                chat_capable: true,
+                stream_capable: true,
+                http_base_url: "http://127.0.0.1:9999",
+                cli_command: null,
               },
             ]),
           );
@@ -45,11 +49,14 @@ describe("App", () => {
     render(<App />);
 
     const providerRows = await screen.findAllByText(
-      (_, element) => element?.textContent === "codex - gpt-5.4 - http-first",
+      (_, element) =>
+        element?.textContent ===
+        "codex - gpt-5.4 - http-first - http:true - cli:false",
     );
     expect(providerRows.some((element) => element.tagName === "LI")).toBe(true);
     expect(screen.getByText("Providers")).toBeTruthy();
     expect(screen.getByText("Health")).toBeTruthy();
     expect(screen.getByLabelText("Provider Name")).toBeTruthy();
+    expect(screen.getByLabelText("CLI Command")).toBeTruthy();
   });
 });

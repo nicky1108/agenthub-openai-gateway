@@ -7,6 +7,10 @@ export type Provider = {
   route_policy: string;
   http_enabled: boolean;
   cli_enabled: boolean;
+  chat_capable: boolean;
+  stream_capable: boolean;
+  http_base_url: string | null;
+  cli_command: string | null;
 };
 
 export type ProviderHealth = {

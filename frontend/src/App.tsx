@@ -9,7 +9,12 @@ export default function App() {
   const [name, setName] = useState("");
   const [exposedModel, setExposedModel] = useState("default");
   const [routePolicy, setRoutePolicy] = useState("http-first");
+  const [httpEnabled, setHttpEnabled] = useState(true);
+  const [cliEnabled, setCliEnabled] = useState(false);
   const [httpBaseUrl, setHttpBaseUrl] = useState("");
+  const [cliCommand, setCliCommand] = useState("");
+  const [chatCapable, setChatCapable] = useState(true);
+  const [streamCapable, setStreamCapable] = useState(true);
 
   useEffect(() => {
     void Promise.all([getProviders(), getHealth()]).then(([providerRows, healthRows]) => {
@@ -24,16 +29,26 @@ export default function App() {
       name,
       exposed_model: exposedModel,
       route_policy: routePolicy,
-      http_enabled: true,
-      cli_enabled: false,
-      http_base_url: httpBaseUrl,
+      http_enabled: httpEnabled,
+      cli_enabled: cliEnabled,
+      chat_capable: chatCapable,
+      stream_capable: streamCapable,
+      http_base_url: httpEnabled ? httpBaseUrl : null,
       http_headers_json: "{}",
+      cli_command: cliEnabled ? cliCommand : null,
       cli_args_json: "[]",
       cli_env_json: "{}",
     });
     setProviders((current) => current.concat(created));
     setName("");
+    setExposedModel("default");
+    setRoutePolicy("http-first");
+    setHttpEnabled(true);
+    setCliEnabled(false);
     setHttpBaseUrl("");
+    setCliCommand("");
+    setChatCapable(true);
+    setStreamCapable(true);
   }
 
   return (
@@ -61,11 +76,51 @@ export default function App() {
             </select>
           </label>
           <label>
+            HTTP Enabled
+            <input
+              type="checkbox"
+              checked={httpEnabled}
+              onChange={(event) => setHttpEnabled(event.target.checked)}
+            />
+          </label>
+          <label>
+            CLI Enabled
+            <input
+              type="checkbox"
+              checked={cliEnabled}
+              onChange={(event) => setCliEnabled(event.target.checked)}
+            />
+          </label>
+          <label>
             HTTP Base URL
             <input
-              required
+              required={httpEnabled}
               value={httpBaseUrl}
               onChange={(event) => setHttpBaseUrl(event.target.value)}
+            />
+          </label>
+          <label>
+            CLI Command
+            <input
+              required={cliEnabled}
+              value={cliCommand}
+              onChange={(event) => setCliCommand(event.target.value)}
+            />
+          </label>
+          <label>
+            Chat Capable
+            <input
+              type="checkbox"
+              checked={chatCapable}
+              onChange={(event) => setChatCapable(event.target.checked)}
+            />
+          </label>
+          <label>
+            Stream Capable
+            <input
+              type="checkbox"
+              checked={streamCapable}
+              onChange={(event) => setStreamCapable(event.target.checked)}
             />
           </label>
           <button type="submit">Add Provider</button>
@@ -74,7 +129,8 @@ export default function App() {
         <ul>
           {providers.map((provider) => (
             <li key={provider.id}>
-              {provider.name} - {provider.exposed_model} - {provider.route_policy}
+              {provider.name} - {provider.exposed_model} - {provider.route_policy} - http:
+              {String(provider.http_enabled)} - cli:{String(provider.cli_enabled)}
             </li>
           ))}
         </ul>
