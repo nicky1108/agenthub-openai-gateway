@@ -2,6 +2,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -110,6 +111,16 @@ async def login(
 
     response.set_cookie("agh_session", raw_token, httponly=True, samesite="lax")
     return serialize_account(account)
+
+
+@router.get("/oauth/github")
+async def github_oauth_entry() -> RedirectResponse:
+    return RedirectResponse(url="/auth/oauth/github/callback-placeholder", status_code=302)
+
+
+@router.get("/oauth/google")
+async def google_oauth_entry() -> RedirectResponse:
+    return RedirectResponse(url="/auth/oauth/google/callback-placeholder", status_code=302)
 
 
 @router.get("/me")
