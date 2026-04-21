@@ -47,8 +47,7 @@ type ModalId =
   | "add-api-key"
   | "add-provider"
   | "add-manual-model"
-  | "override-pricing"
-  | "test-model";
+  | "override-pricing";
 
 const ROUTE_IDS: RouteId[] = ["dashboard", "providers", "models", "accounts", "api-keys", "usage", "settings"];
 
@@ -242,7 +241,9 @@ export default function App() {
   const [pricingNotes, setPricingNotes] = useState("");
   const [testMessage, setTestMessage] = useState("");
   const [testChatMessages, setTestChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
-  const [activeModal, setActiveModal] = useState<Exclude<ModalId, "test-model"> | null>(null);
+  const [testChatStatus, setTestChatStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [testChatError, setTestChatError] = useState<string | null>(null);
+  const [activeModal, setActiveModal] = useState<ModalId>(null);
   const copy = messages[locale];
   const NAV_ITEMS: Array<{ id: RouteId; label: string }> = [
     { id: "dashboard", label: copy.nav.dashboard },
@@ -365,6 +366,13 @@ export default function App() {
     setPricingThreshold(selectedModel.pricing?.high_price_threshold_tokens?.toString() ?? "");
     setPricingNotes(selectedModel.pricing?.notes ?? "");
   }, [pricingNativeModel, providerModels, selectedProviderName]);
+
+  useEffect(() => {
+    setTestChatMessages([]);
+    setTestMessage("");
+    setTestChatStatus("idle");
+    setTestChatError(null);
+  }, [selectedProviderName, pricingNativeModel]);
 
   useEffect(() => {
     if (!selectedAccountId) {
@@ -543,14 +551,22 @@ export default function App() {
     event.preventDefault();
     if (!selectedProviderName || !pricingNativeModel || !testMessage.trim()) return;
     const userContent = testMessage.trim();
+    setTestChatStatus("loading");
+    setTestChatError(null);
     setTestChatMessages((current) => [...current, { role: "user", content: userContent }]);
     setTestMessage("");
-    const response = await sendAdminTestChat({
-      model: `${selectedProviderName}:${pricingNativeModel}`,
-      messages: [{ role: "user", content: userContent }],
-    });
-    const assistantContent = response.choices[0]?.message?.content ?? "";
-    setTestChatMessages((current) => [...current, { role: "assistant", content: assistantContent }]);
+    try {
+      const response = await sendAdminTestChat({
+        model: `${selectedProviderName}:${pricingNativeModel}`,
+        messages: [{ role: "user", content: userContent }],
+      });
+      const assistantContent = response.choices[0]?.message?.content?.trim() || copy.models.emptyResponse;
+      setTestChatMessages((current) => [...current, { role: "assistant", content: assistantContent }]);
+      setTestChatStatus("idle");
+    } catch (error: unknown) {
+      setTestChatStatus("error");
+      setTestChatError(error instanceof Error ? error.message : copy.models.testFailed);
+    }
   }
 
   async function handleOpenProviderModels(providerName: string) {
@@ -1423,6 +1439,20 @@ export default function App() {
                       ))}
                     </div>
                   </div>
+                  <div className="models-test-status" aria-live="polite">
+                    <span className={testChatStatus === "loading" ? "status-pill status-pill--pending" : "status-pill"}>
+                      {testChatStatus === "loading"
+                        ? copy.models.testRunning
+                        : selectedModel
+                          ? `${copy.models.testReady}: ${selectedModel.native_model}`
+                          : copy.common.noData}
+                    </span>
+                    {testChatError ? (
+                      <p className="models-test-error" role="alert">
+                        {copy.models.testFailed}: {testChatError}
+                      </p>
+                    ) : null}
+                  </div>
                   <form onSubmit={handleModelTestSubmit}>
                     <label>
                       {copy.models.testChat}
@@ -1434,17 +1464,26 @@ export default function App() {
                       />
                     </label>
                     <div className="inline-actions">
-                      <button type="submit" disabled={!selectedModel || !testMessage.trim()}>{copy.models.sendTestMessage}</button>
+                      <button type="submit" disabled={!selectedModel || !testMessage.trim() || testChatStatus === "loading"}>
+                        {testChatStatus === "loading" ? copy.models.testRunning : copy.models.sendTestMessage}
+                      </button>
                     </div>
                   </form>
-                  <ul>
+                  <ul className="models-test-transcript">
                     {testChatMessages.length === 0 ? (
                       <li>{copy.models.noTestMessages}</li>
                     ) : (
                       testChatMessages.map((message, index) => (
-                        <li key={`${message.role}-${index}`}>
+                        <li
+                          key={`${message.role}-${index}`}
+                          className={
+                            message.role === "user"
+                              ? "models-test-message models-test-message--user"
+                              : "models-test-message models-test-message--assistant"
+                          }
+                        >
                           <strong>{message.role === "user" ? copy.models.testerUser : copy.models.testerModel}</strong>
-                          <div className="usage-meta">{message.content}</div>
+                          <div className="models-test-message-body">{message.content || copy.models.emptyResponse}</div>
                         </li>
                       ))
                     )}

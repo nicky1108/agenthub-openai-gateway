@@ -356,6 +356,12 @@ select:focus {
   font-size: 0.88rem;
 }
 
+.status-pill--pending {
+  border-color: rgba(102, 210, 255, 0.28);
+  background: rgba(102, 210, 255, 0.08);
+  color: var(--text);
+}
+
 .page-body p {
   margin: 0;
   color: var(--muted);
@@ -573,6 +579,48 @@ select:focus {
 .models-edit-panel form,
 .models-test-panel ul {
   margin-top: 0.75rem;
+}
+
+.models-test-status {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.models-test-error {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.models-test-transcript {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+}
+
+.models-test-message {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.78rem 0.88rem;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+}
+
+.models-test-message--user {
+  background: rgba(102, 210, 255, 0.06);
+  border-color: rgba(102, 210, 255, 0.18);
+}
+
+.models-test-message--assistant {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.models-test-message-body {
+  color: var(--text);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.92rem;
 }
 
 #usage .split {

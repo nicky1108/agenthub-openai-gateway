@@ -199,6 +199,10 @@ type Copy = {
       savePricingOverride: string;
       testChat: string;
       testPromptPlaceholder: string;
+      testReady: string;
+      testRunning: string;
+      testFailed: string;
+      emptyResponse: string;
       sendTestMessage: string;
       noTestMessages: string;
       testerUser: string;
@@ -444,6 +448,10 @@ export const messages: Record<Locale, Copy> = {
       savePricingOverride: "Save Pricing Override",
       testChat: "Test Chat",
       testPromptPlaceholder: "Test this model",
+      testReady: "Ready to test",
+      testRunning: "Testing model",
+      testFailed: "Test failed",
+      emptyResponse: "The model returned no visible text.",
       sendTestMessage: "Send Test Message",
       noTestMessages: "No test messages yet.",
       testerUser: "You",
@@ -683,6 +691,10 @@ export const messages: Record<Locale, Copy> = {
       savePricingOverride: "保存价格覆盖",
       testChat: "测试对话",
       testPromptPlaceholder: "测试这个模型",
+      testReady: "可以测试",
+      testRunning: "正在测试模型",
+      testFailed: "测试失败",
+      emptyResponse: "模型没有返回可见文本。",
       sendTestMessage: "发送测试消息",
       noTestMessages: "还没有测试消息。",
       testerUser: "你",
