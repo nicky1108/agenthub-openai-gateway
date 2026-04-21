@@ -128,6 +128,66 @@ select:focus {
   letter-spacing: 0.01em;
 }
 
+.sidebar-header {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.9rem;
+  align-items: center;
+  padding: 0.35rem 0.25rem 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.sidebar-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.sidebar-mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(102, 210, 255, 0.22), rgba(23, 158, 225, 0.06));
+  border: 1px solid rgba(102, 210, 255, 0.26);
+  color: var(--text);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.sidebar-section-label {
+  margin: 0 0 0.7rem;
+  padding: 0 0.3rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.sidebar-footer {
+  margin-top: 1.2rem;
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.sidebar-footer-label {
+  display: block;
+  margin-bottom: 0.45rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+.sidebar-footer strong {
+  display: block;
+  line-height: 1.45;
+}
+
 .sidebar nav {
   display: grid;
   gap: 0.35rem;
@@ -199,6 +259,15 @@ select:focus {
   gap: 0.75rem;
 }
 
+.topbar-user-email {
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted-strong);
+  font-size: 0.93rem;
+}
+
 .topbar-logout {
   border-radius: 999px;
 }
@@ -230,7 +299,7 @@ select:focus {
 .page-body {
   padding: 2.15rem;
   display: grid;
-  gap: 1.3rem;
+  gap: 1.05rem;
 }
 
 .dashboard,
@@ -246,7 +315,39 @@ select:focus {
 
 .page-body h2,
 .page-body h3 {
-  margin: 0 0 0.85rem;
+  margin: 0 0 0.65rem;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.section-header > div:first-child {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.section-eyebrow {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted-strong);
+  font-size: 0.88rem;
 }
 
 .page-body p {
@@ -349,16 +450,16 @@ select:focus {
 
 .page-body form {
   display: grid;
-  gap: 0.8rem;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  margin-top: 1rem;
+  gap: 0.7rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-top: 0.85rem;
 }
 
 .page-body label {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.38rem;
   color: var(--muted-strong);
-  font-size: 0.93rem;
+  font-size: 0.88rem;
 }
 
 .page-body form button,
@@ -373,29 +474,41 @@ select:focus {
 .page-body ul {
   list-style: none;
   padding: 0;
-  margin: 1rem 0 0;
+  margin: 0.8rem 0 0;
   display: grid;
-  gap: 0.7rem;
+  gap: 0.55rem;
 }
 
 .page-body li {
-  padding: 1rem 1.05rem;
-  border-radius: 14px;
+  padding: 0.82rem 0.92rem;
+  border-radius: 16px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.028);
   color: var(--muted-strong);
 }
 
+.page-body li:has(> strong) {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.018)),
+    rgba(255, 255, 255, 0.02);
+}
+
 .page-body li button {
-  margin-top: 0.7rem;
-  padding: 0.6rem 0.92rem;
+  margin-top: 0.6rem;
+  padding: 0.52rem 0.82rem;
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
   border: 1px solid var(--border);
 }
 
+.page-body li strong {
+  display: block;
+  font-size: 0.98rem;
+  letter-spacing: -0.01em;
+}
+
 #usage .split {
-  margin-top: 1rem;
+  margin-top: 0.85rem;
 }
 
 #usage .panel {
@@ -414,19 +527,40 @@ select:focus {
 .inline-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 0.85rem;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
+}
+
+.section-header .inline-actions,
+.section-header > button {
+  align-self: start;
+}
+
+.inline-actions button,
+.section-header > button {
+  padding: 0.58rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  color: var(--muted-strong);
+}
+
+.inline-actions button:hover,
+.section-header > button:hover {
+  border-color: var(--border-accent);
+  background: rgba(102, 210, 255, 0.1);
+  color: var(--text);
 }
 
 .providers-page {
   display: grid;
-  gap: 1.25rem;
+  gap: 0.95rem;
 }
 
 .provider-summary-grid {
   display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .provider-summary-card,
@@ -438,15 +572,28 @@ select:focus {
     radial-gradient(circle at top left, rgba(102, 210, 255, 0.05), transparent 38%);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 1.05rem;
+  padding: 0.92rem;
   box-shadow: var(--shadow-soft);
 }
 
 .provider-summary-card strong {
   display: block;
-  margin-top: 0.55rem;
-  font-size: 1.95rem;
+  margin-top: 0.42rem;
+  font-size: 1.55rem;
   letter-spacing: -0.05em;
+}
+
+.provider-summary-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.provider-summary-card::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3px;
+  background: linear-gradient(90deg, rgba(102, 210, 255, 0.5), rgba(102, 210, 255, 0));
 }
 
 .provider-summary-label {
@@ -458,13 +605,13 @@ select:focus {
 
 .provider-summary-card p,
 .provider-panel-header p {
-  margin-top: 0.55rem;
-  font-size: 0.94rem;
+  margin-top: 0.4rem;
+  font-size: 0.88rem;
 }
 
 .provider-layout {
   display: grid;
-  gap: 1rem;
+  gap: 0.8rem;
   grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.9fr);
   align-items: start;
 }
@@ -474,16 +621,16 @@ select:focus {
   justify-content: space-between;
   gap: 1rem;
   align-items: start;
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
 }
 
 .provider-card-grid {
   display: grid;
-  gap: 0.95rem;
+  gap: 0.72rem;
 }
 
 .provider-card {
-  padding: 1.05rem;
+  padding: 0.88rem;
   border-radius: 18px;
   border: 1px solid var(--border);
   background:
@@ -493,7 +640,8 @@ select:focus {
 }
 
 .provider-card h3 {
-  margin: 0.75rem 0 0.35rem;
+  margin: 0.55rem 0 0.2rem;
+  font-size: 1rem;
 }
 
 .provider-card-topline {
@@ -525,14 +673,14 @@ select:focus {
 .provider-chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
-  margin-top: 0.9rem;
+  gap: 0.42rem;
+  margin-top: 0.7rem;
 }
 
 .provider-detail-list {
   display: grid;
-  gap: 0.7rem;
-  margin-top: 1rem;
+  gap: 0.5rem;
+  margin-top: 0.78rem;
 }
 
 .provider-detail-list div {
@@ -548,7 +696,7 @@ select:focus {
 }
 
 .provider-detail-list strong {
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   word-break: break-word;
 }
 
@@ -558,7 +706,7 @@ select:focus {
 
 .provider-selector {
   display: grid;
-  gap: 0.55rem;
+  gap: 0.4rem;
 }
 
 .provider-selector-label {
@@ -569,15 +717,16 @@ select:focus {
 .provider-selector-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem;
+  gap: 0.45rem;
 }
 
 .provider-selector-pill {
-  padding: 0.72rem 1rem;
+  padding: 0.58rem 0.88rem;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border);
   color: var(--muted-strong);
+  font-size: 0.88rem;
 }
 
 .provider-selector-pill--active {
@@ -598,19 +747,19 @@ select:focus {
 
 .settings-grid {
   display: grid;
-  gap: 1rem;
+  gap: 0.75rem;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .settings-card strong {
   display: block;
-  margin-top: 0.55rem;
-  font-size: 1.2rem;
+  margin-top: 0.4rem;
+  font-size: 1.02rem;
   letter-spacing: -0.03em;
 }
 
 .settings-card p {
-  margin-top: 0.55rem;
+  margin-top: 0.4rem;
 }
 
 .usage-meta {
@@ -620,8 +769,8 @@ select:focus {
 }
 
 .pricing-block {
-  margin-top: 0.85rem;
-  padding: 0.95rem 1rem;
+  margin-top: 0.72rem;
+  padding: 0.82rem 0.9rem;
   border-radius: 16px;
   border: 1px solid var(--border);
   background:
@@ -630,9 +779,10 @@ select:focus {
 }
 
 .pricing-primary {
-  margin-top: 0.4rem;
+  margin-top: 0.3rem;
   color: var(--text);
   font-weight: 700;
+  font-size: 0.96rem;
 }
 
 .modal-backdrop {
@@ -656,7 +806,7 @@ select:focus {
     linear-gradient(180deg, rgba(18, 30, 50, 0.985), rgba(8, 15, 27, 0.99)),
     radial-gradient(circle at top left, rgba(102, 210, 255, 0.08), transparent 35%);
   box-shadow: var(--shadow);
-  padding: 1.35rem;
+  padding: 1.05rem 1.05rem 1.1rem;
 }
 
 .modal-header {
@@ -664,22 +814,28 @@ select:focus {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  margin-bottom: 1.15rem;
-  padding-bottom: 0.9rem;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--border);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
 }
 
 .modal-form {
   margin-top: 0;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.75rem;
-  margin-top: 0.35rem;
-  padding-top: 0.4rem;
+  gap: 0.55rem;
+  margin-top: 0.15rem;
+  padding-top: 0.3rem;
   border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
 
