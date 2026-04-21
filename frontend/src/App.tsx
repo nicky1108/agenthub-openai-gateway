@@ -496,6 +496,13 @@ export default function App() {
     }
   }
 
+  async function handleSelectProvider(providerName: string) {
+    setSelectedProviderName(providerName);
+    if (!providerModels[providerName]) {
+      await loadSelectedProviderModels(providerName);
+    }
+  }
+
   async function handleRediscoverModels(providerNameOverride?: string) {
     const providerName = providerNameOverride ?? selectedProviderName;
     if (!providerName) return;
@@ -667,6 +674,8 @@ export default function App() {
   const selectedProviderModels = selectedProviderName ? (providerModels[selectedProviderName] ?? []) : [];
   const selectedModel = selectedProviderModels.find((row) => row.native_model === pricingNativeModel) ?? null;
   const providerHealthByName = new Map(health.map((entry) => [entry.name, entry]));
+  const selectedProviderRecord = providers.find((provider) => provider.name === selectedProviderName) ?? null;
+  const selectedProviderHealth = selectedProviderRecord ? providerHealthByName.get(selectedProviderRecord.name) : undefined;
   const totalProviders = providers.length;
   const httpProviders = providers.filter((provider) => provider.http_enabled).length;
   const cliProviders = providers.filter((provider) => provider.cli_enabled).length;
@@ -1159,10 +1168,22 @@ export default function App() {
                 <div className="provider-card-grid">
                   {providers.map((provider) => {
                     const providerHealth = providerHealthByName.get(provider.name);
-                    const providerModelsCount = providerModels[provider.name]?.length ?? 0;
+                    const providerModelsCount = providerModels[provider.name]?.length ?? null;
 
                     return (
-                      <article key={provider.id} className="provider-card">
+                      <article
+                        key={provider.id}
+                        className={selectedProviderName === provider.name ? "provider-card provider-card--active" : "provider-card"}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => void handleSelectProvider(provider.name)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            void handleSelectProvider(provider.name);
+                          }
+                        }}
+                      >
                         <div className="provider-card-topline">
                           <span
                             className={
@@ -1194,14 +1215,32 @@ export default function App() {
                           </div>
                           <div>
                             <span>{copy.providers.modelCatalog}</span>
-                            <strong>{providerModelsCount > 0 ? copy.common.loadedCount(providerModelsCount) : copy.providers.openCatalog}</strong>
+                            <strong>
+                              {providerModelsCount === null
+                                ? copy.providers.catalogPending
+                                : providerModelsCount > 0
+                                  ? copy.common.loadedCount(providerModelsCount)
+                                  : copy.providers.openCatalog}
+                            </strong>
                           </div>
                         </div>
                         <div className="inline-actions">
-                          <button type="button" onClick={() => void handleOpenProviderModels(provider.name)}>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleOpenProviderModels(provider.name);
+                            }}
+                          >
                             {copy.common.viewModels}
                           </button>
-                          <button type="button" onClick={() => void handleRediscoverModels(provider.name)}>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleRediscoverModels(provider.name);
+                            }}
+                          >
                             {copy.common.rediscover}
                           </button>
                         </div>
@@ -1210,36 +1249,67 @@ export default function App() {
                   })}
                 </div>
               </div>
-              <aside className="provider-panel provider-operations-panel">
+              <aside className="provider-panel provider-summary-panel">
                 <div className="provider-panel-header">
                   <div>
-                    <span className="section-eyebrow">{copy.providers.compose}</span>
-                    <h3>{copy.providers.registerProvider}</h3>
-                    <p>{copy.providers.registerDescription}</p>
+                    <span className="section-eyebrow">{copy.providers.selectedProvider}</span>
+                    <h3>{selectedProviderRecord?.name ?? copy.providers.selectedSummary}</h3>
+                    <p>{selectedProviderRecord ? copy.providers.selectedDescription : copy.providers.selectionHint}</p>
                   </div>
                 </div>
-                <div className="provider-operations-stack">
-                  <div className="provider-operations-card">
-                    <span className="provider-summary-label">{copy.providers.routePolicy}</span>
-                    <strong>{formatRoutePolicyLabel(routePolicy, copy)}</strong>
-                    <p>New providers inherit this routing preference until you change it.</p>
+                {selectedProviderRecord ? (
+                  <div className="provider-summary-rail">
+                    <div className="provider-operations-card provider-operations-card--highlight">
+                      <span className="provider-summary-label">{copy.providers.primaryModel(selectedProviderRecord.exposed_model)}</span>
+                      <strong>{selectedProviderRecord.name}</strong>
+                      <p>{copy.providers.manageModelsHint}</p>
+                    </div>
+                    <div className="provider-fact-grid">
+                      <div className="provider-fact">
+                        <span>{copy.providers.statusLabel}</span>
+                        <strong>{formatProviderState(selectedProviderHealth, copy)}</strong>
+                      </div>
+                      <div className="provider-fact">
+                        <span>{copy.providers.routePolicy}</span>
+                        <strong>{formatRoutePolicyLabel(selectedProviderRecord.route_policy, copy)}</strong>
+                      </div>
+                      <div className="provider-fact">
+                        <span>{copy.providers.catalogStateLabel}</span>
+                        <strong>
+                          {providerModels[selectedProviderRecord.name]
+                            ? copy.common.loadedCount(providerModels[selectedProviderRecord.name]?.length ?? 0)
+                            : copy.providers.catalogPending}
+                        </strong>
+                      </div>
+                      <div className="provider-fact">
+                        <span>{copy.providers.transportLabel}</span>
+                        <strong>
+                          {selectedProviderRecord.http_enabled && selectedProviderRecord.cli_enabled
+                            ? `${copy.providers.openAiHttp} + ${copy.providers.cliRuntime}`
+                            : selectedProviderRecord.http_enabled
+                              ? copy.providers.openAiHttp
+                              : selectedProviderRecord.cli_enabled
+                                ? copy.providers.cliRuntime
+                                : copy.common.noData}
+                        </strong>
+                      </div>
+                    </div>
+                    <div className="provider-operations-card">
+                      <span className="provider-summary-label">{copy.providers.httpBase}</span>
+                      <strong>{selectedProviderRecord.http_base_url ?? copy.common.notConfigured}</strong>
+                      <p>{copy.providers.cliCommandLabel}: {selectedProviderRecord.cli_command ?? copy.common.notConfigured}</p>
+                    </div>
+                    <div className="provider-operations-card">
+                      <span className="provider-summary-label">{copy.providers.capabilitiesLabel}</span>
+                      <div className="provider-chip-row">
+                        {selectedProviderRecord.http_enabled ? <span className="provider-chip">{copy.providers.openAiHttp}</span> : null}
+                        {selectedProviderRecord.cli_enabled ? <span className="provider-chip">{copy.providers.cliRuntime}</span> : null}
+                        {selectedProviderRecord.chat_capable ? <span className="provider-chip">{copy.providers.chatCapableChip}</span> : null}
+                        {selectedProviderRecord.stream_capable ? <span className="provider-chip">{copy.providers.streaming}</span> : null}
+                      </div>
+                    </div>
                   </div>
-                  <div className="provider-operations-card">
-                    <span className="provider-summary-label">{copy.providers.httpTransport}</span>
-                    <strong>{httpEnabled ? copy.common.enabled : copy.common.disabled}</strong>
-                    <p>{httpEnabled ? httpBaseUrl || copy.common.notConfigured : copy.common.noData}</p>
-                  </div>
-                  <div className="provider-operations-card">
-                    <span className="provider-summary-label">{copy.providers.cliRuntimes}</span>
-                    <strong>{cliEnabled ? copy.common.enabled : copy.common.disabled}</strong>
-                    <p>{cliEnabled ? cliCommand || copy.common.notConfigured : copy.common.noData}</p>
-                  </div>
-                  <div className="provider-operations-card provider-operations-card--highlight">
-                    <span className="provider-summary-label">{copy.providers.activeProviders}</span>
-                    <strong>View models, rediscover, and register from one lane.</strong>
-                    <p>Use the model page for pricing, testing, and per-model overrides.</p>
-                  </div>
-                </div>
+                ) : null}
               </aside>
             </div>
           </section>

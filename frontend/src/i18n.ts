@@ -165,6 +165,16 @@ type Copy = {
     cliRuntime: string;
     chatCapableChip: string;
     streaming: string;
+    selectedProvider: string;
+    selectedSummary: string;
+    selectedDescription: string;
+    selectionHint: string;
+    statusLabel: string;
+    transportLabel: string;
+    capabilitiesLabel: string;
+    catalogStateLabel: string;
+    catalogPending: string;
+    manageModelsHint: string;
   };
     models: {
       eyebrow: string;
@@ -414,6 +424,16 @@ export const messages: Record<Locale, Copy> = {
       cliRuntime: "CLI runtime",
       chatCapableChip: "Chat capable",
       streaming: "Streaming",
+      selectedProvider: "Selected runtime",
+      selectedSummary: "Runtime summary",
+      selectedDescription: "A focused snapshot for the provider you are currently inspecting.",
+      selectionHint: "Select a provider card to inspect transport, health, and catalog state.",
+      statusLabel: "Health status",
+      transportLabel: "Transport",
+      capabilitiesLabel: "Capabilities",
+      catalogStateLabel: "Catalog state",
+      catalogPending: "Catalog not loaded yet",
+      manageModelsHint: "Use the Models page for pricing, exposure, and live validation.",
     },
     models: {
       eyebrow: "Catalog",
@@ -657,6 +677,16 @@ export const messages: Record<Locale, Copy> = {
       cliRuntime: "CLI 运行时",
       chatCapableChip: "支持聊天",
       streaming: "流式输出",
+      selectedProvider: "当前运行时",
+      selectedSummary: "运行时摘要",
+      selectedDescription: "聚焦查看当前选中 provider 的传输、健康和模型目录状态。",
+      selectionHint: "选择左侧任意 provider 卡片即可查看对应摘要。",
+      statusLabel: "健康状态",
+      transportLabel: "传输方式",
+      capabilitiesLabel: "能力",
+      catalogStateLabel: "目录状态",
+      catalogPending: "模型目录尚未加载",
+      manageModelsHint: "价格、对外展示名和测试对话都在模型页维护。",
     },
     models: {
       eyebrow: "目录",

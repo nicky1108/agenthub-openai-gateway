@@ -775,6 +775,7 @@ select:focus {
 }
 
 .provider-operations-panel,
+.provider-summary-panel,
 .models-tools-panel {
   display: grid;
   gap: 0.8rem;
@@ -783,6 +784,11 @@ select:focus {
 .provider-operations-stack {
   display: grid;
   gap: 0.65rem;
+}
+
+.provider-summary-rail {
+  display: grid;
+  gap: 0.7rem;
 }
 
 .provider-operations-card {
@@ -818,6 +824,22 @@ select:focus {
     linear-gradient(180deg, rgba(17, 30, 51, 0.99), rgba(10, 18, 31, 0.99)),
     radial-gradient(circle at top right, rgba(102, 210, 255, 0.1), transparent 30%);
   box-shadow: var(--shadow-soft);
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+  cursor: pointer;
+  text-align: left;
+}
+
+.provider-card:hover {
+  border-color: rgba(102, 210, 255, 0.22);
+  transform: translateY(-1px);
+}
+
+.provider-card--active {
+  border-color: rgba(102, 210, 255, 0.34);
+  background:
+    linear-gradient(180deg, rgba(26, 44, 72, 0.99), rgba(10, 18, 31, 0.99)),
+    radial-gradient(circle at top right, rgba(102, 210, 255, 0.18), transparent 34%);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.26);
 }
 
 .provider-card h3 {
@@ -883,6 +905,33 @@ select:focus {
 .provider-detail-list strong {
   font-size: 0.88rem;
   word-break: break-word;
+}
+
+.provider-fact-grid {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.provider-fact {
+  display: grid;
+  gap: 0.24rem;
+  padding: 0.82rem 0.88rem;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.provider-fact span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.provider-fact strong {
+  font-size: 0.94rem;
+  line-height: 1.35;
 }
 
 .provider-form {
