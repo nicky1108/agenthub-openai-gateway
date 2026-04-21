@@ -224,6 +224,9 @@ type Copy = {
       testRunning: string;
       testFailed: string;
       emptyResponse: string;
+      streamResponse: string;
+      cancelStream: string;
+      testCancelled: string;
       sendTestMessage: string;
       noTestMessages: string;
       testerUser: string;
@@ -494,6 +497,9 @@ export const messages: Record<Locale, Copy> = {
       testRunning: "Testing model",
       testFailed: "Test failed",
       emptyResponse: "The model returned no visible text.",
+      streamResponse: "Stream Response",
+      cancelStream: "Cancel Stream",
+      testCancelled: "Streaming cancelled",
       sendTestMessage: "Send Test Message",
       noTestMessages: "No test messages yet.",
       testerUser: "You",
@@ -758,6 +764,9 @@ export const messages: Record<Locale, Copy> = {
       testRunning: "正在测试模型",
       testFailed: "测试失败",
       emptyResponse: "模型没有返回可见文本。",
+      streamResponse: "流式测试",
+      cancelStream: "取消流式",
+      testCancelled: "已取消流式输出",
       sendTestMessage: "发送测试消息",
       noTestMessages: "还没有测试消息。",
       testerUser: "你",

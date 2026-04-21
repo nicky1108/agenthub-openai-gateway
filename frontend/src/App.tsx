@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import {
   adjustAccountCredits,
@@ -25,6 +25,7 @@ import {
   revokeApiKey,
   rediscoverProviderModels,
   sendAdminTestChat,
+  streamAdminTestChat,
   logoutSession,
   registerWithPassword,
 } from "./api";
@@ -239,12 +240,13 @@ export default function App() {
   const [pricingThreshold, setPricingThreshold] = useState("");
   const [pricingNotes, setPricingNotes] = useState("");
   const [testMessage, setTestMessage] = useState("");
-  const [testChatMessages, setTestChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const [testChatMessages, setTestChatMessages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string }>>([]);
   const [testChatStatus, setTestChatStatus] = useState<"idle" | "loading" | "error">("idle");
   const [testChatError, setTestChatError] = useState<string | null>(null);
   const [modelPanelStatus, setModelPanelStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [modelPanelMessage, setModelPanelMessage] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<ModalId>(null);
+  const testChatAbortRef = useRef<AbortController | null>(null);
   const copy = messages[locale];
   const NAV_ITEMS: Array<{ id: RouteId; label: string }> = [
     { id: "dashboard", label: copy.nav.dashboard },
@@ -375,6 +377,8 @@ export default function App() {
     setTestChatError(null);
     setModelPanelStatus("idle");
     setModelPanelMessage(null);
+    testChatAbortRef.current?.abort();
+    testChatAbortRef.current = null;
   }, [selectedProviderName, pricingNativeModel]);
 
   useEffect(() => {
@@ -581,7 +585,7 @@ export default function App() {
     const userContent = testMessage.trim();
     setTestChatStatus("loading");
     setTestChatError(null);
-    setTestChatMessages((current) => [...current, { role: "user", content: userContent }]);
+    setTestChatMessages((current) => [...current, { id: `user-${Date.now()}`, role: "user", content: userContent }]);
     setTestMessage("");
     try {
       const response = await sendAdminTestChat({
@@ -589,12 +593,76 @@ export default function App() {
         messages: [{ role: "user", content: userContent }],
       });
       const assistantContent = response.choices[0]?.message?.content?.trim() || copy.models.emptyResponse;
-      setTestChatMessages((current) => [...current, { role: "assistant", content: assistantContent }]);
+      setTestChatMessages((current) => [...current, { id: `assistant-${Date.now()}`, role: "assistant", content: assistantContent }]);
       setTestChatStatus("idle");
     } catch (error: unknown) {
       setTestChatStatus("error");
       setTestChatError(error instanceof Error ? error.message : copy.models.testFailed);
     }
+  }
+
+  async function handleModelTestStream() {
+    if (!selectedProviderName || !pricingNativeModel || !testMessage.trim() || testChatStatus === "loading") return;
+    const userContent = testMessage.trim();
+    const assistantMessageId = `assistant-${Date.now()}`;
+    testChatAbortRef.current?.abort();
+    const controller = new AbortController();
+    testChatAbortRef.current = controller;
+    setTestChatStatus("loading");
+    setTestChatError(null);
+    setTestChatMessages((current) => [
+      ...current,
+      { id: `user-${Date.now()}`, role: "user", content: userContent },
+      { id: assistantMessageId, role: "assistant", content: "" },
+    ]);
+    setTestMessage("");
+
+    try {
+      await streamAdminTestChat(
+        {
+          model: `${selectedProviderName}:${pricingNativeModel}`,
+          messages: [{ role: "user", content: userContent }],
+        },
+        {
+          signal: controller.signal,
+          onChunk: (chunk) => {
+            const delta = chunk.choices?.[0]?.delta?.content ?? "";
+            if (!delta) return;
+            setTestChatMessages((current) =>
+              current.map((message) =>
+                message.id === assistantMessageId
+                  ? { ...message, content: `${message.content}${delta}` }
+                  : message,
+              ),
+            );
+          },
+        },
+      );
+      setTestChatMessages((current) =>
+        current.map((message) =>
+          message.id === assistantMessageId && !message.content
+            ? { ...message, content: copy.models.emptyResponse }
+            : message,
+        ),
+      );
+      setTestChatStatus("idle");
+      testChatAbortRef.current = null;
+    } catch (error: unknown) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setTestChatStatus("idle");
+        setTestChatError(copy.models.testCancelled);
+        testChatAbortRef.current = null;
+        return;
+      }
+      setTestChatStatus("error");
+      setTestChatError(error instanceof Error ? error.message : copy.models.testFailed);
+      testChatAbortRef.current = null;
+    }
+  }
+
+  function handleCancelModelStream() {
+    testChatAbortRef.current?.abort();
+    testChatAbortRef.current = null;
   }
 
   async function handleOpenProviderModels(providerName: string) {
@@ -1592,6 +1660,18 @@ export default function App() {
                     <div className="inline-actions">
                       <button type="submit" disabled={!selectedModel || !testMessage.trim() || testChatStatus === "loading"}>
                         {testChatStatus === "loading" ? copy.models.testRunning : copy.models.sendTestMessage}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!selectedModel || !testMessage.trim() || testChatStatus === "loading"}
+                        onClick={() => {
+                          void handleModelTestStream();
+                        }}
+                      >
+                        {copy.models.streamResponse}
+                      </button>
+                      <button type="button" disabled={testChatStatus !== "loading"} onClick={handleCancelModelStream}>
+                        {copy.models.cancelStream}
                       </button>
                     </div>
                   </form>

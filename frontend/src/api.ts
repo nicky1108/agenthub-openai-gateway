@@ -150,6 +150,17 @@ export type AdminTestChatResponse = {
   }>;
 };
 
+export type AdminTestChatChunk = {
+  id: string;
+  object: string;
+  model: string;
+  choices?: Array<{
+    index: number;
+    delta?: { content?: string };
+    finish_reason?: string | null;
+  }>;
+};
+
 export type CreditLedgerEntry = {
   id: number;
   account_id: number;
@@ -397,6 +408,75 @@ export async function sendAdminTestChat(payload: {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function streamAdminTestChat(
+  payload: {
+    model: string;
+    messages: Array<{ role: string; content: string }>;
+    temperature?: number | null;
+    top_p?: number | null;
+    max_tokens?: number | null;
+  },
+  options: {
+    signal?: AbortSignal;
+    onChunk: (chunk: AdminTestChatChunk) => void;
+  },
+): Promise<void> {
+  const response = await fetch("/admin/test-chat", {
+    method: "POST",
+    signal: options.signal,
+    headers: {
+      "content-type": "application/json",
+      "x-admin-secret": ADMIN_SECRET,
+    },
+    body: JSON.stringify({
+      ...payload,
+      stream: true,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`request failed: ${response.status}`);
+  }
+
+  if (!response.body) {
+    throw new Error("stream unavailable");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+
+    for (const eventBlock of events) {
+      const dataLines = eventBlock
+        .split("\n")
+        .filter((line) => line.startsWith("data: "))
+        .map((line) => line.slice(6).trim());
+
+      if (dataLines.length === 0) {
+        continue;
+      }
+
+      const data = dataLines.join("\n");
+      if (data === "[DONE]") {
+        return;
+      }
+
+      options.onChunk(JSON.parse(data) as AdminTestChatChunk);
+    }
+
+    if (done) {
+      return;
+    }
+  }
 }
 
 export async function getAuthProviders(): Promise<AuthProviderStatus> {

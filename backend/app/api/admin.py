@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, model_validator, field_validator
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
@@ -23,6 +24,7 @@ from app.core.models import (
 from app.pricing.service import OfficialPricingService
 from app.orchestration.chat import ChatOrchestrator
 from app.core.settings import Settings
+from app.registry.service import ProviderNotFoundError
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 discovery = ProviderDiscoveryService()
@@ -258,10 +260,19 @@ class SettingsOverview(BaseModel):
 class AdminTestChatCreate(BaseModel):
     model: str
     messages: list[dict[str, object]]
+    stream: bool = False
     temperature: float | None = None
     top_p: float | None = None
     max_tokens: int | None = None
     stop: str | list[str] | None = None
+
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, value: str) -> str:
+        provider_name, separator, provider_model = value.partition(":")
+        if not separator or not provider_name or not provider_model:
+            raise ValueError("must be in '<provider>:<model>' format")
+        return value
 
 
 def get_settings() -> Settings:
@@ -699,19 +710,32 @@ async def admin_test_chat(
     payload: AdminTestChatCreate,
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
-) -> dict[str, object]:
-    return await chat_orchestrator.run(
-        {
-            "model": payload.model,
-            "messages": payload.messages,
-            "stream": False,
-            "temperature": payload.temperature,
-            "top_p": payload.top_p,
-            "max_tokens": payload.max_tokens,
-            "stop": payload.stop,
-        },
-        session,
-    )
+):
+    request_payload = {
+        "model": payload.model,
+        "messages": payload.messages,
+        "stream": payload.stream,
+        "temperature": payload.temperature,
+        "top_p": payload.top_p,
+        "max_tokens": payload.max_tokens,
+        "stop": payload.stop,
+    }
+    try:
+        if payload.stream:
+            request, provider = await chat_orchestrator.prepare(request_payload, session)
+
+            async def stream_response():
+                async for chunk in chat_orchestrator.stream_prepared(request, provider):
+                    yield chunk
+
+            return StreamingResponse(stream_response(), media_type="text/event-stream")
+
+        return await chat_orchestrator.run(request_payload, session)
+    except ProviderNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"provider '{exc.provider_name}' not found",
+        ) from exc
 
 
 @router.get("/providers/{provider_name}/models", response_model=list[ProviderModelRead])
