@@ -171,7 +171,9 @@ select:focus {
   padding: 1rem;
   border-radius: 18px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.025);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.015)),
+    rgba(255, 255, 255, 0.02);
 }
 
 .sidebar-footer-label {
@@ -329,6 +331,10 @@ select:focus {
 .section-header > div:first-child {
   display: grid;
   gap: 0.3rem;
+}
+
+.section-header p {
+  max-width: 56ch;
 }
 
 .section-eyebrow {
@@ -519,6 +525,23 @@ select:focus {
 #accounts ul li,
 #api-keys ul li,
 #usage ul li {
+  position: relative;
+}
+
+#accounts ul li::before,
+#api-keys ul li::before,
+#usage ul li::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(102, 210, 255, 0.45), rgba(102, 210, 255, 0));
+}
+
+#accounts ul li,
+#api-keys ul li,
+#usage ul li {
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -651,6 +674,11 @@ select:focus {
   margin-bottom: 0.75rem;
 }
 
+.provider-panel-header > div:first-child {
+  display: grid;
+  gap: 0.22rem;
+}
+
 .provider-panel-header h3,
 .section-header h2 {
   letter-spacing: -0.02em;
@@ -674,6 +702,10 @@ select:focus {
 .provider-card h3 {
   margin: 0.55rem 0 0.2rem;
   font-size: 1rem;
+}
+
+.provider-card p {
+  font-size: 0.9rem;
 }
 
 .provider-card-topline {
@@ -841,6 +873,15 @@ select:focus {
   padding: 1.05rem 1.05rem 1.1rem;
 }
 
+.modal-card::-webkit-scrollbar {
+  width: 10px;
+}
+
+.modal-card::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -855,6 +896,10 @@ select:focus {
   margin: 0;
   font-size: 1.15rem;
   letter-spacing: -0.02em;
+}
+
+.modal-header button {
+  min-width: 88px;
 }
 
 .modal-form {
@@ -907,6 +952,14 @@ select:focus {
   padding: 0.78rem 0.85rem;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.02);
+}
+
+.modal-card li strong {
+  font-size: 0.9rem;
+}
+
+.modal-card li .usage-meta {
+  line-height: 1.55;
 }
 
 .usage-stats {
