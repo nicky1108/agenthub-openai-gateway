@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     admin_secret: str = "change-me"
+    public_gateway_service_token: str = "public-gateway-token"
     database_url: str = "sqlite+aiosqlite:///./data/gateway.db"
     openai_gateway_host: str = "127.0.0.1"
     openai_gateway_port: int = 8787
@@ -11,6 +12,8 @@ class Settings(BaseSettings):
     github_oauth_client_secret: str | None = None
     google_oauth_client_id: str | None = None
     google_oauth_client_secret: str | None = None
+    public_gateway_tunnel_device_id: str | None = None
+    public_gateway_tunnel_secret: str | None = None
 
     model_config = SettingsConfigDict(env_file="../.env", extra="ignore")
 

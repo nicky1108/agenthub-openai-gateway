@@ -6,6 +6,7 @@ from sqlalchemy.engine import Connection
 from app.api.auth import router as auth_router
 from app.api.admin import router as admin_router
 from app.api.health import router as health_router
+from app.api.internal_public_gateway import router as internal_public_gateway_router
 from app.api.openai import router as openai_router
 from app.core.db import get_engine, get_session_factory
 from app.core.models import Base, ProviderRecord
@@ -180,6 +181,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(health_router)
+    app.include_router(internal_public_gateway_router)
     app.include_router(openai_router)
     return app
 
