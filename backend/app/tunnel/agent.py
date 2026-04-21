@@ -214,18 +214,23 @@ class PublicGatewayTunnelAgent:
                     type="response_start",
                     request_id=message.request_id,
                     device_id=self.device_id,
-                    payload={"op": message.op},
+                    op=message.op,
+                    payload={},
                 ),
             )
             if message.op == "key.introspect":
-                result = await self.dispatcher.introspect_key(str(message.payload["token"]))
+                body = message.payload.get("body", {})
+                if not isinstance(body, dict):
+                    raise ValueError("invalid key.introspect payload")
+                result = await self.dispatcher.introspect_key(str(body["token"]))
                 await self._send(
                     websocket,
                     ResponseEndMessage(
                         type="response_end",
                         request_id=message.request_id,
                         device_id=self.device_id,
-                        payload=result,
+                        op=message.op,
+                        payload={"status_code": 200, "body": result},
                     ),
                 )
                 return
@@ -237,25 +242,34 @@ class PublicGatewayTunnelAgent:
                         type="response_end",
                         request_id=message.request_id,
                         device_id=self.device_id,
-                        payload=result,
+                        op=message.op,
+                        payload={"status_code": 200, "body": result},
                     ),
                 )
                 return
             if message.op == "usage.record":
-                result = await self.dispatcher.record_usage_event(message.payload)
+                body = message.payload.get("body", {})
+                if not isinstance(body, dict):
+                    raise ValueError("invalid usage.record payload")
+                result = await self.dispatcher.record_usage_event(body)
                 await self._send(
                     websocket,
                     ResponseEndMessage(
                         type="response_end",
                         request_id=message.request_id,
                         device_id=self.device_id,
-                        payload=result,
+                        op=message.op,
+                        payload={"status_code": 202, "body": result},
                     ),
                 )
                 return
             if message.op == "chat.complete":
-                authorization = str(message.payload["authorization"])
-                request_payload = dict(message.payload["request"])
+                headers = message.payload.get("headers", {})
+                body = message.payload.get("body", {})
+                if not isinstance(headers, dict) or not isinstance(body, dict):
+                    raise ValueError("invalid chat.complete payload")
+                authorization = str(headers["authorization"])
+                request_payload = dict(body)
                 if request_payload.get("stream"):
                     async for chunk in self.dispatcher.chat_complete_stream(
                         authorization=authorization,
@@ -267,6 +281,7 @@ class PublicGatewayTunnelAgent:
                                 type="response_chunk",
                                 request_id=message.request_id,
                                 device_id=self.device_id,
+                                op=message.op,
                                 payload={"chunk": chunk},
                             ),
                         )
@@ -276,7 +291,8 @@ class PublicGatewayTunnelAgent:
                             type="response_end",
                             request_id=message.request_id,
                             device_id=self.device_id,
-                            payload={},
+                            op=message.op,
+                            payload={"status_code": 200},
                         ),
                     )
                     return
@@ -291,7 +307,8 @@ class PublicGatewayTunnelAgent:
                         type="response_end",
                         request_id=message.request_id,
                         device_id=self.device_id,
-                        payload=result,
+                        op=message.op,
+                        payload={"status_code": 200, "body": result},
                     ),
                 )
                 return
@@ -304,7 +321,8 @@ class PublicGatewayTunnelAgent:
                     type="response_error",
                     request_id=message.request_id,
                     device_id=self.device_id,
-                    payload={"code": "cancelled", "detail": "request cancelled"},
+                    op=message.op,
+                    payload={"status_code": 499, "code": "cancelled", "detail": "request cancelled"},
                 ),
             )
             raise
@@ -315,7 +333,8 @@ class PublicGatewayTunnelAgent:
                     type="response_error",
                     request_id=message.request_id,
                     device_id=self.device_id,
-                    payload={"code": "request_failed", "detail": str(exc)},
+                    op=message.op,
+                    payload={"status_code": 502, "code": "request_failed", "detail": str(exc)},
                 ),
             )
         finally:

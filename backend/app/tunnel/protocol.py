@@ -60,6 +60,7 @@ class ResponseStartMessage(BaseModel):
     type: Literal["response_start"]
     request_id: str
     device_id: str
+    op: TunnelOperation
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -67,6 +68,7 @@ class ResponseChunkMessage(BaseModel):
     type: Literal["response_chunk"]
     request_id: str
     device_id: str
+    op: TunnelOperation
     payload: dict[str, Any]
 
 
@@ -74,6 +76,7 @@ class ResponseEndMessage(BaseModel):
     type: Literal["response_end"]
     request_id: str
     device_id: str
+    op: TunnelOperation
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -81,6 +84,7 @@ class ResponseErrorMessage(BaseModel):
     type: Literal["response_error"]
     request_id: str
     device_id: str
+    op: TunnelOperation
     payload: dict[str, Any]
 
 
@@ -88,6 +92,7 @@ class CancelMessage(BaseModel):
     type: Literal["cancel"]
     request_id: str
     device_id: str
+    op: TunnelOperation | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
 
 

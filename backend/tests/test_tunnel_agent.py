@@ -110,14 +110,22 @@ async def test_agent_dispatches_introspection_and_catalog_requests() -> None:
               request_id="req-1",
               device_id="device-local",
               op="key.introspect",
-              payload={"token": "agk_test_token"},
+              payload={
+                  "headers": {"x-public-gateway-token": "public-gateway-token"},
+                  "body": {"token": "agk_test_token"},
+              },
           ).model_dump_json(),
           RequestMessage(
               type="request",
               request_id="req-2",
               device_id="device-local",
               op="catalog.platform_models",
-              payload={},
+              payload={
+                  "headers": {
+                      "authorization": "Bearer agk_test_token",
+                      "x-public-gateway-token": "public-gateway-token",
+                  },
+              },
           ).model_dump_json(),
           None,
         ]
@@ -142,8 +150,10 @@ async def test_agent_dispatches_introspection_and_catalog_requests() -> None:
         "response_start",
         "response_end",
     ]
-    assert sent[1].payload["account_id"] == "acct_1"
-    assert sent[3].payload["data"][0]["id"] == "codex:gpt-5.4"
+    assert sent[0].op == "key.introspect"
+    assert sent[2].op == "catalog.platform_models"
+    assert sent[1].payload["body"]["account_id"] == "acct_1"
+    assert sent[3].payload["body"]["data"][0]["id"] == "codex:gpt-5.4"
 
 
 @pytest.mark.asyncio
@@ -158,8 +168,8 @@ async def test_agent_dispatches_non_stream_chat_request() -> None:
                 device_id="device-local",
                 op="chat.complete",
                 payload={
-                    "authorization": "Bearer agk_test_token",
-                    "request": {
+                    "headers": {"authorization": "Bearer agk_test_token"},
+                    "body": {
                         "model": "codex:gpt-5.4",
                         "messages": [{"role": "user", "content": "hello"}],
                         "stream": False,
@@ -181,7 +191,8 @@ async def test_agent_dispatches_non_stream_chat_request() -> None:
     sent = [parse_tunnel_message(message) for message in websocket.sent[1:]]
     assert dispatcher.calls[0][0] == "chat.complete"
     assert [message.type for message in sent] == ["response_start", "response_end"]
-    assert sent[1].payload["object"] == "chat.completion"
+    assert sent[0].op == "chat.complete"
+    assert sent[1].payload["body"]["object"] == "chat.completion"
 
 
 @pytest.mark.asyncio
@@ -203,8 +214,8 @@ async def test_agent_streams_chat_chunks() -> None:
                 device_id="device-local",
                 op="chat.complete",
                 payload={
-                    "authorization": "Bearer agk_test_token",
-                    "request": {
+                    "headers": {"authorization": "Bearer agk_test_token"},
+                    "body": {
                         "model": "codex:gpt-5.4",
                         "messages": [{"role": "user", "content": "hello"}],
                         "stream": True,
@@ -225,6 +236,7 @@ async def test_agent_streams_chat_chunks() -> None:
 
     sent = [parse_tunnel_message(message) for message in websocket.sent[1:]]
     assert [message.type for message in sent] == ["response_start", "response_chunk", "response_end"]
+    assert sent[1].op == "chat.complete"
     assert sent[1].payload["chunk"] == "data: first\n\ndata: [DONE]\n\n"
 
 
@@ -240,8 +252,8 @@ async def test_agent_cancel_interrupts_stream_request() -> None:
                 device_id="device-local",
                 op="chat.complete",
                 payload={
-                    "authorization": "Bearer agk_test_token",
-                    "request": {
+                    "headers": {"authorization": "Bearer agk_test_token"},
+                    "body": {
                         "model": "codex:gpt-5.4",
                         "messages": [{"role": "user", "content": "hello"}],
                         "stream": True,
@@ -271,6 +283,7 @@ async def test_agent_cancel_interrupts_stream_request() -> None:
     assert dispatcher.stream_cancelled.is_set()
     assert sent[0].type == "response_start"
     assert sent[-1].type == "response_error"
+    assert sent[-1].op == "chat.complete"
     assert sent[-1].payload["code"] == "cancelled"
 
 
