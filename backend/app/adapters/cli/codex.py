@@ -73,7 +73,7 @@ class CodexCliAdapter:
                 events.append(json.loads(text))
         except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
             process.kill()
-            await process.communicate()
+            await process.wait()
             await stderr_task
             if isinstance(exc, asyncio.TimeoutError):
                 raise TimeoutError("codex cli timed out") from exc
@@ -149,7 +149,7 @@ class CodexCliAdapter:
                     usage_payload = self._usage_payload(event)
         except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
             process.kill()
-            await process.communicate()
+            await process.wait()
             await stderr_task
             if isinstance(exc, asyncio.TimeoutError):
                 raise TimeoutError("codex cli timed out") from exc
