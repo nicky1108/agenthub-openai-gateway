@@ -507,6 +507,26 @@ select:focus {
   letter-spacing: -0.01em;
 }
 
+#accounts ul li,
+#api-keys ul li,
+#usage ul li,
+#models ul li {
+  display: grid;
+  gap: 0.22rem;
+  align-content: start;
+}
+
+#accounts ul li,
+#api-keys ul li,
+#usage ul li {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#models ul li {
+  padding: 0.95rem 1rem;
+  gap: 0.32rem;
+}
+
 #usage .split {
   margin-top: 0.85rem;
 }
@@ -543,6 +563,8 @@ select:focus {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border);
   color: var(--muted-strong);
+  font-size: 0.88rem;
+  font-weight: 600;
 }
 
 .inline-actions button:hover,
@@ -550,6 +572,11 @@ select:focus {
   border-color: var(--border-accent);
   background: rgba(102, 210, 255, 0.1);
   color: var(--text);
+}
+
+.inline-actions button:last-child,
+.section-header > button:last-child {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .providers-page {
@@ -622,6 +649,11 @@ select:focus {
   gap: 1rem;
   align-items: start;
   margin-bottom: 0.75rem;
+}
+
+.provider-panel-header h3,
+.section-header h2 {
+  letter-spacing: -0.02em;
 }
 
 .provider-card-grid {
@@ -830,6 +862,20 @@ select:focus {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
+.modal-form label {
+  padding: 0.65rem 0.75rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.modal-form label span,
+.modal-form .provider-selector-label {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -850,6 +896,17 @@ select:focus {
   background: linear-gradient(135deg, var(--accent), var(--accent-strong));
   color: #02111f;
   font-weight: 700;
+}
+
+.modal-card ul {
+  margin-top: 0.9rem;
+  gap: 0.5rem;
+}
+
+.modal-card li {
+  padding: 0.78rem 0.85rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .usage-stats {
