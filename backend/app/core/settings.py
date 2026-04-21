@@ -4,6 +4,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     admin_secret: str = "change-me"
     public_gateway_service_token: str = "public-gateway-token"
+    public_gateway_tunnel_url: str | None = None
+    public_gateway_tunnel_reconnect_base_seconds: float = 1.0
+    public_gateway_tunnel_reconnect_max_seconds: float = 15.0
     database_url: str = "sqlite+aiosqlite:///./data/gateway.db"
     openai_gateway_host: str = "127.0.0.1"
     openai_gateway_port: int = 8787
