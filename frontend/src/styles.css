@@ -550,6 +550,18 @@ select:focus {
   gap: 0.32rem;
 }
 
+.models-row {
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.models-row--active {
+  border-color: var(--border-accent);
+  background:
+    linear-gradient(180deg, rgba(102, 210, 255, 0.08), rgba(255, 255, 255, 0.02)),
+    rgba(255, 255, 255, 0.02);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
 .models-catalog-panel ul {
   margin-top: 0;
 }
@@ -558,6 +570,7 @@ select:focus {
   margin-top: 0;
 }
 
+.models-edit-panel form,
 .models-test-panel ul {
   margin-top: 0.75rem;
 }

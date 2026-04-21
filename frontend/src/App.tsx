@@ -231,6 +231,7 @@ export default function App() {
   const [manualNativeModel, setManualNativeModel] = useState("");
   const [manualExposedModelId, setManualExposedModelId] = useState("");
   const [pricingNativeModel, setPricingNativeModel] = useState("");
+  const [exposedModelDraft, setExposedModelDraft] = useState("");
   const [pricingInput, setPricingInput] = useState("");
   const [pricingCachedInput, setPricingCachedInput] = useState("");
   const [pricingOutput, setPricingOutput] = useState("");
@@ -241,7 +242,7 @@ export default function App() {
   const [pricingNotes, setPricingNotes] = useState("");
   const [testMessage, setTestMessage] = useState("");
   const [testChatMessages, setTestChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
-  const [activeModal, setActiveModal] = useState<ModalId>(null);
+  const [activeModal, setActiveModal] = useState<Exclude<ModalId, "test-model"> | null>(null);
   const copy = messages[locale];
   const NAV_ITEMS: Array<{ id: RouteId; label: string }> = [
     { id: "dashboard", label: copy.nav.dashboard },
@@ -349,6 +350,21 @@ export default function App() {
       setSelectedProviderName(providers[0].name);
     }
   }, [providers, selectedProviderName]);
+
+  useEffect(() => {
+    if (!selectedProviderName) return;
+    const selectedModel = (providerModels[selectedProviderName] ?? []).find((row) => row.native_model === pricingNativeModel);
+    if (!selectedModel) return;
+    setExposedModelDraft(selectedModel.exposed_model_id);
+    setPricingInput(selectedModel.pricing?.input_price?.toString() ?? "");
+    setPricingCachedInput(selectedModel.pricing?.cached_input_price?.toString() ?? "");
+    setPricingOutput(selectedModel.pricing?.output_price?.toString() ?? "");
+    setPricingInputHigh(selectedModel.pricing?.input_price_high?.toString() ?? "");
+    setPricingCachedInputHigh(selectedModel.pricing?.cached_input_price_high?.toString() ?? "");
+    setPricingOutputHigh(selectedModel.pricing?.output_price_high?.toString() ?? "");
+    setPricingThreshold(selectedModel.pricing?.high_price_threshold_tokens?.toString() ?? "");
+    setPricingNotes(selectedModel.pricing?.notes ?? "");
+  }, [pricingNativeModel, providerModels, selectedProviderName]);
 
   useEffect(() => {
     if (!selectedAccountId) {
@@ -488,6 +504,20 @@ export default function App() {
     setProviderModels((current) => ({ ...current, [selectedProviderName]: rows }));
   }
 
+  async function handleSaveExposedModelId(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProviderName || !pricingNativeModel) return;
+    const updated = await patchProviderModel(selectedProviderName, pricingNativeModel, {
+      exposed_model_id: exposedModelDraft,
+    });
+    setProviderModels((current) => ({
+      ...current,
+      [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) =>
+        row.native_model === pricingNativeModel ? updated : row,
+      ),
+    }));
+  }
+
   async function handlePricingOverrideSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedProviderName || !pricingNativeModel) return;
@@ -619,6 +649,7 @@ export default function App() {
   const providerActivity = aggregateUsage(usageOverview, "by_provider").slice(0, 5);
   const modelActivity = aggregateUsage(usageOverview, "by_model").slice(0, 5);
   const selectedProviderModels = selectedProviderName ? (providerModels[selectedProviderName] ?? []) : [];
+  const selectedModel = selectedProviderModels.find((row) => row.native_model === pricingNativeModel) ?? null;
   const providerHealthByName = new Map(health.map((entry) => [entry.name, entry]));
   const totalProviders = providers.length;
   const httpProviders = providers.filter((provider) => provider.http_enabled).length;
@@ -860,42 +891,6 @@ export default function App() {
             <button type="submit">{copy.models.savePricingOverride}</button>
           </div>
         </form>
-      );
-    } else if (activeModal === "test-model") {
-      title = copy.models.testChat;
-      body = (
-        <>
-          <form onSubmit={handleModelTestSubmit} className="modal-form">
-            <label>
-              {copy.models.pricingTargetModel}
-              <input value={pricingNativeModel} onChange={(event) => setPricingNativeModel(event.target.value)} />
-            </label>
-            <label>
-              {copy.models.testChat}
-              <input
-                placeholder={copy.models.testPromptPlaceholder}
-                value={testMessage}
-                onChange={(event) => setTestMessage(event.target.value)}
-              />
-            </label>
-            <div className="modal-actions">
-              <button type="button" onClick={() => setActiveModal(null)}>{copy.common.cancel}</button>
-              <button type="submit">{copy.models.sendTestMessage}</button>
-            </div>
-          </form>
-          <ul>
-            {testChatMessages.length === 0 ? (
-              <li>{copy.models.noTestMessages}</li>
-            ) : (
-              testChatMessages.map((message, index) => (
-                <li key={`${message.role}-${index}`}>
-                  <strong>{message.role === "user" ? copy.models.testerUser : copy.models.testerModel}</strong>
-                  <div className="usage-meta">{message.content}</div>
-                </li>
-              ))
-            )}
-          </ul>
-        </>
       );
     }
 
@@ -1255,9 +1250,6 @@ export default function App() {
                 <button type="button" onClick={() => setActiveModal("override-pricing")} disabled={!selectedProviderName}>
                   {copy.models.savePricingOverride}
                 </button>
-                <button type="button" onClick={() => setActiveModal("test-model")} disabled={!selectedProviderName}>
-                  {copy.models.testChat}
-                </button>
               </div>
             </div>
             {providers.length === 0 ? (
@@ -1305,7 +1297,10 @@ export default function App() {
                 </div>
                 <ul>
                   {selectedProviderModels.map((model) => (
-                    <li key={model.id}>
+                    <li
+                      key={model.id}
+                      className={model.native_model === pricingNativeModel ? "models-row models-row--active" : "models-row"}
+                    >
                       <strong>{model.native_model}</strong>
                       <div className="usage-meta">{formatModelSourceLabel(model.source, model.pricing?.source_kind, locale)}</div>
                       <div className="usage-meta">{copy.models.exposedAs(model.exposed_model_id)}</div>
@@ -1351,16 +1346,11 @@ export default function App() {
                         ) : null}
                       </div>
                       <div className="inline-actions">
+                        <button type="button" onClick={() => setPricingNativeModel(model.native_model)}>
+                          {copy.common.viewModels}
+                        </button>
                         <button type="button" onClick={() => handleToggleProviderModel(model.native_model, model.enabled)}>
                           {model.enabled ? copy.models.disable : copy.models.enable}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleRenameProviderModel(model.native_model, `${selectedProviderName}:${model.native_model}-alt`)
-                          }
-                        >
-                          {copy.models.rename}
                         </button>
                       </div>
                     </li>
@@ -1371,24 +1361,82 @@ export default function App() {
                 <div className="provider-panel-header">
                   <div>
                     <span className="section-eyebrow">{copy.models.testChat}</span>
-                    <h3>Model Operations</h3>
-                    <p>Pricing maintenance, manual overrides, and a quick test lane for the active model.</p>
+                    <h3>{selectedModel?.native_model ?? copy.models.provider}</h3>
+                    <p>Exposure, pricing, and a live test lane for the selected model.</p>
                   </div>
                 </div>
                 <div className="provider-operations-stack">
                   <div className="provider-operations-card">
                     <span className="provider-summary-label">{copy.models.officialPrice}</span>
-                    <strong>{selectedProviderModels.length}</strong>
-                    <p>Catalog rows available for this provider.</p>
+                    <strong>
+                      {selectedModel?.pricing && selectedModel.pricing.input_price !== null && selectedModel.pricing.output_price !== null
+                        ? copy.models.pricingSummary(
+                            formatUsdPerMillion(selectedModel.pricing.input_price),
+                            formatUsdPerMillion(selectedModel.pricing.output_price),
+                          )
+                        : copy.models.noOfficialPrice}
+                    </strong>
+                    <p>{selectedModel?.pricing?.source_label ?? copy.common.noData}</p>
                   </div>
                   <div className="provider-operations-card">
                     <span className="provider-summary-label">{copy.models.pricingTargetModel}</span>
                     <strong>{pricingNativeModel || copy.common.noData}</strong>
-                    <p>Overrides and test chat will target this model.</p>
+                    <p>{selectedModel ? copy.models.exposedAs(selectedModel.exposed_model_id) : copy.common.noData}</p>
                   </div>
                 </div>
+                <section className="panel models-edit-panel">
+                  <h3>{copy.models.rename}</h3>
+                  <form onSubmit={handleSaveExposedModelId}>
+                    <label>
+                      {copy.models.exposedModelId}
+                      <input
+                        value={exposedModelDraft}
+                        onChange={(event) => setExposedModelDraft(event.target.value)}
+                        disabled={!selectedModel}
+                      />
+                    </label>
+                    <div className="inline-actions">
+                      <button type="submit" disabled={!selectedModel}>{copy.models.rename}</button>
+                    </div>
+                  </form>
+                </section>
                 <section className="panel models-test-panel">
                   <h3>{copy.models.testChat}</h3>
+                  <div className="provider-selector">
+                    <span className="provider-selector-label">{copy.models.pricingTargetModel}</span>
+                    <div className="provider-selector-grid" role="tablist" aria-label={copy.models.pricingTargetModel}>
+                      {selectedProviderModels.map((model) => (
+                        <button
+                          key={`test-${model.id}`}
+                          type="button"
+                          role="tab"
+                          aria-selected={pricingNativeModel === model.native_model}
+                          className={
+                            pricingNativeModel === model.native_model
+                              ? "provider-selector-pill provider-selector-pill--active"
+                              : "provider-selector-pill"
+                          }
+                          onClick={() => setPricingNativeModel(model.native_model)}
+                        >
+                          {model.native_model}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <form onSubmit={handleModelTestSubmit}>
+                    <label>
+                      {copy.models.testChat}
+                      <input
+                        placeholder={copy.models.testPromptPlaceholder}
+                        value={testMessage}
+                        onChange={(event) => setTestMessage(event.target.value)}
+                        disabled={!selectedModel}
+                      />
+                    </label>
+                    <div className="inline-actions">
+                      <button type="submit" disabled={!selectedModel || !testMessage.trim()}>{copy.models.sendTestMessage}</button>
+                    </div>
+                  </form>
                   <ul>
                     {testChatMessages.length === 0 ? (
                       <li>{copy.models.noTestMessages}</li>

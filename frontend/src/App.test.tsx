@@ -277,9 +277,8 @@ describe("App", () => {
     window.dispatchEvent(new HashChangeEvent("hashchange"));
     expect((await screen.findAllByText("gpt-5.4")).length).toBeGreaterThan(0);
     expect(screen.getByRole("tab", { name: "codex" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByText("$2.50 in · $15.00 out")).toBeTruthy();
-    expect(screen.getByText("OpenAI API Pricing")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Test Chat" }));
+    expect(screen.getAllByText("$2.50 in · $15.00 out").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("OpenAI API Pricing").length).toBeGreaterThan(0);
     fireEvent.change(screen.getByPlaceholderText("Test this model"), { target: { value: "hello model" } });
     fireEvent.click(screen.getByRole("button", { name: "Send Test Message" }));
     expect((await screen.findAllByText("hello model")).length).toBeGreaterThan(0);
