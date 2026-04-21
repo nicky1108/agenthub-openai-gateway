@@ -283,6 +283,9 @@ describe("App", () => {
     expect(screen.getByRole("tab", { name: "codex" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getAllByText("$2.50 in · $15.00 out").length).toBeGreaterThan(0);
     expect(screen.getAllByText("OpenAI API Pricing").length).toBeGreaterThan(0);
+    expect(screen.getByText("Exposure controls")).toBeTruthy();
+    expect(screen.getByText("Pricing workspace")).toBeTruthy();
+    expect(screen.getByText("Validation console")).toBeTruthy();
     fireEvent.change(screen.getByPlaceholderText("Test this model"), { target: { value: "hello model" } });
     fireEvent.click(screen.getByRole("button", { name: "Send Test Message" }));
     expect((await screen.findAllByText("hello model")).length).toBeGreaterThan(0);

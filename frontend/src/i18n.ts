@@ -207,6 +207,17 @@ type Copy = {
       highTierThreshold: string;
       pricingNotes: string;
       savePricingOverride: string;
+      overview: string;
+      currentModel: string;
+      currentStatus: string;
+      pricingSource: string;
+      syncedLabel: string;
+      exposureWorkspace: string;
+      pricingWorkspace: string;
+      validationWorkspace: string;
+      selectModelHint: string;
+      saving: string;
+      saved: string;
       testChat: string;
       testPromptPlaceholder: string;
       testReady: string;
@@ -466,6 +477,17 @@ export const messages: Record<Locale, Copy> = {
       highTierThreshold: "High-tier threshold tokens",
       pricingNotes: "Pricing notes",
       savePricingOverride: "Save Pricing Override",
+      overview: "Overview",
+      currentModel: "Current model",
+      currentStatus: "Current status",
+      pricingSource: "Pricing source",
+      syncedLabel: "Pricing sync",
+      exposureWorkspace: "Exposure controls",
+      pricingWorkspace: "Pricing workspace",
+      validationWorkspace: "Validation console",
+      selectModelHint: "Select a model row to inspect, rename, price, or test it.",
+      saving: "Saving",
+      saved: "Saved",
       testChat: "Test Chat",
       testPromptPlaceholder: "Test this model",
       testReady: "Ready to test",
@@ -719,6 +741,17 @@ export const messages: Record<Locale, Copy> = {
       highTierThreshold: "高阶阈值 tokens",
       pricingNotes: "价格备注",
       savePricingOverride: "保存价格覆盖",
+      overview: "概览",
+      currentModel: "当前模型",
+      currentStatus: "当前状态",
+      pricingSource: "价格来源",
+      syncedLabel: "价格同步",
+      exposureWorkspace: "暴露控制",
+      pricingWorkspace: "价格工作区",
+      validationWorkspace: "验证控制台",
+      selectModelHint: "选择左侧模型行后，可直接在右侧重命名、调价和测试。",
+      saving: "保存中",
+      saved: "已保存",
       testChat: "测试对话",
       testPromptPlaceholder: "测试这个模型",
       testReady: "可以测试",

@@ -46,8 +46,7 @@ type ModalId =
   | "adjust-credits"
   | "add-api-key"
   | "add-provider"
-  | "add-manual-model"
-  | "override-pricing";
+  | "add-manual-model";
 
 const ROUTE_IDS: RouteId[] = ["dashboard", "providers", "models", "accounts", "api-keys", "usage", "settings"];
 
@@ -243,6 +242,8 @@ export default function App() {
   const [testChatMessages, setTestChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [testChatStatus, setTestChatStatus] = useState<"idle" | "loading" | "error">("idle");
   const [testChatError, setTestChatError] = useState<string | null>(null);
+  const [modelPanelStatus, setModelPanelStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [modelPanelMessage, setModelPanelMessage] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<ModalId>(null);
   const copy = messages[locale];
   const NAV_ITEMS: Array<{ id: RouteId; label: string }> = [
@@ -372,6 +373,8 @@ export default function App() {
     setTestMessage("");
     setTestChatStatus("idle");
     setTestChatError(null);
+    setModelPanelStatus("idle");
+    setModelPanelMessage(null);
   }, [selectedProviderName, pricingNativeModel]);
 
   useEffect(() => {
@@ -522,36 +525,54 @@ export default function App() {
   async function handleSaveExposedModelId(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedProviderName || !pricingNativeModel) return;
-    const updated = await patchProviderModel(selectedProviderName, pricingNativeModel, {
-      exposed_model_id: exposedModelDraft,
-    });
-    setProviderModels((current) => ({
-      ...current,
-      [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) =>
-        row.native_model === pricingNativeModel ? updated : row,
-      ),
-    }));
+    setModelPanelStatus("saving");
+    setModelPanelMessage(null);
+    try {
+      const updated = await patchProviderModel(selectedProviderName, pricingNativeModel, {
+        exposed_model_id: exposedModelDraft,
+      });
+      setProviderModels((current) => ({
+        ...current,
+        [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) =>
+          row.native_model === pricingNativeModel ? updated : row,
+        ),
+      }));
+      setModelPanelStatus("saved");
+      setModelPanelMessage(copy.models.saved);
+    } catch (error: unknown) {
+      setModelPanelStatus("error");
+      setModelPanelMessage(error instanceof Error ? error.message : copy.models.testFailed);
+    }
   }
 
   async function handlePricingOverrideSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedProviderName || !pricingNativeModel) return;
-    const pricing = await patchProviderModelPricing(selectedProviderName, pricingNativeModel, {
-      input_price: pricingInput ? Number(pricingInput) : null,
-      cached_input_price: pricingCachedInput ? Number(pricingCachedInput) : null,
-      output_price: pricingOutput ? Number(pricingOutput) : null,
-      input_price_high: pricingInputHigh ? Number(pricingInputHigh) : null,
-      cached_input_price_high: pricingCachedInputHigh ? Number(pricingCachedInputHigh) : null,
-      output_price_high: pricingOutputHigh ? Number(pricingOutputHigh) : null,
-      high_price_threshold_tokens: pricingThreshold ? Number(pricingThreshold) : null,
-      notes: pricingNotes || null,
-    });
-    setProviderModels((current) => ({
-      ...current,
-      [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) =>
-        row.native_model === pricingNativeModel ? { ...row, pricing } : row,
-      ),
-    }));
+    setModelPanelStatus("saving");
+    setModelPanelMessage(null);
+    try {
+      const pricing = await patchProviderModelPricing(selectedProviderName, pricingNativeModel, {
+        input_price: pricingInput ? Number(pricingInput) : null,
+        cached_input_price: pricingCachedInput ? Number(pricingCachedInput) : null,
+        output_price: pricingOutput ? Number(pricingOutput) : null,
+        input_price_high: pricingInputHigh ? Number(pricingInputHigh) : null,
+        cached_input_price_high: pricingCachedInputHigh ? Number(pricingCachedInputHigh) : null,
+        output_price_high: pricingOutputHigh ? Number(pricingOutputHigh) : null,
+        high_price_threshold_tokens: pricingThreshold ? Number(pricingThreshold) : null,
+        notes: pricingNotes || null,
+      });
+      setProviderModels((current) => ({
+        ...current,
+        [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) =>
+          row.native_model === pricingNativeModel ? { ...row, pricing } : row,
+        ),
+      }));
+      setModelPanelStatus("saved");
+      setModelPanelMessage(copy.models.saved);
+    } catch (error: unknown) {
+      setModelPanelStatus("error");
+      setModelPanelMessage(error instanceof Error ? error.message : copy.models.testFailed);
+    }
   }
 
   async function handleModelTestSubmit(event: FormEvent<HTMLFormElement>) {
@@ -585,26 +606,22 @@ export default function App() {
 
   async function handleToggleProviderModel(nativeModel: string, enabled: boolean) {
     if (!selectedProviderName) return;
-    const updated = await patchProviderModel(selectedProviderName, nativeModel, { enabled: !enabled });
-    setProviderModels((current) => ({
-      ...current,
-      [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) =>
-        row.native_model === nativeModel ? updated : row,
-      ),
-    }));
-  }
-
-  async function handleRenameProviderModel(nativeModel: string, exposedModelId: string) {
-    if (!selectedProviderName) return;
-    const updated = await patchProviderModel(selectedProviderName, nativeModel, {
-      exposed_model_id: exposedModelId,
-    });
-    setProviderModels((current) => ({
-      ...current,
-      [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) =>
-        row.native_model === nativeModel ? updated : row,
-      ),
-    }));
+    setModelPanelStatus("saving");
+    setModelPanelMessage(null);
+    try {
+      const updated = await patchProviderModel(selectedProviderName, nativeModel, { enabled: !enabled });
+      setProviderModels((current) => ({
+        ...current,
+        [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) =>
+          row.native_model === nativeModel ? updated : row,
+        ),
+      }));
+      setModelPanelStatus("saved");
+      setModelPanelMessage(copy.models.saved);
+    } catch (error: unknown) {
+      setModelPanelStatus("error");
+      setModelPanelMessage(error instanceof Error ? error.message : copy.models.testFailed);
+    }
   }
 
   async function handleManualModelSubmit(event: FormEvent<HTMLFormElement>) {
@@ -868,52 +885,6 @@ export default function App() {
           <div className="modal-actions">
             <button type="button" onClick={() => setActiveModal(null)}>{copy.common.cancel}</button>
             <button type="submit">{copy.models.addManualModel}</button>
-          </div>
-        </form>
-      );
-    } else if (activeModal === "override-pricing") {
-      title = copy.models.savePricingOverride;
-      body = (
-        <form onSubmit={handlePricingOverrideSubmit} className="modal-form">
-          <label>
-            {copy.models.pricingTargetModel}
-            <input value={pricingNativeModel} onChange={(event) => setPricingNativeModel(event.target.value)} />
-          </label>
-          <label>
-            {copy.models.inputPrice}
-            <input value={pricingInput} onChange={(event) => setPricingInput(event.target.value)} />
-          </label>
-          <label>
-            {copy.models.cachedInputPrice}
-            <input value={pricingCachedInput} onChange={(event) => setPricingCachedInput(event.target.value)} />
-          </label>
-          <label>
-            {copy.models.outputPrice}
-            <input value={pricingOutput} onChange={(event) => setPricingOutput(event.target.value)} />
-          </label>
-          <label>
-            {copy.models.highTierInput}
-            <input value={pricingInputHigh} onChange={(event) => setPricingInputHigh(event.target.value)} />
-          </label>
-          <label>
-            {copy.models.highTierCachedInput}
-            <input value={pricingCachedInputHigh} onChange={(event) => setPricingCachedInputHigh(event.target.value)} />
-          </label>
-          <label>
-            {copy.models.highTierOutput}
-            <input value={pricingOutputHigh} onChange={(event) => setPricingOutputHigh(event.target.value)} />
-          </label>
-          <label>
-            {copy.models.highTierThreshold}
-            <input value={pricingThreshold} onChange={(event) => setPricingThreshold(event.target.value)} />
-          </label>
-          <label>
-            {copy.models.pricingNotes}
-            <input value={pricingNotes} onChange={(event) => setPricingNotes(event.target.value)} />
-          </label>
-          <div className="modal-actions">
-            <button type="button" onClick={() => setActiveModal(null)}>{copy.common.cancel}</button>
-            <button type="submit">{copy.models.savePricingOverride}</button>
           </div>
         </form>
       );
@@ -1333,9 +1304,6 @@ export default function App() {
                 <button type="button" onClick={() => setActiveModal("add-manual-model")} disabled={!selectedProviderName}>
                   {copy.models.addManualModel}
                 </button>
-                <button type="button" onClick={() => setActiveModal("override-pricing")} disabled={!selectedProviderName}>
-                  {copy.models.savePricingOverride}
-                </button>
               </div>
             </div>
             {providers.length === 0 ? (
@@ -1386,6 +1354,15 @@ export default function App() {
                     <li
                       key={model.id}
                       className={model.native_model === pricingNativeModel ? "models-row models-row--active" : "models-row"}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setPricingNativeModel(model.native_model)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setPricingNativeModel(model.native_model);
+                        }
+                      }}
                     >
                       <strong>{model.native_model}</strong>
                       <div className="usage-meta">{formatModelSourceLabel(model.source, model.pricing?.source_kind, locale)}</div>
@@ -1432,10 +1409,22 @@ export default function App() {
                         ) : null}
                       </div>
                       <div className="inline-actions">
-                        <button type="button" onClick={() => setPricingNativeModel(model.native_model)}>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setPricingNativeModel(model.native_model);
+                          }}
+                        >
                           {copy.common.viewModels}
                         </button>
-                        <button type="button" onClick={() => handleToggleProviderModel(model.native_model, model.enabled)}>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleToggleProviderModel(model.native_model, model.enabled);
+                          }}
+                        >
                           {model.enabled ? copy.models.disable : copy.models.enable}
                         </button>
                       </div>
@@ -1446,14 +1435,19 @@ export default function App() {
               <aside className="provider-panel models-tools-panel">
                 <div className="provider-panel-header">
                   <div>
-                    <span className="section-eyebrow">{copy.models.testChat}</span>
-                    <h3>{selectedModel?.native_model ?? copy.models.provider}</h3>
-                    <p>Exposure, pricing, and a live test lane for the selected model.</p>
+                    <span className="section-eyebrow">{copy.models.overview}</span>
+                    <h3>{selectedModel?.native_model ?? copy.models.currentModel}</h3>
+                    <p>{selectedModel ? copy.models.exposedAs(selectedModel.exposed_model_id) : copy.models.selectModelHint}</p>
                   </div>
                 </div>
                 <div className="provider-operations-stack">
                   <div className="provider-operations-card">
-                    <span className="provider-summary-label">{copy.models.officialPrice}</span>
+                    <span className="provider-summary-label">{copy.models.currentStatus}</span>
+                    <strong>{selectedModel ? (selectedModel.enabled ? copy.common.enabled : copy.common.disabled) : copy.common.noData}</strong>
+                    <p>{selectedModel ? formatModelSourceLabel(selectedModel.source, selectedModel.pricing?.source_kind, locale) : copy.common.noData}</p>
+                  </div>
+                  <div className="provider-operations-card">
+                    <span className="provider-summary-label">{copy.models.pricingSource}</span>
                     <strong>
                       {selectedModel?.pricing && selectedModel.pricing.input_price !== null && selectedModel.pricing.output_price !== null
                         ? copy.models.pricingSummary(
@@ -1465,14 +1459,14 @@ export default function App() {
                     <p>{selectedModel?.pricing?.source_label ?? copy.common.noData}</p>
                   </div>
                   <div className="provider-operations-card">
-                    <span className="provider-summary-label">{copy.models.pricingTargetModel}</span>
-                    <strong>{pricingNativeModel || copy.common.noData}</strong>
-                    <p>{selectedModel ? copy.models.exposedAs(selectedModel.exposed_model_id) : copy.common.noData}</p>
+                    <span className="provider-summary-label">{copy.models.syncedLabel}</span>
+                    <strong>{selectedModel?.pricing?.synced_at ? formatPricingSync(selectedModel.pricing.synced_at, locale) : copy.common.noData}</strong>
+                    <p>{selectedModel?.pricing?.notes ?? copy.common.noData}</p>
                   </div>
                 </div>
                 <section className="panel models-edit-panel">
-                  <h3>{copy.models.rename}</h3>
-                  <form onSubmit={handleSaveExposedModelId}>
+                  <h3>{copy.models.exposureWorkspace}</h3>
+                  <form onSubmit={handleSaveExposedModelId} className="models-workbench-form">
                     <label>
                       {copy.models.exposedModelId}
                       <input
@@ -1482,12 +1476,74 @@ export default function App() {
                       />
                     </label>
                     <div className="inline-actions">
-                      <button type="submit" disabled={!selectedModel}>{copy.models.rename}</button>
+                      <button type="submit" disabled={!selectedModel || modelPanelStatus === "saving"}>
+                        {modelPanelStatus === "saving" ? copy.models.saving : copy.models.rename}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!selectedModel || modelPanelStatus === "saving"}
+                        onClick={() => {
+                          if (selectedModel) {
+                            void handleToggleProviderModel(selectedModel.native_model, selectedModel.enabled);
+                          }
+                        }}
+                      >
+                        {selectedModel?.enabled ? copy.models.disable : copy.models.enable}
+                      </button>
+                    </div>
+                  </form>
+                  {modelPanelMessage ? (
+                    <p className={modelPanelStatus === "error" ? "models-panel-message models-panel-message--error" : "models-panel-message"}>
+                      {modelPanelStatus === "saved" ? copy.models.saved : modelPanelStatus === "saving" ? copy.models.saving : modelPanelMessage}
+                    </p>
+                  ) : null}
+                </section>
+                <section className="panel models-pricing-panel">
+                  <h3>{copy.models.pricingWorkspace}</h3>
+                  <form onSubmit={handlePricingOverrideSubmit} className="models-pricing-form">
+                    <div className="models-pricing-grid">
+                      <label>
+                        {copy.models.inputPrice}
+                        <input value={pricingInput} onChange={(event) => setPricingInput(event.target.value)} disabled={!selectedModel} />
+                      </label>
+                      <label>
+                        {copy.models.outputPrice}
+                        <input value={pricingOutput} onChange={(event) => setPricingOutput(event.target.value)} disabled={!selectedModel} />
+                      </label>
+                      <label>
+                        {copy.models.cachedInputPrice}
+                        <input value={pricingCachedInput} onChange={(event) => setPricingCachedInput(event.target.value)} disabled={!selectedModel} />
+                      </label>
+                      <label>
+                        {copy.models.highTierThreshold}
+                        <input value={pricingThreshold} onChange={(event) => setPricingThreshold(event.target.value)} disabled={!selectedModel} />
+                      </label>
+                      <label>
+                        {copy.models.highTierInput}
+                        <input value={pricingInputHigh} onChange={(event) => setPricingInputHigh(event.target.value)} disabled={!selectedModel} />
+                      </label>
+                      <label>
+                        {copy.models.highTierOutput}
+                        <input value={pricingOutputHigh} onChange={(event) => setPricingOutputHigh(event.target.value)} disabled={!selectedModel} />
+                      </label>
+                      <label>
+                        {copy.models.highTierCachedInput}
+                        <input value={pricingCachedInputHigh} onChange={(event) => setPricingCachedInputHigh(event.target.value)} disabled={!selectedModel} />
+                      </label>
+                    </div>
+                    <label>
+                      {copy.models.pricingNotes}
+                      <input value={pricingNotes} onChange={(event) => setPricingNotes(event.target.value)} disabled={!selectedModel} />
+                    </label>
+                    <div className="inline-actions">
+                      <button type="submit" disabled={!selectedModel || modelPanelStatus === "saving"}>
+                        {modelPanelStatus === "saving" ? copy.models.saving : copy.models.savePricingOverride}
+                      </button>
                     </div>
                   </form>
                 </section>
                 <section className="panel models-test-panel">
-                  <h3>{copy.models.testChat}</h3>
+                  <h3>{copy.models.validationWorkspace}</h3>
                   <div className="provider-selector">
                     <span className="provider-selector-label">{copy.models.pricingTargetModel}</span>
                     <div className="provider-selector-grid" role="tablist" aria-label={copy.models.pricingTargetModel}>

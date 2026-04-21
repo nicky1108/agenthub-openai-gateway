@@ -558,6 +558,11 @@ select:focus {
 
 .models-row {
   transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  cursor: pointer;
+}
+
+.models-row:hover {
+  border-color: rgba(102, 210, 255, 0.2);
 }
 
 .models-row--active {
@@ -577,14 +582,37 @@ select:focus {
 }
 
 .models-edit-panel form,
-.models-test-panel ul {
+.models-test-panel ul,
+.models-pricing-panel form {
   margin-top: 0.75rem;
+}
+
+.models-workbench-form,
+.models-pricing-form {
+  display: grid;
+  gap: 0.78rem;
+}
+
+.models-pricing-grid {
+  display: grid;
+  gap: 0.72rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .models-test-status {
   display: grid;
   gap: 0.45rem;
   margin-top: 0.75rem;
+}
+
+.models-panel-message {
+  margin: 0.65rem 0 0;
+  color: var(--muted-strong);
+  font-size: 0.88rem;
+}
+
+.models-panel-message--error {
+  color: #ffd5dc;
 }
 
 .models-test-error {
@@ -621,6 +649,20 @@ select:focus {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 0.92rem;
+}
+
+.models-pricing-panel,
+.models-edit-panel,
+.models-test-panel {
+  background:
+    linear-gradient(180deg, rgba(14, 26, 45, 0.98), rgba(8, 15, 27, 0.98)),
+    radial-gradient(circle at top left, rgba(102, 210, 255, 0.08), transparent 34%);
+}
+
+.models-pricing-panel h3,
+.models-edit-panel h3,
+.models-test-panel h3 {
+  margin-bottom: 0.15rem;
 }
 
 #usage .split {
