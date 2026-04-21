@@ -43,6 +43,8 @@ def test_models_endpoint_returns_provider_prefixed_model_ids(tmp_path, monkeypat
     assert "codex:gpt-5-codex" in ids
     assert "codex:codex-mini-latest" in ids
     assert "codex:gpt-5.4" in ids
+    assert "codex:gpt-5.4-mini" in ids
+    assert "codex:gpt-5.4-nano" in ids
 
 
 def test_models_endpoint_omits_disabled_providers(tmp_path, monkeypatch) -> None:
@@ -87,6 +89,8 @@ def test_models_endpoint_omits_disabled_providers(tmp_path, monkeypatch) -> None
         "codex:gpt-5.2-codex",
         "codex:gpt-5.3-codex",
         "codex:gpt-5.4",
+        "codex:gpt-5.4-mini",
+        "codex:gpt-5.4-nano",
     ]
 
 
@@ -113,4 +117,5 @@ def test_models_endpoint_returns_multiple_gemini_models(tmp_path, monkeypatch) -
     ids = [item["id"] for item in response.json()["data"]]
     assert "gemini:gemini-2.5-pro" in ids
     assert "gemini:gemini-2.5-flash" in ids
+    assert "gemini:gemini-2.5-flash-lite" in ids
     assert "gemini:gemini-3.1-pro-preview" in ids

@@ -230,6 +230,7 @@ def test_admin_lists_discovered_provider_models(tmp_path, monkeypatch) -> None:
     native_models = [item["native_model"] for item in response.json()]
     assert "gemini-2.5-pro" in native_models
     assert "gemini-2.5-flash" in native_models
+    assert "gemini-2.5-flash-lite" in native_models
 
 
 def test_admin_lists_official_pricing_for_provider_models(tmp_path, monkeypatch) -> None:
@@ -274,6 +275,9 @@ def test_admin_lists_official_pricing_for_provider_models(tmp_path, monkeypatch)
         "notes": "Standard pricing. Higher short-context price applies above 270k context.",
         "synced_at": gpt54["pricing"]["synced_at"],
     }
+    gpt54mini = next(item for item in response.json() if item["native_model"] == "gpt-5.4-mini")
+    assert gpt54mini["pricing"]["input_price"] == 0.75
+    assert gpt54mini["pricing"]["output_price"] == 4.5
 
 
 def test_admin_can_override_provider_model_pricing(tmp_path, monkeypatch) -> None:

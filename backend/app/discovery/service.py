@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.models import ProviderModelRecord, ProviderRecord
+from app.pricing.service import OfficialPricingService
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +17,7 @@ class DiscoveredModel:
 
 
 class ProviderDiscoveryService:
+    _pricing = OfficialPricingService()
     _CODEX_BOOTSTRAP_MODELS = (
         "gpt-5-codex",
         "gpt-5.4",
@@ -35,11 +37,31 @@ class ProviderDiscoveryService:
         "gemini-3-pro-preview",
     )
 
+    @staticmethod
+    def _merge_model_names(*groups: tuple[str, ...] | list[str]) -> list[str]:
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for group in groups:
+            for model in group:
+                if model in seen:
+                    continue
+                seen.add(model)
+                ordered.append(model)
+        return ordered
+
     def discover_models(self, provider: ProviderRecord) -> list[DiscoveredModel]:
         if provider.name == "codex":
-            return [DiscoveredModel(native_model=model, source="bootstrap") for model in self._CODEX_BOOTSTRAP_MODELS]
+            model_names = self._merge_model_names(
+                self._CODEX_BOOTSTRAP_MODELS,
+                [snapshot.native_model for snapshot in self._pricing.snapshots_for_provider("codex")],
+            )
+            return [DiscoveredModel(native_model=model, source="bootstrap") for model in model_names]
         if provider.name == "gemini":
-            return [DiscoveredModel(native_model=model, source="bootstrap") for model in self._GEMINI_BOOTSTRAP_MODELS]
+            model_names = self._merge_model_names(
+                self._GEMINI_BOOTSTRAP_MODELS,
+                [snapshot.native_model for snapshot in self._pricing.snapshots_for_provider("gemini")],
+            )
+            return [DiscoveredModel(native_model=model, source="bootstrap") for model in model_names]
         return [DiscoveredModel(native_model=provider.exposed_model, source="provider-default")]
 
     async def sync_provider_models(
