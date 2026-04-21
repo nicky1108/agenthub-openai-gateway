@@ -230,6 +230,8 @@ export default function App() {
   const [manualNativeModel, setManualNativeModel] = useState("");
   const [manualExposedModelId, setManualExposedModelId] = useState("");
   const [pricingNativeModel, setPricingNativeModel] = useState("");
+  const [modelQuery, setModelQuery] = useState("");
+  const [modelFilter, setModelFilter] = useState<"all" | "enabled" | "disabled">("all");
   const [exposedModelDraft, setExposedModelDraft] = useState("");
   const [pricingInput, setPricingInput] = useState("");
   const [pricingCachedInput, setPricingCachedInput] = useState("");
@@ -757,6 +759,17 @@ export default function App() {
   const providerActivity = aggregateUsage(usageOverview, "by_provider").slice(0, 5);
   const modelActivity = aggregateUsage(usageOverview, "by_model").slice(0, 5);
   const selectedProviderModels = selectedProviderName ? (providerModels[selectedProviderName] ?? []) : [];
+  const visibleProviderModels = selectedProviderModels.filter((model) => {
+    const matchesQuery =
+      modelQuery.trim().length === 0 ||
+      model.native_model.toLowerCase().includes(modelQuery.toLowerCase()) ||
+      model.exposed_model_id.toLowerCase().includes(modelQuery.toLowerCase());
+    const matchesFilter =
+      modelFilter === "all" ||
+      (modelFilter === "enabled" && model.enabled) ||
+      (modelFilter === "disabled" && !model.enabled);
+    return matchesQuery && matchesFilter;
+  });
   const selectedModel = selectedProviderModels.find((row) => row.native_model === pricingNativeModel) ?? null;
   const providerHealthByName = new Map(health.map((entry) => [entry.name, entry]));
   const selectedProviderRecord = providers.find((provider) => provider.name === selectedProviderName) ?? null;
@@ -1417,8 +1430,53 @@ export default function App() {
                     <p>Compact rows for model availability, pricing, and current exposure.</p>
                   </div>
                 </div>
+                <div className="models-catalog-toolbar">
+                  <div className="models-catalog-summary">
+                    <div className="provider-fact">
+                      <span>{copy.models.totalModels}</span>
+                      <strong>{selectedProviderModels.length}</strong>
+                    </div>
+                    <div className="provider-fact">
+                      <span>{copy.models.activeModels}</span>
+                      <strong>{selectedProviderModels.filter((model) => model.enabled).length}</strong>
+                    </div>
+                    <div className="provider-fact">
+                      <span>{copy.models.manualModels}</span>
+                      <strong>{selectedProviderModels.filter((model) => model.manually_overridden).length}</strong>
+                    </div>
+                  </div>
+                  <div className="models-catalog-controls">
+                    <label>
+                      {copy.models.searchModels}
+                      <input value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} />
+                    </label>
+                    <div className="provider-selector">
+                      <span className="provider-selector-label">{copy.models.currentStatus}</span>
+                      <div className="provider-selector-grid" role="tablist" aria-label={copy.models.currentStatus}>
+                        {[
+                          { id: "all", label: copy.models.filterAll },
+                          { id: "enabled", label: copy.models.filterEnabled },
+                          { id: "disabled", label: copy.models.filterDisabled },
+                        ].map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={modelFilter === option.id}
+                            className={modelFilter === option.id ? "provider-selector-pill provider-selector-pill--active" : "provider-selector-pill"}
+                            onClick={() => setModelFilter(option.id as "all" | "enabled" | "disabled")}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <ul>
-                  {selectedProviderModels.map((model) => (
+                  {visibleProviderModels.length === 0 ? (
+                    <li className="models-empty-state">{copy.models.noMatches}</li>
+                  ) : visibleProviderModels.map((model) => (
                     <li
                       key={model.id}
                       className={model.native_model === pricingNativeModel ? "models-row models-row--active" : "models-row"}
@@ -1432,49 +1490,38 @@ export default function App() {
                         }
                       }}
                     >
-                      <strong>{model.native_model}</strong>
-                      <div className="usage-meta">{formatModelSourceLabel(model.source, model.pricing?.source_kind, locale)}</div>
-                      <div className="usage-meta">{copy.models.exposedAs(model.exposed_model_id)}</div>
-                      <div className="pricing-block">
-                        <span className="provider-summary-label">{copy.models.officialPrice}</span>
-                        {model.pricing && model.pricing.input_price !== null && model.pricing.output_price !== null ? (
-                          <>
-                            <div className="pricing-primary">
-                              {copy.models.pricingSummary(
-                                formatUsdPerMillion(model.pricing.input_price),
-                                formatUsdPerMillion(model.pricing.output_price),
-                              )}
-                            </div>
-                            {model.pricing.cached_input_price !== null ? (
-                              <div className="usage-meta">
-                                {copy.models.cachedPrice(formatUsdPerMillion(model.pricing.cached_input_price))}
-                              </div>
-                            ) : null}
-                            {model.pricing.high_price_threshold_tokens && model.pricing.input_price_high !== null && model.pricing.output_price_high !== null ? (
-                              <div className="usage-meta">
-                                {copy.models.pricingTier(
-                                  model.pricing.high_price_threshold_tokens,
-                                  formatUsdPerMillion(model.pricing.input_price_high),
-                                  formatUsdPerMillion(model.pricing.output_price_high),
-                                )}
-                              </div>
-                            ) : null}
-                          </>
-                        ) : (
-                          <div className="usage-meta">{copy.models.noOfficialPrice}</div>
-                        )}
-                        {model.pricing ? (
-                          <>
-                            {model.pricing.notes ? <div className="usage-meta">{model.pricing.notes}</div> : null}
-                            <div className="usage-meta">
-                              {copy.models.sourceLink}:{" "}
-                              <a href={model.pricing.source_url} target="_blank" rel="noreferrer">
-                                {model.pricing.source_label}
-                              </a>
-                            </div>
-                            <div className="usage-meta">{copy.models.syncedAt(formatPricingSync(model.pricing.synced_at, locale))}</div>
-                          </>
-                        ) : null}
+                      <div className="models-row-topline">
+                        <strong>{model.native_model}</strong>
+                        {model.native_model === pricingNativeModel ? <span className="provider-chip">{copy.models.selectedLabel}</span> : null}
+                      </div>
+                      <div className="models-row-grid">
+                        <div className="models-row-cell">
+                          <span>{copy.models.exposedModelId}</span>
+                          <strong>{model.exposed_model_id}</strong>
+                        </div>
+                        <div className="models-row-cell">
+                          <span>{copy.models.source}</span>
+                          <strong>{formatModelSourceLabel(model.source, model.pricing?.source_kind, locale)}</strong>
+                        </div>
+                        <div className="models-row-cell">
+                          <span>{copy.models.officialPrice}</span>
+                          <strong>
+                            {model.pricing && model.pricing.input_price !== null && model.pricing.output_price !== null
+                              ? copy.models.pricingSummary(
+                                  formatUsdPerMillion(model.pricing.input_price),
+                                  formatUsdPerMillion(model.pricing.output_price),
+                                )
+                              : copy.models.noOfficialPrice}
+                          </strong>
+                        </div>
+                        <div className="models-row-cell">
+                          <span>{copy.models.currentStatus}</span>
+                          <strong>{model.enabled ? copy.common.enabled : copy.common.disabled}</strong>
+                        </div>
+                      </div>
+                      <div className="models-row-meta">
+                        <span>{model.pricing?.source_label ?? copy.common.noData}</span>
+                        <span>{model.pricing?.synced_at ? copy.models.syncedAt(formatPricingSync(model.pricing.synced_at, locale)) : copy.common.noData}</span>
                       </div>
                       <div className="inline-actions">
                         <button

@@ -212,6 +212,15 @@ type Copy = {
       currentStatus: string;
       pricingSource: string;
       syncedLabel: string;
+      totalModels: string;
+      activeModels: string;
+      manualModels: string;
+      searchModels: string;
+      filterAll: string;
+      filterEnabled: string;
+      filterDisabled: string;
+      noMatches: string;
+      selectedLabel: string;
       exposureWorkspace: string;
       pricingWorkspace: string;
       validationWorkspace: string;
@@ -485,6 +494,15 @@ export const messages: Record<Locale, Copy> = {
       currentStatus: "Current status",
       pricingSource: "Pricing source",
       syncedLabel: "Pricing sync",
+      totalModels: "Total models",
+      activeModels: "Active models",
+      manualModels: "Manual entries",
+      searchModels: "Search models",
+      filterAll: "All",
+      filterEnabled: "Enabled",
+      filterDisabled: "Disabled",
+      noMatches: "No models match the current search or filter.",
+      selectedLabel: "Selected",
       exposureWorkspace: "Exposure controls",
       pricingWorkspace: "Pricing workspace",
       validationWorkspace: "Validation console",
@@ -752,6 +770,15 @@ export const messages: Record<Locale, Copy> = {
       currentStatus: "当前状态",
       pricingSource: "价格来源",
       syncedLabel: "价格同步",
+      totalModels: "模型总数",
+      activeModels: "启用模型",
+      manualModels: "手工条目",
+      searchModels: "搜索模型",
+      filterAll: "全部",
+      filterEnabled: "已启用",
+      filterDisabled: "已停用",
+      noMatches: "当前搜索或筛选下没有匹配模型。",
+      selectedLabel: "已选中",
       exposureWorkspace: "暴露控制",
       pricingWorkspace: "价格工作区",
       validationWorkspace: "验证控制台",
