@@ -288,6 +288,7 @@ describe("App", () => {
     expect(screen.getByText("Exposure controls")).toBeTruthy();
     expect(screen.getByText("Pricing workspace")).toBeTruthy();
     expect(screen.getByText("Validation console")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Clear Transcript" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Stream Response" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Cancel Stream" })).toBeTruthy();
     fireEvent.change(screen.getByPlaceholderText("Test this model"), { target: { value: "hello model" } });

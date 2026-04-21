@@ -212,6 +212,8 @@ type Copy = {
       currentStatus: string;
       pricingSource: string;
       syncedLabel: string;
+      transcript: string;
+      clearTranscript: string;
       totalModels: string;
       activeModels: string;
       manualModels: string;
@@ -494,6 +496,8 @@ export const messages: Record<Locale, Copy> = {
       currentStatus: "Current status",
       pricingSource: "Pricing source",
       syncedLabel: "Pricing sync",
+      transcript: "Transcript",
+      clearTranscript: "Clear Transcript",
       totalModels: "Total models",
       activeModels: "Active models",
       manualModels: "Manual entries",
@@ -770,6 +774,8 @@ export const messages: Record<Locale, Copy> = {
       currentStatus: "当前状态",
       pricingSource: "价格来源",
       syncedLabel: "价格同步",
+      transcript: "记录",
+      clearTranscript: "清空记录",
       totalModels: "模型总数",
       activeModels: "启用模型",
       manualModels: "手工条目",

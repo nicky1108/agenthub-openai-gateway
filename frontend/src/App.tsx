@@ -242,7 +242,9 @@ export default function App() {
   const [pricingThreshold, setPricingThreshold] = useState("");
   const [pricingNotes, setPricingNotes] = useState("");
   const [testMessage, setTestMessage] = useState("");
-  const [testChatMessages, setTestChatMessages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string }>>([]);
+  const [testChatHistory, setTestChatHistory] = useState<
+    Record<string, Array<{ id: string; role: "user" | "assistant"; content: string }>>
+  >({});
   const [testChatStatus, setTestChatStatus] = useState<"idle" | "loading" | "error">("idle");
   const [testChatError, setTestChatError] = useState<string | null>(null);
   const [modelPanelStatus, setModelPanelStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -374,7 +376,6 @@ export default function App() {
   }, [pricingNativeModel, providerModels, selectedProviderName]);
 
   useEffect(() => {
-    setTestChatMessages([]);
     setTestMessage("");
     setTestChatStatus("idle");
     setTestChatError(null);
@@ -384,10 +385,40 @@ export default function App() {
     testChatAbortRef.current = null;
   }, [selectedProviderName, pricingNativeModel]);
 
-  useEffect(() => {
-    if (!testTranscriptRef.current) return;
-    testTranscriptRef.current.scrollTop = testTranscriptRef.current.scrollHeight;
-  }, [testChatMessages]);
+  function appendTestMessages(
+    chatKey: string,
+    messages: Array<{ id: string; role: "user" | "assistant"; content: string }>,
+  ) {
+    if (!chatKey) return;
+    setTestChatHistory((current) => ({
+      ...current,
+      [chatKey]: [...(current[chatKey] ?? []), ...messages],
+    }));
+  }
+
+  function patchTestMessage(
+    chatKey: string,
+    messageId: string,
+    updater: (message: { id: string; role: "user" | "assistant"; content: string }) => { id: string; role: "user" | "assistant"; content: string },
+  ) {
+    if (!chatKey) return;
+    setTestChatHistory((current) => ({
+      ...current,
+      [chatKey]: (current[chatKey] ?? []).map((message) =>
+        message.id === messageId ? updater(message) : message,
+      ),
+    }));
+  }
+
+  function handleClearTranscript() {
+    if (!currentTestChatKey) return;
+    setTestChatHistory((current) => ({
+      ...current,
+      [currentTestChatKey]: [],
+    }));
+    setTestChatError(null);
+    setTestChatStatus("idle");
+  }
 
   useEffect(() => {
     if (!selectedAccountId) {
@@ -590,10 +621,11 @@ export default function App() {
   async function handleModelTestSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedProviderName || !pricingNativeModel || !testMessage.trim()) return;
+    const chatKey = `${selectedProviderName}:${pricingNativeModel}`;
     const userContent = testMessage.trim();
     setTestChatStatus("loading");
     setTestChatError(null);
-    setTestChatMessages((current) => [...current, { id: `user-${Date.now()}`, role: "user", content: userContent }]);
+    appendTestMessages(chatKey, [{ id: `user-${Date.now()}`, role: "user", content: userContent }]);
     setTestMessage("");
     try {
       const response = await sendAdminTestChat({
@@ -601,7 +633,7 @@ export default function App() {
         messages: [{ role: "user", content: userContent }],
       });
       const assistantContent = response.choices[0]?.message?.content?.trim() || copy.models.emptyResponse;
-      setTestChatMessages((current) => [...current, { id: `assistant-${Date.now()}`, role: "assistant", content: assistantContent }]);
+      appendTestMessages(chatKey, [{ id: `assistant-${Date.now()}`, role: "assistant", content: assistantContent }]);
       setTestChatStatus("idle");
     } catch (error: unknown) {
       setTestChatStatus("error");
@@ -611,6 +643,7 @@ export default function App() {
 
   async function handleModelTestStream() {
     if (!selectedProviderName || !pricingNativeModel || !testMessage.trim() || testChatStatus === "loading") return;
+    const chatKey = `${selectedProviderName}:${pricingNativeModel}`;
     const userContent = testMessage.trim();
     const assistantMessageId = `assistant-${Date.now()}`;
     testChatAbortRef.current?.abort();
@@ -618,8 +651,7 @@ export default function App() {
     testChatAbortRef.current = controller;
     setTestChatStatus("loading");
     setTestChatError(null);
-    setTestChatMessages((current) => [
-      ...current,
+    appendTestMessages(chatKey, [
       { id: `user-${Date.now()}`, role: "user", content: userContent },
       { id: assistantMessageId, role: "assistant", content: "" },
     ]);
@@ -636,22 +668,15 @@ export default function App() {
           onChunk: (chunk) => {
             const delta = chunk.choices?.[0]?.delta?.content ?? "";
             if (!delta) return;
-            setTestChatMessages((current) =>
-              current.map((message) =>
-                message.id === assistantMessageId
-                  ? { ...message, content: `${message.content}${delta}` }
-                  : message,
-              ),
-            );
+            patchTestMessage(chatKey, assistantMessageId, (message) => ({
+              ...message,
+              content: `${message.content}${delta}`,
+            }));
           },
         },
       );
-      setTestChatMessages((current) =>
-        current.map((message) =>
-          message.id === assistantMessageId && !message.content
-            ? { ...message, content: copy.models.emptyResponse }
-            : message,
-        ),
+      patchTestMessage(chatKey, assistantMessageId, (message) =>
+        message.content ? message : { ...message, content: copy.models.emptyResponse },
       );
       setTestChatStatus("idle");
       testChatAbortRef.current = null;
@@ -777,6 +802,12 @@ export default function App() {
     return matchesQuery && matchesFilter;
   });
   const selectedModel = selectedProviderModels.find((row) => row.native_model === pricingNativeModel) ?? null;
+  const currentTestChatKey = selectedProviderName && pricingNativeModel ? `${selectedProviderName}:${pricingNativeModel}` : "";
+  const testChatMessages = currentTestChatKey ? (testChatHistory[currentTestChatKey] ?? []) : [];
+  useEffect(() => {
+    if (!testTranscriptRef.current) return;
+    testTranscriptRef.current.scrollTop = testTranscriptRef.current.scrollHeight;
+  }, [testChatMessages]);
   const providerHealthByName = new Map(health.map((entry) => [entry.name, entry]));
   const selectedProviderRecord = providers.find((provider) => provider.name === selectedProviderName) ?? null;
   const selectedProviderHealth = selectedProviderRecord ? providerHealthByName.get(selectedProviderRecord.name) : undefined;
@@ -1665,6 +1696,11 @@ export default function App() {
                 </section>
                 <section className="panel models-test-panel">
                   <h3>{copy.models.validationWorkspace}</h3>
+                  <div className="inline-actions models-console-actions">
+                    <button type="button" disabled={testChatMessages.length === 0} onClick={handleClearTranscript}>
+                      {copy.models.clearTranscript}
+                    </button>
+                  </div>
                   <div className="provider-selector">
                     <span className="provider-selector-label">{copy.models.pricingTargetModel}</span>
                     <div className="provider-selector-grid" role="tablist" aria-label={copy.models.pricingTargetModel}>
