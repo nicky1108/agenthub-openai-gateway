@@ -127,6 +127,54 @@ function formatPricingSync(value: string, locale: Locale): string {
   return new Date(value).toLocaleString(locale === "zh" ? "zh-CN" : "en-US");
 }
 
+function formatRoutePolicyLabel(policy: string, localeCopy: (typeof messages)["en"]): string {
+  switch (policy) {
+    case "http-first":
+      return localeCopy.providers.routePolicyHttpFirst;
+    case "cli-first":
+      return localeCopy.providers.routePolicyCliFirst;
+    case "fixed-http":
+      return localeCopy.providers.routePolicyFixedHttp;
+    case "fixed-cli":
+      return localeCopy.providers.routePolicyFixedCli;
+    default:
+      return policy;
+  }
+}
+
+function formatModelSourceLabel(
+  source: string,
+  pricingSourceKind: string | undefined,
+  locale: Locale,
+): string {
+  if (pricingSourceKind === "manual_override") {
+    return locale === "zh" ? "手工价格覆盖" : "Manual pricing override";
+  }
+  if (pricingSourceKind === "official_snapshot") {
+    return locale === "zh" ? "官方价格快照" : "Official pricing snapshot";
+  }
+  if (source === "manual_override") {
+    return locale === "zh" ? "手工模型覆盖" : "Manual model override";
+  }
+  if (source === "bootstrap") {
+    return locale === "zh" ? "内置发现" : "Bootstrap discovery";
+  }
+  if (source === "provider-default") {
+    return locale === "zh" ? "Provider 默认模型" : "Provider default";
+  }
+  return source;
+}
+
+function formatLedgerEntryLabel(entryType: string, locale: Locale): string {
+  if (entryType === "manual_adjustment") {
+    return locale === "zh" ? "手工调整" : "Manual adjustment";
+  }
+  if (entryType === "model_inference") {
+    return locale === "zh" ? "模型推理消费" : "Model inference";
+  }
+  return entryType;
+}
+
 export default function App() {
   const [locale, setLocale] = useState<Locale>(() => {
     const stored = globalThis.localStorage?.getItem(LOCALE_STORAGE_KEY);
@@ -621,8 +669,8 @@ export default function App() {
       <div className="provider-selector">
         <span className="provider-selector-label">{copy.providers.routePolicy}</span>
         <div className="provider-selector-grid" role="tablist" aria-label={copy.providers.routePolicy}>
-          {["http-first", "cli-first", "fixed-http", "fixed-cli"].map((policy) => (
-            <button
+              {["http-first", "cli-first", "fixed-http", "fixed-cli"].map((policy) => (
+                <button
               key={policy}
               type="button"
               role="tab"
@@ -630,7 +678,7 @@ export default function App() {
               className={routePolicy === policy ? "provider-selector-pill provider-selector-pill--active" : "provider-selector-pill"}
               onClick={() => setRoutePolicy(policy)}
             >
-              {policy}
+              {formatRoutePolicyLabel(policy, copy)}
             </button>
           ))}
         </div>
@@ -655,7 +703,7 @@ export default function App() {
             <input value={accountName} onChange={(event) => setAccountName(event.target.value)} />
           </label>
           <div className="modal-actions">
-            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="button" onClick={() => setActiveModal(null)}>{copy.common.cancel}</button>
             <button type="submit">{copy.accounts.addAccount}</button>
           </div>
         </form>
@@ -674,7 +722,7 @@ export default function App() {
             <input value={creditAdjustmentNotes} onChange={(event) => setCreditAdjustmentNotes(event.target.value)} />
           </label>
           <div className="modal-actions">
-            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="button" onClick={() => setActiveModal(null)}>{copy.common.cancel}</button>
             <button type="submit">{copy.accounts.applyCreditAdjustment}</button>
           </div>
         </form>
@@ -701,7 +749,7 @@ export default function App() {
             <input value={keyPerDay} onChange={(event) => setKeyPerDay(event.target.value)} />
           </label>
           <div className="modal-actions">
-            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="button" onClick={() => setActiveModal(null)}>{copy.common.cancel}</button>
             <button type="submit">{copy.apiKeys.createKey}</button>
           </div>
         </form>
@@ -744,7 +792,7 @@ export default function App() {
             <input type="checkbox" checked={streamCapable} onChange={(event) => setStreamCapable(event.target.checked)} />
           </label>
           <div className="modal-actions">
-            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="button" onClick={() => setActiveModal(null)}>{copy.common.cancel}</button>
             <button type="submit">{copy.providers.addProvider}</button>
           </div>
         </form>
@@ -762,7 +810,7 @@ export default function App() {
             <input value={manualExposedModelId} onChange={(event) => setManualExposedModelId(event.target.value)} />
           </label>
           <div className="modal-actions">
-            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="button" onClick={() => setActiveModal(null)}>{copy.common.cancel}</button>
             <button type="submit">{copy.models.addManualModel}</button>
           </div>
         </form>
@@ -808,7 +856,7 @@ export default function App() {
             <input value={pricingNotes} onChange={(event) => setPricingNotes(event.target.value)} />
           </label>
           <div className="modal-actions">
-            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="button" onClick={() => setActiveModal(null)}>{copy.common.cancel}</button>
             <button type="submit">{copy.models.savePricingOverride}</button>
           </div>
         </form>
@@ -831,7 +879,7 @@ export default function App() {
               />
             </label>
             <div className="modal-actions">
-              <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+              <button type="button" onClick={() => setActiveModal(null)}>{copy.common.cancel}</button>
               <button type="submit">{copy.models.sendTestMessage}</button>
             </div>
           </form>
@@ -856,7 +904,7 @@ export default function App() {
         <div className="modal-card" onClick={(event) => event.stopPropagation()}>
           <div className="modal-header">
             <h3>{title}</h3>
-            <button type="button" onClick={() => setActiveModal(null)}>Close</button>
+            <button type="button" onClick={() => setActiveModal(null)}>{copy.common.close}</button>
           </div>
           {body}
         </div>
@@ -988,7 +1036,7 @@ export default function App() {
               {accounts.length === 0 ? <li>{copy.accounts.empty}</li> : accounts.map((account) => (
                 <li key={account.id}>
                   <strong>{account.name}</strong>
-                  <div className="usage-meta">{account.status} · {account.credit_balance} {copy.accounts.credits}</div>
+                  <div className="usage-meta">{account.status === "active" ? copy.common.enabled : account.status} · {account.credit_balance} {copy.accounts.credits}</div>
                   {account.notes ? <div className="usage-meta">{account.notes}</div> : null}
                 </li>
               ))}
@@ -999,7 +1047,7 @@ export default function App() {
               ) : (
                 selectedAccountLedger.map((entry) => (
                   <li key={entry.id}>
-                    <strong>{entry.entry_type}</strong>
+                    <strong>{formatLedgerEntryLabel(entry.entry_type, locale)}</strong>
                     <div className="usage-meta">
                       {entry.credits_delta} {copy.accounts.credits} · {copy.accounts.balanceAfter(entry.balance_after)}
                     </div>
@@ -1113,7 +1161,7 @@ export default function App() {
                           >
                             {formatProviderState(providerHealth, copy)}
                           </span>
-                          <span className="provider-route-pill">{provider.route_policy}</span>
+                          <span className="provider-route-pill">{formatRoutePolicyLabel(provider.route_policy, copy)}</span>
                         </div>
                         <h3>{provider.name}</h3>
                         <p>{copy.providers.primaryModel(provider.exposed_model)}</p>
@@ -1217,7 +1265,7 @@ export default function App() {
               {selectedProviderModels.map((model) => (
                 <li key={model.id}>
                   <strong>{model.native_model}</strong>
-                  <div className="usage-meta">{model.source}</div>
+                  <div className="usage-meta">{formatModelSourceLabel(model.source, model.pricing?.source_kind, locale)}</div>
                   <div className="usage-meta">{copy.models.exposedAs(model.exposed_model_id)}</div>
                   <div className="pricing-block">
                     <span className="provider-summary-label">{copy.models.officialPrice}</span>
@@ -1571,7 +1619,7 @@ export default function App() {
                 中文
               </button>
             </div>
-            <span className="topbar-user-email">{authUser?.email ?? "Signed in"}</span>
+            <span className="topbar-user-email">{authUser?.email ?? copy.common.signedIn}</span>
             <button className="topbar-logout" type="button" onClick={handleLogout}>
               {copy.shell.signOut}
             </button>

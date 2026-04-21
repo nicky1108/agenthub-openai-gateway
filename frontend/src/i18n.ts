@@ -28,6 +28,9 @@ type Copy = {
     disabled: string;
     yes: string;
     no: string;
+    cancel: string;
+    close: string;
+    signedIn: string;
     defaultLabel: string;
     create: string;
     add: string;
@@ -150,6 +153,10 @@ type Copy = {
     healthy: string;
     offline: string;
     awaitingProbe: string;
+    routePolicyHttpFirst: string;
+    routePolicyCliFirst: string;
+    routePolicyFixedHttp: string;
+    routePolicyFixedCli: string;
     httpBase: string;
     cliCommandLabel: string;
     modelCatalog: string;
@@ -263,6 +270,9 @@ export const messages: Record<Locale, Copy> = {
       disabled: "Disabled",
       yes: "Yes",
       no: "No",
+      cancel: "Cancel",
+      close: "Close",
+      signedIn: "Signed in",
       defaultLabel: "default",
       create: "Create",
       add: "Add",
@@ -388,6 +398,10 @@ export const messages: Record<Locale, Copy> = {
       healthy: "Healthy",
       offline: "Offline",
       awaitingProbe: "Awaiting probe",
+      routePolicyHttpFirst: "HTTP first",
+      routePolicyCliFirst: "CLI first",
+      routePolicyFixedHttp: "Fixed HTTP",
+      routePolicyFixedCli: "Fixed CLI",
       httpBase: "HTTP base",
       cliCommandLabel: "CLI command",
       modelCatalog: "Model catalog",
@@ -497,6 +511,9 @@ export const messages: Record<Locale, Copy> = {
       disabled: "停用",
       yes: "是",
       no: "否",
+      cancel: "取消",
+      close: "关闭",
+      signedIn: "已登录",
       defaultLabel: "默认",
       create: "创建",
       add: "新增",
@@ -620,6 +637,10 @@ export const messages: Record<Locale, Copy> = {
       healthy: "健康",
       offline: "离线",
       awaitingProbe: "等待探测",
+      routePolicyHttpFirst: "优先 HTTP",
+      routePolicyCliFirst: "优先 CLI",
+      routePolicyFixedHttp: "固定 HTTP",
+      routePolicyFixedCli: "固定 CLI",
       httpBase: "HTTP 地址",
       cliCommandLabel: "CLI 命令",
       modelCatalog: "模型目录",
