@@ -550,6 +550,18 @@ select:focus {
   gap: 0.32rem;
 }
 
+.models-catalog-panel ul {
+  margin-top: 0;
+}
+
+.models-tools-panel .panel {
+  margin-top: 0;
+}
+
+.models-test-panel ul {
+  margin-top: 0.75rem;
+}
+
 #usage .split {
   margin-top: 0.85rem;
 }
@@ -603,6 +615,11 @@ select:focus {
 }
 
 .providers-page {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.models-page {
   display: grid;
   gap: 0.95rem;
 }
@@ -662,7 +679,14 @@ select:focus {
 .provider-layout {
   display: grid;
   gap: 0.8rem;
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.9fr);
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.85fr);
+  align-items: start;
+}
+
+.models-layout {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.85fr);
   align-items: start;
 }
 
@@ -687,6 +711,42 @@ select:focus {
 .provider-card-grid {
   display: grid;
   gap: 0.72rem;
+}
+
+.provider-operations-panel,
+.models-tools-panel {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.provider-operations-stack {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.provider-operations-card {
+  padding: 0.9rem 0.95rem;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.provider-operations-card strong {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 1rem;
+}
+
+.provider-operations-card p {
+  margin-top: 0.35rem;
+  font-size: 0.88rem;
+}
+
+.provider-operations-card--highlight {
+  background:
+    linear-gradient(180deg, rgba(102, 210, 255, 0.08), rgba(102, 210, 255, 0.03)),
+    rgba(255, 255, 255, 0.02);
+  border-color: var(--border-accent);
 }
 
 .provider-card {
@@ -1178,6 +1238,10 @@ select:focus {
   }
 
   .provider-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .models-layout {
     grid-template-columns: 1fr;
   }
 

@@ -275,7 +275,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("link", { name: "Models" }));
     window.dispatchEvent(new HashChangeEvent("hashchange"));
-    expect(await screen.findByText("gpt-5.4")).toBeTruthy();
+    expect((await screen.findAllByText("gpt-5.4")).length).toBeGreaterThan(0);
     expect(screen.getByRole("tab", { name: "codex" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByText("$2.50 in · $15.00 out")).toBeTruthy();
     expect(screen.getByText("OpenAI API Pricing")).toBeTruthy();

@@ -1142,6 +1142,7 @@ export default function App() {
                   <div>
                     <span className="section-eyebrow">{copy.providers.registry}</span>
                     <h3>{copy.providers.activeProviders}</h3>
+                    <p>Route-ready providers with transport and capability context.</p>
                   </div>
                 </div>
                 <div className="provider-card-grid">
@@ -1198,16 +1199,48 @@ export default function App() {
                   })}
                 </div>
               </div>
+              <aside className="provider-panel provider-operations-panel">
+                <div className="provider-panel-header">
+                  <div>
+                    <span className="section-eyebrow">{copy.providers.compose}</span>
+                    <h3>{copy.providers.registerProvider}</h3>
+                    <p>{copy.providers.registerDescription}</p>
+                  </div>
+                </div>
+                <div className="provider-operations-stack">
+                  <div className="provider-operations-card">
+                    <span className="provider-summary-label">{copy.providers.routePolicy}</span>
+                    <strong>{formatRoutePolicyLabel(routePolicy, copy)}</strong>
+                    <p>New providers inherit this routing preference until you change it.</p>
+                  </div>
+                  <div className="provider-operations-card">
+                    <span className="provider-summary-label">{copy.providers.httpTransport}</span>
+                    <strong>{httpEnabled ? copy.common.enabled : copy.common.disabled}</strong>
+                    <p>{httpEnabled ? httpBaseUrl || copy.common.notConfigured : copy.common.noData}</p>
+                  </div>
+                  <div className="provider-operations-card">
+                    <span className="provider-summary-label">{copy.providers.cliRuntimes}</span>
+                    <strong>{cliEnabled ? copy.common.enabled : copy.common.disabled}</strong>
+                    <p>{cliEnabled ? cliCommand || copy.common.notConfigured : copy.common.noData}</p>
+                  </div>
+                  <div className="provider-operations-card provider-operations-card--highlight">
+                    <span className="provider-summary-label">{copy.providers.activeProviders}</span>
+                    <strong>View models, rediscover, and register from one lane.</strong>
+                    <p>Use the model page for pricing, testing, and per-model overrides.</p>
+                  </div>
+                </div>
+              </aside>
             </div>
           </section>
         );
       case "models":
         return (
-          <section id="models">
+          <section id="models" className="models-page">
             <div className="section-header">
               <div>
                 <span className="section-eyebrow">{copy.models.eyebrow}</span>
                 <h2>{copy.models.title}</h2>
+                <p>Catalog, pricing, overrides, and live validation for the selected provider.</p>
               </div>
               <div className="inline-actions">
                 <button type="button" onClick={() => void handleRediscoverModels()} disabled={!selectedProviderName}>
@@ -1261,84 +1294,116 @@ export default function App() {
                 </div>
               </div>
             </form>
-            <ul>
-              {selectedProviderModels.map((model) => (
-                <li key={model.id}>
-                  <strong>{model.native_model}</strong>
-                  <div className="usage-meta">{formatModelSourceLabel(model.source, model.pricing?.source_kind, locale)}</div>
-                  <div className="usage-meta">{copy.models.exposedAs(model.exposed_model_id)}</div>
-                  <div className="pricing-block">
-                    <span className="provider-summary-label">{copy.models.officialPrice}</span>
-                    {model.pricing && model.pricing.input_price !== null && model.pricing.output_price !== null ? (
-                      <>
-                        <div className="pricing-primary">
-                          {copy.models.pricingSummary(
-                            formatUsdPerMillion(model.pricing.input_price),
-                            formatUsdPerMillion(model.pricing.output_price),
-                          )}
-                        </div>
-                        {model.pricing.cached_input_price !== null ? (
-                          <div className="usage-meta">
-                            {copy.models.cachedPrice(formatUsdPerMillion(model.pricing.cached_input_price))}
-                          </div>
-                        ) : null}
-                        {model.pricing.high_price_threshold_tokens && model.pricing.input_price_high !== null && model.pricing.output_price_high !== null ? (
-                          <div className="usage-meta">
-                            {copy.models.pricingTier(
-                              model.pricing.high_price_threshold_tokens,
-                              formatUsdPerMillion(model.pricing.input_price_high),
-                              formatUsdPerMillion(model.pricing.output_price_high),
-                            )}
-                          </div>
-                        ) : null}
-                      </>
-                    ) : (
-                      <div className="usage-meta">{copy.models.noOfficialPrice}</div>
-                    )}
-                    {model.pricing ? (
-                      <>
-                        {model.pricing.notes ? <div className="usage-meta">{model.pricing.notes}</div> : null}
-                        <div className="usage-meta">
-                          {copy.models.sourceLink}:{" "}
-                          <a href={model.pricing.source_url} target="_blank" rel="noreferrer">
-                            {model.pricing.source_label}
-                          </a>
-                        </div>
-                        <div className="usage-meta">{copy.models.syncedAt(formatPricingSync(model.pricing.synced_at, locale))}</div>
-                      </>
-                    ) : null}
+            <div className="models-layout">
+              <div className="provider-panel models-catalog-panel">
+                <div className="provider-panel-header">
+                  <div>
+                    <span className="section-eyebrow">{copy.models.eyebrow}</span>
+                    <h3>{selectedProviderName || copy.models.provider}</h3>
+                    <p>Compact rows for model availability, pricing, and current exposure.</p>
                   </div>
-                  <div className="inline-actions">
-                    <button type="button" onClick={() => handleToggleProviderModel(model.native_model, model.enabled)}>
-                      {model.enabled ? copy.models.disable : copy.models.enable}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleRenameProviderModel(model.native_model, `${selectedProviderName}:${model.native_model}-alt`)
-                      }
-                    >
-                      {copy.models.rename}
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-            <section className="panel">
-              <h3>{copy.models.testChat}</h3>
-              <ul>
-                {testChatMessages.length === 0 ? (
-                  <li>{copy.models.noTestMessages}</li>
-                ) : (
-                  testChatMessages.map((message, index) => (
-                    <li key={`${message.role}-${index}`}>
-                      <strong>{message.role === "user" ? copy.models.testerUser : copy.models.testerModel}</strong>
-                      <div className="usage-meta">{message.content}</div>
+                </div>
+                <ul>
+                  {selectedProviderModels.map((model) => (
+                    <li key={model.id}>
+                      <strong>{model.native_model}</strong>
+                      <div className="usage-meta">{formatModelSourceLabel(model.source, model.pricing?.source_kind, locale)}</div>
+                      <div className="usage-meta">{copy.models.exposedAs(model.exposed_model_id)}</div>
+                      <div className="pricing-block">
+                        <span className="provider-summary-label">{copy.models.officialPrice}</span>
+                        {model.pricing && model.pricing.input_price !== null && model.pricing.output_price !== null ? (
+                          <>
+                            <div className="pricing-primary">
+                              {copy.models.pricingSummary(
+                                formatUsdPerMillion(model.pricing.input_price),
+                                formatUsdPerMillion(model.pricing.output_price),
+                              )}
+                            </div>
+                            {model.pricing.cached_input_price !== null ? (
+                              <div className="usage-meta">
+                                {copy.models.cachedPrice(formatUsdPerMillion(model.pricing.cached_input_price))}
+                              </div>
+                            ) : null}
+                            {model.pricing.high_price_threshold_tokens && model.pricing.input_price_high !== null && model.pricing.output_price_high !== null ? (
+                              <div className="usage-meta">
+                                {copy.models.pricingTier(
+                                  model.pricing.high_price_threshold_tokens,
+                                  formatUsdPerMillion(model.pricing.input_price_high),
+                                  formatUsdPerMillion(model.pricing.output_price_high),
+                                )}
+                              </div>
+                            ) : null}
+                          </>
+                        ) : (
+                          <div className="usage-meta">{copy.models.noOfficialPrice}</div>
+                        )}
+                        {model.pricing ? (
+                          <>
+                            {model.pricing.notes ? <div className="usage-meta">{model.pricing.notes}</div> : null}
+                            <div className="usage-meta">
+                              {copy.models.sourceLink}:{" "}
+                              <a href={model.pricing.source_url} target="_blank" rel="noreferrer">
+                                {model.pricing.source_label}
+                              </a>
+                            </div>
+                            <div className="usage-meta">{copy.models.syncedAt(formatPricingSync(model.pricing.synced_at, locale))}</div>
+                          </>
+                        ) : null}
+                      </div>
+                      <div className="inline-actions">
+                        <button type="button" onClick={() => handleToggleProviderModel(model.native_model, model.enabled)}>
+                          {model.enabled ? copy.models.disable : copy.models.enable}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleRenameProviderModel(model.native_model, `${selectedProviderName}:${model.native_model}-alt`)
+                          }
+                        >
+                          {copy.models.rename}
+                        </button>
+                      </div>
                     </li>
-                  ))
-                )}
-              </ul>
-            </section>
+                  ))}
+                </ul>
+              </div>
+              <aside className="provider-panel models-tools-panel">
+                <div className="provider-panel-header">
+                  <div>
+                    <span className="section-eyebrow">{copy.models.testChat}</span>
+                    <h3>Model Operations</h3>
+                    <p>Pricing maintenance, manual overrides, and a quick test lane for the active model.</p>
+                  </div>
+                </div>
+                <div className="provider-operations-stack">
+                  <div className="provider-operations-card">
+                    <span className="provider-summary-label">{copy.models.officialPrice}</span>
+                    <strong>{selectedProviderModels.length}</strong>
+                    <p>Catalog rows available for this provider.</p>
+                  </div>
+                  <div className="provider-operations-card">
+                    <span className="provider-summary-label">{copy.models.pricingTargetModel}</span>
+                    <strong>{pricingNativeModel || copy.common.noData}</strong>
+                    <p>Overrides and test chat will target this model.</p>
+                  </div>
+                </div>
+                <section className="panel models-test-panel">
+                  <h3>{copy.models.testChat}</h3>
+                  <ul>
+                    {testChatMessages.length === 0 ? (
+                      <li>{copy.models.noTestMessages}</li>
+                    ) : (
+                      testChatMessages.map((message, index) => (
+                        <li key={`${message.role}-${index}`}>
+                          <strong>{message.role === "user" ? copy.models.testerUser : copy.models.testerModel}</strong>
+                          <div className="usage-meta">{message.content}</div>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </section>
+              </aside>
+            </div>
           </section>
         );
       case "usage":
