@@ -249,6 +249,7 @@ export default function App() {
   const [modelPanelMessage, setModelPanelMessage] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<ModalId>(null);
   const testChatAbortRef = useRef<AbortController | null>(null);
+  const testTranscriptRef = useRef<HTMLUListElement | null>(null);
   const copy = messages[locale];
   const NAV_ITEMS: Array<{ id: RouteId; label: string }> = [
     { id: "dashboard", label: copy.nav.dashboard },
@@ -382,6 +383,11 @@ export default function App() {
     testChatAbortRef.current?.abort();
     testChatAbortRef.current = null;
   }, [selectedProviderName, pricingNativeModel]);
+
+  useEffect(() => {
+    if (!testTranscriptRef.current) return;
+    testTranscriptRef.current.scrollTop = testTranscriptRef.current.scrollHeight;
+  }, [testChatMessages]);
 
   useEffect(() => {
     if (!selectedAccountId) {
@@ -1555,7 +1561,7 @@ export default function App() {
                     <p>{selectedModel ? copy.models.exposedAs(selectedModel.exposed_model_id) : copy.models.selectModelHint}</p>
                   </div>
                 </div>
-                <div className="provider-operations-stack">
+                <div className="provider-operations-stack models-workbench-summary">
                   <div className="provider-operations-card">
                     <span className="provider-summary-label">{copy.models.currentStatus}</span>
                     <strong>{selectedModel ? (selectedModel.enabled ? copy.common.enabled : copy.common.disabled) : copy.common.noData}</strong>
@@ -1590,7 +1596,7 @@ export default function App() {
                         disabled={!selectedModel}
                       />
                     </label>
-                    <div className="inline-actions">
+                    <div className="inline-actions models-console-actions">
                       <button type="submit" disabled={!selectedModel || modelPanelStatus === "saving"}>
                         {modelPanelStatus === "saving" ? copy.models.saving : copy.models.rename}
                       </button>
@@ -1650,7 +1656,7 @@ export default function App() {
                       {copy.models.pricingNotes}
                       <input value={pricingNotes} onChange={(event) => setPricingNotes(event.target.value)} disabled={!selectedModel} />
                     </label>
-                    <div className="inline-actions">
+                    <div className="inline-actions models-console-actions">
                       <button type="submit" disabled={!selectedModel || modelPanelStatus === "saving"}>
                         {modelPanelStatus === "saving" ? copy.models.saving : copy.models.savePricingOverride}
                       </button>
@@ -1704,7 +1710,7 @@ export default function App() {
                         disabled={!selectedModel}
                       />
                     </label>
-                    <div className="inline-actions">
+                    <div className="inline-actions models-console-actions">
                       <button type="submit" disabled={!selectedModel || !testMessage.trim() || testChatStatus === "loading"}>
                         {testChatStatus === "loading" ? copy.models.testRunning : copy.models.sendTestMessage}
                       </button>
@@ -1722,7 +1728,7 @@ export default function App() {
                       </button>
                     </div>
                   </form>
-                  <ul className="models-test-transcript">
+                  <ul className="models-test-transcript" ref={testTranscriptRef}>
                     {testChatMessages.length === 0 ? (
                       <li>{copy.models.noTestMessages}</li>
                     ) : (

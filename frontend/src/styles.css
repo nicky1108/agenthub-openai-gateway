@@ -691,6 +691,9 @@ select:focus {
   display: grid;
   gap: 0.55rem;
   margin-top: 0.8rem;
+  max-height: 22rem;
+  overflow: auto;
+  padding-right: 0.2rem;
 }
 
 .models-test-message {
@@ -733,6 +736,7 @@ select:focus {
 }
 
 @media (max-width: 900px) {
+  .models-workbench-summary,
   .models-catalog-summary,
   .models-row-grid {
     grid-template-columns: 1fr;
@@ -761,6 +765,10 @@ select:focus {
   flex-wrap: wrap;
   gap: 0.45rem;
   margin-top: 0.7rem;
+}
+
+.models-console-actions {
+  align-items: center;
 }
 
 .section-header .inline-actions,
@@ -900,6 +908,10 @@ select:focus {
 .provider-operations-stack {
   display: grid;
   gap: 0.65rem;
+}
+
+.models-workbench-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .provider-summary-rail {
