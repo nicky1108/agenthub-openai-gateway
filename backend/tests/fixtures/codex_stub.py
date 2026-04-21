@@ -1,5 +1,6 @@
 import json
 import sys
+import time
 
 
 def main() -> None:
@@ -25,6 +26,9 @@ def main() -> None:
     ]
     for event in events:
         sys.stdout.write(json.dumps(event) + "\n")
+        sys.stdout.flush()
+        if event.get("type") == "item.completed":
+            time.sleep(0.4)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import json
 import sys
+import time
 
 
 def main() -> None:
@@ -40,6 +41,9 @@ def main() -> None:
         ]
         for line in lines:
             sys.stdout.write(json.dumps(line) + "\n")
+            sys.stdout.flush()
+            if line.get("type") == "message":
+                time.sleep(0.4)
         return
 
     raise SystemExit(f"unexpected format: {output_format}")

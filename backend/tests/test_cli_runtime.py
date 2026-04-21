@@ -1,4 +1,5 @@
 import pathlib
+import asyncio
 
 import pytest
 
@@ -50,11 +51,15 @@ async def test_gemini_cli_adapter_parses_json_and_stream_output() -> None:
     )
 
     result = await adapter.chat(request)
-    chunks = [chunk async for chunk in adapter.stream_chat(request)]
+    stream = adapter.stream_chat(request)
+    first_chunk = await asyncio.wait_for(anext(stream), timeout=0.25)
+    second_chunk = await asyncio.wait_for(anext(stream), timeout=1.0)
+    done_chunk = await asyncio.wait_for(anext(stream), timeout=1.0)
 
     assert result["choices"][0]["message"]["content"] == "gemini:gemini-2.5-flash:ok"
-    assert "gemini-stream" in chunks[0]
-    assert chunks[-1] == "data: [DONE]\n\n"
+    assert "gemini-stream" in first_chunk
+    assert '"finish_reason": "stop"' in second_chunk or '"finish_reason":"stop"' in second_chunk
+    assert done_chunk == "data: [DONE]\n\n"
 
 
 @pytest.mark.asyncio
@@ -76,8 +81,12 @@ async def test_codex_cli_adapter_parses_jsonl_events() -> None:
     )
 
     result = await adapter.chat(request)
-    chunks = [chunk async for chunk in adapter.stream_chat(request)]
+    stream = adapter.stream_chat(request)
+    first_chunk = await asyncio.wait_for(anext(stream), timeout=0.25)
+    second_chunk = await asyncio.wait_for(anext(stream), timeout=1.0)
+    done_chunk = await asyncio.wait_for(anext(stream), timeout=1.0)
 
     assert result["choices"][0]["message"]["content"] == "codex:gpt-5.4:ok"
-    assert "codex:gpt-5.4:ok" in chunks[0]
-    assert chunks[-1] == "data: [DONE]\n\n"
+    assert "codex:gpt-5.4:ok" in first_chunk
+    assert '"finish_reason": "stop"' in second_chunk or '"finish_reason":"stop"' in second_chunk
+    assert done_chunk == "data: [DONE]\n\n"

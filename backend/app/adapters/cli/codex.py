@@ -27,8 +27,8 @@ class CodexCliAdapter:
             for message in request.messages
         )
 
-    async def _run(self, request: ChatRequest) -> list[dict[str, Any]]:
-        process = await asyncio.create_subprocess_exec(
+    async def _spawn(self, request: ChatRequest) -> asyncio.subprocess.Process:
+        return await asyncio.create_subprocess_exec(
             self.command,
             *self.args,
             "exec",
@@ -45,39 +45,58 @@ class CodexCliAdapter:
             cwd=self.cwd,
             env=self.env or None,
         )
+
+    @staticmethod
+    def _usage_payload(event: dict[str, Any]) -> dict[str, Any] | None:
+        usage = event.get("usage")
+        if not isinstance(usage, dict):
+            return None
+        return {
+            "prompt_tokens": int(usage.get("input_tokens") or 0),
+            "completion_tokens": int(usage.get("output_tokens") or 0),
+            "prompt_tokens_details": {"cached_tokens": 0},
+        }
+
+    async def _collect_events(self, request: ChatRequest) -> list[dict[str, Any]]:
+        process = await self._spawn(request)
+        stderr_task = asyncio.create_task(process.stderr.read() if process.stderr is not None else asyncio.sleep(0, result=b""))
         try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=self.read_timeout_seconds,
-            )
+            events: list[dict[str, Any]] = []
+            while True:
+                assert process.stdout is not None
+                line = await asyncio.wait_for(process.stdout.readline(), timeout=self.read_timeout_seconds)
+                if not line:
+                    break
+                text = line.decode().strip()
+                if not text or not text.lstrip().startswith("{"):
+                    continue
+                events.append(json.loads(text))
         except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
             process.kill()
             await process.communicate()
+            await stderr_task
             if isinstance(exc, asyncio.TimeoutError):
                 raise TimeoutError("codex cli timed out") from exc
             raise
-        if process.returncode != 0:
-            raise RuntimeError(stderr.decode() or "codex cli failed")
-
-        events: list[dict[str, Any]] = []
-        for line in stdout.decode().splitlines():
-            if not line.strip():
-                continue
-            if not line.lstrip().startswith("{"):
-                continue
-            events.append(json.loads(line))
+        stderr = (await stderr_task).decode()
+        return_code = await process.wait()
+        if return_code != 0:
+            raise RuntimeError(stderr or "codex cli failed")
         return events
 
     async def chat(self, request: ChatRequest) -> dict[str, Any]:
-        events = await self._run(request)
+        events = await self._collect_events(request)
         message_text = ""
         item_id = "codex-cli"
+        usage_payload: dict[str, Any] | None = None
         for event in events:
             if event.get("type") == "item.completed":
                 item = event.get("item", {})
                 if item.get("type") == "agent_message":
                     message_text = item.get("text", "")
                     item_id = item.get("id", item_id)
+            if event.get("type") == "turn.completed":
+                usage_payload = self._usage_payload(event)
         return {
             "id": item_id,
             "object": "chat.completion",
@@ -89,30 +108,69 @@ class CodexCliAdapter:
                     "finish_reason": "stop",
                 }
             ],
+            **({"usage": usage_payload} if usage_payload is not None else {}),
         }
 
     async def stream_chat(self, request: ChatRequest) -> AsyncIterator[str]:
-        events = await self._run(request)
+        process = await self._spawn(request)
+        stderr_task = asyncio.create_task(process.stderr.read() if process.stderr is not None else asyncio.sleep(0, result=b""))
         item_id = "codex-cli"
         emitted = False
-        for event in events:
-            if event.get("type") == "item.completed":
-                item = event.get("item", {})
-                if item.get("type") == "agent_message":
-                    item_id = item.get("id", item_id)
-                    chunk = {
-                        "id": item_id,
-                        "object": "chat.completion.chunk",
-                        "model": f"{request.provider_name}:{request.provider_model}",
-                        "choices": [
-                            {
-                                "index": 0,
-                                "delta": {"content": item.get("text", "")},
-                                "finish_reason": "stop",
-                            }
-                        ],
-                    }
-                    emitted = True
-                    yield f"data: {json.dumps(chunk)}\n\n"
+        usage_payload: dict[str, Any] | None = None
+        try:
+            while True:
+                assert process.stdout is not None
+                line = await asyncio.wait_for(process.stdout.readline(), timeout=self.read_timeout_seconds)
+                if not line:
+                    break
+                text = line.decode().strip()
+                if not text or not text.lstrip().startswith("{"):
+                    continue
+                event = json.loads(text)
+                if event.get("type") == "item.completed":
+                    item = event.get("item", {})
+                    if item.get("type") == "agent_message":
+                        item_id = item.get("id", item_id)
+                        chunk = {
+                            "id": item_id,
+                            "object": "chat.completion.chunk",
+                            "model": f"{request.provider_name}:{request.provider_model}",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": item.get("text", "")},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                        emitted = True
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                if event.get("type") == "turn.completed":
+                    usage_payload = self._usage_payload(event)
+        except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+            process.kill()
+            await process.communicate()
+            await stderr_task
+            if isinstance(exc, asyncio.TimeoutError):
+                raise TimeoutError("codex cli timed out") from exc
+            raise
+        stderr = (await stderr_task).decode()
+        return_code = await process.wait()
+        if return_code != 0:
+            raise RuntimeError(stderr or "codex cli failed")
         if emitted:
+            chunk = {
+                "id": item_id,
+                "object": "chat.completion.chunk",
+                "model": f"{request.provider_name}:{request.provider_model}",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop",
+                    }
+                ],
+                **({"usage": usage_payload} if usage_payload is not None else {}),
+            }
+            yield f"data: {json.dumps(chunk)}\n\n"
             yield "data: [DONE]\n\n"

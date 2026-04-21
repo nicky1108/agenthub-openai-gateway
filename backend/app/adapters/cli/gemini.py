@@ -29,8 +29,8 @@ class GeminiCliAdapter:
             lines.append(f"{role}: {content}")
         return "\n".join(lines)
 
-    async def _run(self, extra_args: list[str]) -> str:
-        process = await asyncio.create_subprocess_exec(
+    async def _spawn(self, extra_args: list[str]) -> asyncio.subprocess.Process:
+        return await asyncio.create_subprocess_exec(
             self.command,
             *self.args,
             *extra_args,
@@ -40,6 +40,9 @@ class GeminiCliAdapter:
             cwd=self.cwd,
             env=self.env or None,
         )
+
+    async def _run(self, extra_args: list[str]) -> str:
+        process = await self._spawn(extra_args)
         try:
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
@@ -82,7 +85,7 @@ class GeminiCliAdapter:
         }
 
     async def stream_chat(self, request: ChatRequest) -> AsyncIterator[str]:
-        raw = await self._run(
+        process = await self._spawn(
             [
                 "-p",
                 self._prompt(request),
@@ -92,23 +95,61 @@ class GeminiCliAdapter:
                 request.provider_model,
             ]
         )
-        for line in raw.splitlines():
-            if not line.strip():
-                continue
-            payload = json.loads(line)
-            if payload.get("type") == "message" and payload.get("role") == "assistant":
-                chunk = {
-                    "id": payload.get("session_id", "gemini-cli"),
-                    "object": "chat.completion.chunk",
-                    "model": f"{request.provider_name}:{request.provider_model}",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": payload.get("content", "")},
-                            "finish_reason": "stop" if not payload.get("delta") else None,
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(chunk)}\n\n"
-            if payload.get("type") == "result":
-                yield "data: [DONE]\n\n"
+        stderr_task = asyncio.create_task(process.stderr.read() if process.stderr is not None else asyncio.sleep(0, result=b""))
+        session_id = "gemini-cli"
+        emitted = False
+        try:
+            while True:
+                assert process.stdout is not None
+                line = await asyncio.wait_for(process.stdout.readline(), timeout=self.read_timeout_seconds)
+                if not line:
+                    break
+                text = line.decode().strip()
+                if not text:
+                    continue
+                payload = json.loads(text)
+                if payload.get("session_id"):
+                    session_id = payload.get("session_id", session_id)
+                if payload.get("type") == "message" and payload.get("role") == "assistant":
+                    chunk = {
+                        "id": session_id,
+                        "object": "chat.completion.chunk",
+                        "model": f"{request.provider_name}:{request.provider_model}",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": payload.get("content", "")},
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+                    emitted = True
+                    yield f"data: {json.dumps(chunk)}\n\n"
+                if payload.get("type") == "result":
+                    break
+        except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+            process.kill()
+            await process.communicate()
+            await stderr_task
+            if isinstance(exc, asyncio.TimeoutError):
+                raise TimeoutError("gemini cli timed out") from exc
+            raise
+        stderr = (await stderr_task).decode()
+        return_code = await process.wait()
+        if return_code != 0:
+            raise RuntimeError(stderr or "gemini cli failed")
+        if emitted:
+            chunk = {
+                "id": session_id,
+                "object": "chat.completion.chunk",
+                "model": f"{request.provider_name}:{request.provider_model}",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(chunk)}\n\n"
+            yield "data: [DONE]\n\n"
