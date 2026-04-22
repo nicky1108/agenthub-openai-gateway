@@ -1,4 +1,5 @@
 import json
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -31,18 +32,19 @@ def _create_api_key(client: TestClient) -> str:
 
 
 async def _fake_quote_request(*args, **kwargs):
-    return SimpleNamespace(pricing=None)
+    return SimpleNamespace(pricing=None, estimated_credits_ceiling=0.01)
 
 
 async def _fake_settle_inference(*args, **kwargs):
     return None
 
 
-def test_streaming_chat_returns_sse_chunks(tmp_path, monkeypatch) -> None:
+def test_streaming_chat_returns_sse_chunks(tmp_path, monkeypatch, caplog) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
     monkeypatch.setattr(openai_api.orchestrator, "_http_adapter", lambda provider: MockHttpAdapter())
     monkeypatch.setattr(billing_service, "quote_request", _fake_quote_request)
     monkeypatch.setattr(billing_service, "settle_inference", _fake_settle_inference)
+    caplog.set_level(logging.INFO, logger="agenthub.gateway")
 
     with TestClient(create_app()) as client:
         api_key = _create_api_key(client)
@@ -73,6 +75,11 @@ def test_streaming_chat_returns_sse_chunks(tmp_path, monkeypatch) -> None:
     assert response.status_code == 200
     assert "chat.completion.chunk" in body
     assert "[DONE]" in body
+    assert "gateway.request.start" in caplog.text
+    assert "gateway.provider.prepare" in caplog.text
+    assert "gateway.billing.quote" in caplog.text
+    assert "gateway.stream.first_chunk" in caplog.text
+    assert "gateway.request.complete" in caplog.text
 
 
 def test_streaming_chat_returns_404_for_unknown_provider(tmp_path, monkeypatch) -> None:
