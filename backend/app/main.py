@@ -91,7 +91,7 @@ def backfill_sqlite_account_auth_columns(connection: Connection) -> None:
     if "created_at" not in column_names:
         connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN created_at DATETIME")
     if "credit_balance" not in column_names:
-        connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN credit_balance INTEGER NOT NULL DEFAULT 0")
+        connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN credit_balance FLOAT NOT NULL DEFAULT 0")
 
     index_rows = connection.exec_driver_sql("PRAGMA index_list(accounts)").mappings().all()
     has_unique_email_index = False
@@ -133,7 +133,7 @@ def backfill_sqlite_usage_billing_columns(connection: Connection) -> None:
     if "usd_amount" not in column_names:
         connection.exec_driver_sql("ALTER TABLE usage_records ADD COLUMN usd_amount FLOAT")
     if "credits_charged" not in column_names:
-        connection.exec_driver_sql("ALTER TABLE usage_records ADD COLUMN credits_charged INTEGER")
+        connection.exec_driver_sql("ALTER TABLE usage_records ADD COLUMN credits_charged FLOAT")
     if "pricing_source" not in column_names:
         connection.exec_driver_sql("ALTER TABLE usage_records ADD COLUMN pricing_source VARCHAR(32)")
     if "token_source" not in column_names:

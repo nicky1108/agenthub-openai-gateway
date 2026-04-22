@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -51,11 +52,24 @@ class ChargeQuote:
     pricing: ModelPricingRecord
     estimated_input_tokens: int
     estimated_output_tokens: int
-    estimated_credits_ceiling: int
+    estimated_credits_ceiling: float
 
 
 class CreditBillingService:
     CREDITS_PER_USD = 100
+    CREDIT_QUANTUM = Decimal("0.01")
+
+    @classmethod
+    def _decimal(cls, value: float | int | str | Decimal) -> Decimal:
+        return value if isinstance(value, Decimal) else Decimal(str(value))
+
+    @classmethod
+    def _round_credits(cls, value: float | Decimal) -> float:
+        return float(cls._decimal(value).quantize(cls.CREDIT_QUANTUM, rounding=ROUND_HALF_UP))
+
+    @classmethod
+    def _round_credits_up(cls, value: float | Decimal) -> float:
+        return float(cls._decimal(value).quantize(cls.CREDIT_QUANTUM, rounding=ROUND_UP))
 
     async def get_pricing(self, session: AsyncSession, provider_name: str, native_model: str) -> ModelPricingRecord:
         pricing = await session.scalar(
@@ -90,7 +104,7 @@ class CreditBillingService:
             cached_input_tokens=0,
         )
         if estimated_credits_ceiling <= 0:
-            estimated_credits_ceiling = 1
+            estimated_credits_ceiling = 0.01
         if account.credit_balance < estimated_credits_ceiling:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
@@ -179,14 +193,14 @@ class CreditBillingService:
         )
         output_price = pricing.output_price_high if high_tier and pricing.output_price_high is not None else pricing.output_price
 
-        usd_total = 0.0
+        usd_total = Decimal("0")
         if input_price is not None:
-            usd_total += (billable_input_tokens / 1_000_000) * input_price
+            usd_total += (Decimal(billable_input_tokens) / Decimal("1000000")) * self._decimal(input_price)
         if cached_input_price is not None:
-            usd_total += (cached_input_tokens / 1_000_000) * cached_input_price
+            usd_total += (Decimal(cached_input_tokens) / Decimal("1000000")) * self._decimal(cached_input_price)
         if output_price is not None:
-            usd_total += (output_tokens / 1_000_000) * output_price
-        return usd_total
+            usd_total += (Decimal(output_tokens) / Decimal("1000000")) * self._decimal(output_price)
+        return float(usd_total)
 
     def credits_for_usage(
         self,
@@ -195,7 +209,7 @@ class CreditBillingService:
         input_tokens: int,
         output_tokens: int,
         cached_input_tokens: int,
-    ) -> int:
+    ) -> float:
         usd_total = self.usd_for_usage(
             pricing=pricing,
             input_tokens=input_tokens,
@@ -203,8 +217,11 @@ class CreditBillingService:
             cached_input_tokens=cached_input_tokens,
         )
         if usd_total <= 0:
-            return 0
-        return max(1, math.ceil(usd_total * self.CREDITS_PER_USD))
+            return 0.0
+        return max(
+            0.01,
+            self._round_credits_up(self._decimal(usd_total) * self._decimal(self.CREDITS_PER_USD)),
+        )
 
     async def settle_inference(
         self,
@@ -229,7 +246,7 @@ class CreditBillingService:
             cached_input_tokens=usage.cached_input_tokens,
         )
 
-        context.account.credit_balance -= credits_charged
+        context.account.credit_balance = self._round_credits(context.account.credit_balance - credits_charged)
         context.api_key.last_used_at = datetime.now(timezone.utc)
 
         usage_row = UsageRecord(
@@ -274,10 +291,10 @@ class CreditBillingService:
         self,
         session: AsyncSession,
         account: AccountRecord,
-        credits_delta: int,
+        credits_delta: float,
         notes: str | None,
     ) -> CreditLedgerRecord:
-        account.credit_balance += credits_delta
+        account.credit_balance = self._round_credits(account.credit_balance + credits_delta)
         ledger_row = CreditLedgerRecord(
             account_id=account.id,
             api_key_id=None,

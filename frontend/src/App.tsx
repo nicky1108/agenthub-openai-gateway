@@ -122,6 +122,10 @@ function formatUsdPerMillion(value: number | null): string {
   return `$${value.toFixed(2)}`;
 }
 
+function formatCredits(value: number): string {
+  return value.toFixed(2);
+}
+
 function formatPricingSync(value: string, locale: Locale): string {
   return new Date(value).toLocaleString(locale === "zh" ? "zh-CN" : "en-US");
 }
@@ -1137,15 +1141,15 @@ export default function App() {
               </article>
               <article className="provider-summary-card">
                 <span className="provider-summary-label">{copy.accounts.credits}</span>
-                <strong>{totalCredits}</strong>
-                <p>{selectedAccountId ? copy.accounts.selectedBalance(accounts.find((row) => String(row.id) === selectedAccountId)?.credit_balance ?? 0) : copy.common.noData}</p>
+                <strong>{formatCredits(totalCredits)}</strong>
+                <p>{selectedAccountId ? copy.accounts.selectedBalance(formatCredits(accounts.find((row) => String(row.id) === selectedAccountId)?.credit_balance ?? 0)) : copy.common.noData}</p>
               </article>
             </div>
             <ul>
               {accounts.length === 0 ? <li>{copy.accounts.empty}</li> : accounts.map((account) => (
                 <li key={account.id}>
                   <strong>{account.name}</strong>
-                  <div className="usage-meta">{account.status === "active" ? copy.common.enabled : account.status} · {account.credit_balance} {copy.accounts.credits}</div>
+                  <div className="usage-meta">{account.status === "active" ? copy.common.enabled : account.status} · {formatCredits(account.credit_balance)} {copy.accounts.credits}</div>
                   {account.notes ? <div className="usage-meta">{account.notes}</div> : null}
                 </li>
               ))}
@@ -1158,7 +1162,7 @@ export default function App() {
                   <li key={entry.id}>
                     <strong>{formatLedgerEntryLabel(entry.entry_type, locale)}</strong>
                     <div className="usage-meta">
-                      {entry.credits_delta} {copy.accounts.credits} · {copy.accounts.balanceAfter(entry.balance_after)}
+                      {formatCredits(entry.credits_delta)} {copy.accounts.credits} · {copy.accounts.balanceAfter(formatCredits(entry.balance_after))}
                     </div>
                     {entry.model_id ? <div className="usage-meta">{entry.model_id}</div> : null}
                     {entry.notes ? <div className="usage-meta">{entry.notes}</div> : null}

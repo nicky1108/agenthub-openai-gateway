@@ -81,7 +81,7 @@ class AccountRecord(Base):
     public_account_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     public_workspace_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
-    credit_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    credit_balance: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -140,7 +140,7 @@ class UsageRecord(Base):
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cached_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     usd_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
-    credits_charged: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    credits_charged: Mapped[float | None] = mapped_column(Float, nullable=True)
     pricing_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     token_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -158,8 +158,8 @@ class CreditLedgerRecord(Base):
     api_key_id: Mapped[int | None] = mapped_column(ForeignKey("api_keys.id"), nullable=True, index=True)
     usage_record_id: Mapped[int | None] = mapped_column(ForeignKey("usage_records.id"), nullable=True, index=True)
     entry_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    credits_delta: Mapped[int] = mapped_column(Integer, nullable=False)
-    balance_after: Mapped[int] = mapped_column(Integer, nullable=False)
+    credits_delta: Mapped[float] = mapped_column(Float, nullable=False)
+    balance_after: Mapped[float] = mapped_column(Float, nullable=False)
     usd_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     provider_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     model_id: Mapped[str | None] = mapped_column(String(300), nullable=True)

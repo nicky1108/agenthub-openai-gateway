@@ -93,7 +93,7 @@ type Copy = {
     activeAccounts: string;
     pendingNotes: string;
     credits: string;
-    selectedBalance: (value: number) => string;
+    selectedBalance: (value: number | string) => string;
     activeOnly: string;
     noteCount: (count: number) => string;
     empty: string;
@@ -101,7 +101,7 @@ type Copy = {
     adjustmentNotes: string;
     applyCreditAdjustment: string;
     ledgerEmpty: string;
-    balanceAfter: (value: number) => string;
+    balanceAfter: (value: number | string) => string;
   };
   apiKeys: {
     eyebrow: string;

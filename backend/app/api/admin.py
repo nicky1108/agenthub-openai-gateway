@@ -148,12 +148,12 @@ class AccountRead(BaseModel):
     id: int
     name: str
     status: str
-    credit_balance: int
+    credit_balance: float
     notes: str | None = None
 
 
 class CreditAdjustmentCreate(BaseModel):
-    credits_delta: int
+    credits_delta: float
     notes: str | None = None
 
 
@@ -163,8 +163,8 @@ class CreditLedgerRead(BaseModel):
     api_key_id: int | None = None
     usage_record_id: int | None = None
     entry_type: str
-    credits_delta: int
-    balance_after: int
+    credits_delta: float
+    balance_after: float
     usd_amount: float | None = None
     provider_name: str | None = None
     model_id: str | None = None
