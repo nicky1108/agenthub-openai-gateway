@@ -182,7 +182,7 @@ PUBLIC_GATEWAY_TUNNEL_SECRET=local-mac-dev-secret-20260421
 
 ```bash
 cd backend
-./.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8787
+./.venv/bin/python scripts/run_backend.py
 ```
 
 ### Frontend
@@ -293,8 +293,13 @@ PUBLIC_GATEWAY_SERVICE_TOKEN='public-gateway-dev-token-20260421' \
 PUBLIC_GATEWAY_TUNNEL_URL='ws://127.0.0.1:8788/internal/tunnel' \
 PUBLIC_GATEWAY_TUNNEL_DEVICE_ID='local-mac-dev' \
 PUBLIC_GATEWAY_TUNNEL_SECRET='local-mac-dev-secret-20260421' \
-./.venv/bin/python -m app.tunnel.run_agent
+./.venv/bin/python scripts/run_tunnel_agent.py
 ```
+
+These wrapper scripts enforce single-instance startup for:
+
+- the backend on `8787`
+- the tunnel agent per `device_id`
 
 ## Current Limits
 
