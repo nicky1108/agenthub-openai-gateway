@@ -10,6 +10,7 @@ from app.adapters.cli.process import ProcessCliAdapter
 from app.adapters.http.openai_compatible import OpenAICompatibleHttpAdapter
 from app.core.models import ProviderRecord
 from app.registry.service import ProviderRegistry
+from app.runtime.provider_process_pool import provider_process_pool
 
 
 class ChatOrchestrator:
@@ -37,36 +38,64 @@ class ChatOrchestrator:
         )
 
     def _http_adapter(self, provider: ProviderRecord) -> OpenAICompatibleHttpAdapter:
-        return OpenAICompatibleHttpAdapter(
-            base_url=provider.http_base_url or "",
-            api_key=provider.http_api_key,
-            headers=json.loads(provider.http_headers_json),
+        key = f"http:{provider.name}:{provider.http_base_url}:{provider.http_api_key}:{provider.http_headers_json}"
+        handle = provider_process_pool.get_or_create(
+            key=key,
+            factory=lambda: {
+                "adapter": OpenAICompatibleHttpAdapter(
+                    base_url=provider.http_base_url or "",
+                    api_key=provider.http_api_key,
+                    headers=json.loads(provider.http_headers_json),
+                )
+            },
         )
+        return handle.payload["adapter"]
 
     def _cli_adapter(self, provider: ProviderRecord):
         if provider.name == "codex":
-            return CodexCliAdapter(
-                command=provider.cli_command or "",
-                args=json.loads(provider.cli_args_json),
-                env=json.loads(provider.cli_env_json),
-                cwd=provider.cli_cwd,
-                read_timeout_seconds=30,
+            key = f"cli:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:{provider.cli_env_json}:{provider.cli_cwd}"
+            handle = provider_process_pool.get_or_create(
+                key=key,
+                factory=lambda: {
+                    "adapter": CodexCliAdapter(
+                        command=provider.cli_command or "",
+                        args=json.loads(provider.cli_args_json),
+                        env=json.loads(provider.cli_env_json),
+                        cwd=provider.cli_cwd,
+                        read_timeout_seconds=30,
+                    )
+                },
             )
+            return handle.payload["adapter"]
         if provider.name == "gemini":
-            return GeminiCliAdapter(
-                command=provider.cli_command or "",
-                args=json.loads(provider.cli_args_json),
-                env=json.loads(provider.cli_env_json),
-                cwd=provider.cli_cwd,
-                read_timeout_seconds=30,
+            key = f"cli:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:{provider.cli_env_json}:{provider.cli_cwd}"
+            handle = provider_process_pool.get_or_create(
+                key=key,
+                factory=lambda: {
+                    "adapter": GeminiCliAdapter(
+                        command=provider.cli_command or "",
+                        args=json.loads(provider.cli_args_json),
+                        env=json.loads(provider.cli_env_json),
+                        cwd=provider.cli_cwd,
+                        read_timeout_seconds=30,
+                    )
+                },
             )
-        return ProcessCliAdapter(
-            command=provider.cli_command or "",
-            args=json.loads(provider.cli_args_json),
-            env=json.loads(provider.cli_env_json),
-            cwd=provider.cli_cwd,
-            read_timeout_seconds=30,
+            return handle.payload["adapter"]
+        key = f"cli:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:{provider.cli_env_json}:{provider.cli_cwd}"
+        handle = provider_process_pool.get_or_create(
+            key=key,
+            factory=lambda: {
+                "adapter": ProcessCliAdapter(
+                    command=provider.cli_command or "",
+                    args=json.loads(provider.cli_args_json),
+                    env=json.loads(provider.cli_env_json),
+                    cwd=provider.cli_cwd,
+                    read_timeout_seconds=30,
+                )
+            },
         )
+        return handle.payload["adapter"]
 
     async def prepare(
         self,
