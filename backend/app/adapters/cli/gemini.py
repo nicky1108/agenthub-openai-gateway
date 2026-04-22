@@ -1,9 +1,11 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from time import perf_counter
 from typing import Any
 
 from app.adapters.base import ChatRequest
+from app.runtime.logging import elapsed_ms, log_gateway_event
 
 
 class GeminiCliAdapter:
@@ -41,25 +43,57 @@ class GeminiCliAdapter:
             env=self.env or None,
         )
 
-    async def _run(self, extra_args: list[str]) -> str:
+    def _log_cli_event(
+        self,
+        event: str,
+        request: ChatRequest,
+        *,
+        mode: str,
+        elapsed_since: float,
+    ) -> None:
+        log_gateway_event(
+            event,
+            request_id=request.request_id,
+            provider=request.provider_name,
+            model=f"{request.provider_name}:{request.provider_model}",
+            mode=mode,
+            elapsed_ms=elapsed_ms(elapsed_since),
+        )
+
+    async def _run(self, request: ChatRequest, extra_args: list[str], *, mode: str) -> str:
+        started_at = perf_counter()
         process = await self._spawn(extra_args)
+        self._log_cli_event("gateway.cli.spawn", request, mode=mode, elapsed_since=started_at)
+        stderr_task = asyncio.create_task(process.stderr.read() if process.stderr is not None else asyncio.sleep(0, result=b""))
         try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=self.read_timeout_seconds,
-            )
+            stdout_lines: list[str] = []
+            first_output_logged = False
+            while True:
+                assert process.stdout is not None
+                line = await asyncio.wait_for(process.stdout.readline(), timeout=self.read_timeout_seconds)
+                if not line:
+                    break
+                if not first_output_logged:
+                    self._log_cli_event("gateway.cli.first_output", request, mode=mode, elapsed_since=started_at)
+                    first_output_logged = True
+                stdout_lines.append(line.decode())
         except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
             process.kill()
-            await process.communicate()
+            await process.wait()
+            await stderr_task
             if isinstance(exc, asyncio.TimeoutError):
                 raise TimeoutError("gemini cli timed out") from exc
             raise
-        if process.returncode != 0:
-            raise RuntimeError(stderr.decode() or "gemini cli failed")
-        return stdout.decode()
+        stderr = (await stderr_task).decode()
+        return_code = await process.wait()
+        if return_code != 0:
+            raise RuntimeError(stderr or "gemini cli failed")
+        self._log_cli_event("gateway.cli.complete", request, mode=mode, elapsed_since=started_at)
+        return "".join(stdout_lines)
 
     async def chat(self, request: ChatRequest) -> dict[str, Any]:
         raw = await self._run(
+            request,
             [
                 "-p",
                 self._prompt(request),
@@ -67,7 +101,8 @@ class GeminiCliAdapter:
                 "json",
                 "-m",
                 request.provider_model,
-            ]
+            ],
+            mode="chat",
         )
         payload = json.loads(raw)
         content = payload.get("response", "")
@@ -85,6 +120,7 @@ class GeminiCliAdapter:
         }
 
     async def stream_chat(self, request: ChatRequest) -> AsyncIterator[str]:
+        started_at = perf_counter()
         process = await self._spawn(
             [
                 "-p",
@@ -95,15 +131,20 @@ class GeminiCliAdapter:
                 request.provider_model,
             ]
         )
+        self._log_cli_event("gateway.cli.spawn", request, mode="stream", elapsed_since=started_at)
         stderr_task = asyncio.create_task(process.stderr.read() if process.stderr is not None else asyncio.sleep(0, result=b""))
         session_id = "gemini-cli"
         emitted = False
+        first_output_logged = False
         try:
             while True:
                 assert process.stdout is not None
                 line = await asyncio.wait_for(process.stdout.readline(), timeout=self.read_timeout_seconds)
                 if not line:
                     break
+                if not first_output_logged:
+                    self._log_cli_event("gateway.cli.first_output", request, mode="stream", elapsed_since=started_at)
+                    first_output_logged = True
                 text = line.decode().strip()
                 if not text:
                     continue
@@ -138,6 +179,7 @@ class GeminiCliAdapter:
         return_code = await process.wait()
         if return_code != 0:
             raise RuntimeError(stderr or "gemini cli failed")
+        self._log_cli_event("gateway.cli.complete", request, mode="stream", elapsed_since=started_at)
         if emitted:
             chunk = {
                 "id": session_id,

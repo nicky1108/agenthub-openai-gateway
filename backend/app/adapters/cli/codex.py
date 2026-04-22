@@ -1,9 +1,11 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from time import perf_counter
 from typing import Any
 
 from app.adapters.base import ChatRequest
+from app.runtime.logging import elapsed_ms, log_gateway_event
 
 
 class CodexCliAdapter:
@@ -46,6 +48,23 @@ class CodexCliAdapter:
             env=self.env or None,
         )
 
+    def _log_cli_event(
+        self,
+        event: str,
+        request: ChatRequest,
+        *,
+        mode: str,
+        elapsed_since: float,
+    ) -> None:
+        log_gateway_event(
+            event,
+            request_id=request.request_id,
+            provider=request.provider_name,
+            model=f"{request.provider_name}:{request.provider_model}",
+            mode=mode,
+            elapsed_ms=elapsed_ms(elapsed_since),
+        )
+
     @staticmethod
     def _usage_payload(event: dict[str, Any]) -> dict[str, Any] | None:
         usage = event.get("usage")
@@ -58,15 +77,21 @@ class CodexCliAdapter:
         }
 
     async def _collect_events(self, request: ChatRequest) -> list[dict[str, Any]]:
+        started_at = perf_counter()
         process = await self._spawn(request)
+        self._log_cli_event("gateway.cli.spawn", request, mode="chat", elapsed_since=started_at)
         stderr_task = asyncio.create_task(process.stderr.read() if process.stderr is not None else asyncio.sleep(0, result=b""))
         try:
             events: list[dict[str, Any]] = []
+            first_output_logged = False
             while True:
                 assert process.stdout is not None
                 line = await asyncio.wait_for(process.stdout.readline(), timeout=self.read_timeout_seconds)
                 if not line:
                     break
+                if not first_output_logged:
+                    self._log_cli_event("gateway.cli.first_output", request, mode="chat", elapsed_since=started_at)
+                    first_output_logged = True
                 text = line.decode().strip()
                 if not text or not text.lstrip().startswith("{"):
                     continue
@@ -82,6 +107,7 @@ class CodexCliAdapter:
         return_code = await process.wait()
         if return_code != 0:
             raise RuntimeError(stderr or "codex cli failed")
+        self._log_cli_event("gateway.cli.complete", request, mode="chat", elapsed_since=started_at)
         return events
 
     async def chat(self, request: ChatRequest) -> dict[str, Any]:
@@ -112,17 +138,23 @@ class CodexCliAdapter:
         }
 
     async def stream_chat(self, request: ChatRequest) -> AsyncIterator[str]:
+        started_at = perf_counter()
         process = await self._spawn(request)
+        self._log_cli_event("gateway.cli.spawn", request, mode="stream", elapsed_since=started_at)
         stderr_task = asyncio.create_task(process.stderr.read() if process.stderr is not None else asyncio.sleep(0, result=b""))
         item_id = "codex-cli"
         emitted = False
         usage_payload: dict[str, Any] | None = None
+        first_output_logged = False
         try:
             while True:
                 assert process.stdout is not None
                 line = await asyncio.wait_for(process.stdout.readline(), timeout=self.read_timeout_seconds)
                 if not line:
                     break
+                if not first_output_logged:
+                    self._log_cli_event("gateway.cli.first_output", request, mode="stream", elapsed_since=started_at)
+                    first_output_logged = True
                 text = line.decode().strip()
                 if not text or not text.lstrip().startswith("{"):
                     continue
@@ -158,6 +190,7 @@ class CodexCliAdapter:
         return_code = await process.wait()
         if return_code != 0:
             raise RuntimeError(stderr or "codex cli failed")
+        self._log_cli_event("gateway.cli.complete", request, mode="stream", elapsed_since=started_at)
         if emitted:
             chunk = {
                 "id": item_id,

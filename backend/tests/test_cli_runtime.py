@@ -1,5 +1,6 @@
 import pathlib
 import asyncio
+import logging
 
 import pytest
 
@@ -63,6 +64,35 @@ async def test_gemini_cli_adapter_parses_json_and_stream_output() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gemini_cli_adapter_logs_spawn_first_output_and_complete(caplog) -> None:
+    fixture = pathlib.Path(__file__).parent / "fixtures" / "gemini_stub.py"
+    command = str(pathlib.Path(__file__).resolve().parents[1] / ".venv" / "bin" / "python")
+    adapter = GeminiCliAdapter(
+        command=command,
+        args=[str(fixture)],
+        env={},
+        cwd=None,
+        read_timeout_seconds=5,
+    )
+    request = ChatRequest(
+        provider_name="gemini",
+        provider_model="gemini-2.5-flash",
+        messages=[{"role": "user", "content": "hello"}],
+        stream=False,
+        request_id="req-gemini-log",
+    )
+    caplog.set_level(logging.INFO, logger="agenthub.gateway")
+
+    await adapter.chat(request)
+
+    assert "gateway.cli.spawn" in caplog.text
+    assert "gateway.cli.first_output" in caplog.text
+    assert "gateway.cli.complete" in caplog.text
+    assert "request_id='req-gemini-log'" in caplog.text
+    assert "mode='chat'" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_codex_cli_adapter_parses_jsonl_events() -> None:
     fixture = pathlib.Path(__file__).parent / "fixtures" / "codex_stub.py"
     command = str(pathlib.Path(__file__).resolve().parents[1] / ".venv" / "bin" / "python")
@@ -90,3 +120,32 @@ async def test_codex_cli_adapter_parses_jsonl_events() -> None:
     assert "codex:gpt-5.4:ok" in first_chunk
     assert '"finish_reason": "stop"' in second_chunk or '"finish_reason":"stop"' in second_chunk
     assert done_chunk == "data: [DONE]\n\n"
+
+
+@pytest.mark.asyncio
+async def test_codex_cli_adapter_logs_spawn_first_output_and_complete(caplog) -> None:
+    fixture = pathlib.Path(__file__).parent / "fixtures" / "codex_stub.py"
+    command = str(pathlib.Path(__file__).resolve().parents[1] / ".venv" / "bin" / "python")
+    adapter = CodexCliAdapter(
+        command=command,
+        args=[str(fixture)],
+        env={},
+        cwd=str(pathlib.Path(__file__).resolve().parents[1].parent),
+        read_timeout_seconds=5,
+    )
+    request = ChatRequest(
+        provider_name="codex",
+        provider_model="gpt-5.4",
+        messages=[{"role": "user", "content": "hello"}],
+        stream=False,
+        request_id="req-codex-log",
+    )
+    caplog.set_level(logging.INFO, logger="agenthub.gateway")
+
+    await adapter.chat(request)
+
+    assert "gateway.cli.spawn" in caplog.text
+    assert "gateway.cli.first_output" in caplog.text
+    assert "gateway.cli.complete" in caplog.text
+    assert "request_id='req-codex-log'" in caplog.text
+    assert "mode='chat'" in caplog.text

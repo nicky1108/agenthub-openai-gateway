@@ -8,6 +8,7 @@ class ChatRequest:
     provider_model: str
     messages: list[dict[str, Any]]
     stream: bool
+    request_id: str | None = None
     temperature: float | None = None
     top_p: float | None = None
     max_tokens: int | None = None

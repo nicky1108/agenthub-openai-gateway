@@ -23,13 +23,14 @@ class ChatOrchestrator:
             key: value
             for key, value in payload.items()
             if key
-            not in {"model", "messages", "stream", "temperature", "top_p", "max_tokens", "stop"}
+            not in {"model", "messages", "stream", "temperature", "top_p", "max_tokens", "stop", "_request_id"}
         }
         return ChatRequest(
             provider_name=provider_name,
             provider_model=provider_model,
             messages=list(payload["messages"]),
             stream=bool(payload.get("stream", False)),
+            request_id=str(payload["_request_id"]) if payload.get("_request_id") is not None else None,
             temperature=payload.get("temperature"),
             top_p=payload.get("top_p"),
             max_tokens=payload.get("max_tokens"),

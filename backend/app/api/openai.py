@@ -67,6 +67,7 @@ async def create_chat_completion(
     )
     try:
         if request_payload["stream"]:
+            request_payload["_request_id"] = request_id
             current_phase = "provider.prepare"
             request, provider = await orchestrator.prepare(request_payload, session)
             log_gateway_event(
@@ -169,6 +170,7 @@ async def create_chat_completion(
                 media_type="text/event-stream",
             )
         current_phase = "provider.prepare"
+        request_payload["_request_id"] = request_id
         request, provider = await orchestrator.prepare(request_payload, session)
         log_gateway_event(
             "gateway.provider.prepare",
