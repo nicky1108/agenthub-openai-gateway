@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import statistics
 import sys
@@ -35,8 +36,33 @@ def compute_stats(values: list[float]) -> LatencyStats:
     )
 
 
+@dataclass(slots=True)
+class ConcurrentScenarioStats:
+    non_stream_ms: LatencyStats
+    stream_first_chunk_ms: LatencyStats
+    stream_total_ms: LatencyStats
+
+
 def log_progress(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
+
+
+def parse_concurrency_levels(raw: str | None) -> list[int]:
+    if not raw:
+        return []
+    values: list[int] = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            value = int(item)
+        except ValueError as exc:
+            raise ValueError("concurrency levels must be positive integers") from exc
+        if value <= 0:
+            raise ValueError("concurrency levels must be positive integers")
+        values.append(value)
+    return values
 
 
 def create_ephemeral_api_key(base_url: str, admin_secret: str, credits: float) -> str:
@@ -112,6 +138,49 @@ def benchmark_stream(base_url: str, api_key: str, model: str, prompt: str) -> tu
     return (first_chunk_ms or total_ms, total_ms)
 
 
+def benchmark_concurrency(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    prompt: str,
+    concurrency_levels: list[int],
+    iterations: int,
+) -> dict[str, ConcurrentScenarioStats]:
+    report: dict[str, ConcurrentScenarioStats] = {}
+    for concurrency in concurrency_levels:
+        log_progress(f"concurrency {concurrency}: collecting {iterations} rounds")
+        non_stream_latencies: list[float] = []
+        first_chunk_latencies: list[float] = []
+        total_stream_latencies: list[float] = []
+        for iteration in range(iterations):
+            log_progress(f"concurrency {concurrency}: round {iteration + 1}/{iterations} non-stream")
+            with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                futures = [
+                    executor.submit(benchmark_non_stream, base_url, api_key, model, prompt)
+                    for _ in range(concurrency)
+                ]
+                non_stream_latencies.extend(future.result() for future in futures)
+
+            log_progress(f"concurrency {concurrency}: round {iteration + 1}/{iterations} stream")
+            with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                futures = [
+                    executor.submit(benchmark_stream, base_url, api_key, model, prompt)
+                    for _ in range(concurrency)
+                ]
+                for future in futures:
+                    first_chunk_ms, total_ms = future.result()
+                    first_chunk_latencies.append(first_chunk_ms)
+                    total_stream_latencies.append(total_ms)
+
+        report[str(concurrency)] = ConcurrentScenarioStats(
+            non_stream_ms=compute_stats(non_stream_latencies),
+            stream_first_chunk_ms=compute_stats(first_chunk_latencies),
+            stream_total_ms=compute_stats(total_stream_latencies),
+        )
+    return report
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Benchmark the local AgentHub gateway.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8787")
@@ -122,8 +191,10 @@ def main() -> int:
     parser.add_argument("--prompt", default="Say OK and nothing else.")
     parser.add_argument("--iterations", type=int, default=5)
     parser.add_argument("--warmup", type=int, default=1)
+    parser.add_argument("--concurrency-levels", default="")
     args = parser.parse_args()
 
+    concurrency_levels = parse_concurrency_levels(args.concurrency_levels)
     api_key = args.api_key or create_ephemeral_api_key(args.base_url, args.admin_secret, args.bootstrap_credits)
     log_progress(f"benchmarking {args.model} against {args.base_url}")
 
@@ -155,11 +226,23 @@ def main() -> int:
         "base_url": args.base_url,
         "model": args.model,
         "iterations": args.iterations,
+        "concurrency_levels": concurrency_levels,
         "api_key": api_key,
         "models_ms": asdict(compute_stats(models_latencies)),
         "non_stream_ms": asdict(compute_stats(non_stream_latencies)),
         "stream_first_chunk_ms": asdict(compute_stats(first_chunk_latencies)),
         "stream_total_ms": asdict(compute_stats(total_stream_latencies)),
+        "concurrency": {
+            key: asdict(value)
+            for key, value in benchmark_concurrency(
+                base_url=args.base_url,
+                api_key=api_key,
+                model=args.model,
+                prompt=args.prompt,
+                concurrency_levels=concurrency_levels,
+                iterations=args.iterations,
+            ).items()
+        },
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

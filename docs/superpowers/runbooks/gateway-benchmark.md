@@ -39,8 +39,29 @@ The script reports:
 - non-stream completion latency
 - stream first-chunk latency
 - stream total latency
+- optional concurrent non-stream / stream latency buckets for each requested concurrency level
 
 Run the same command before and after runtime changes to compare median and p95.
+
+## Concurrent Sweep
+
+Run a single-model concurrency sweep like this:
+
+```bash
+cd /Users/nicky/agenthub-openai-gateway/backend
+./.venv/bin/python scripts/benchmark_gateway.py \
+  --model codex:gpt-5.4 \
+  --iterations 3 \
+  --warmup 1 \
+  --concurrency-levels 2,4,8 \
+  --bootstrap-credits 250
+```
+
+The JSON output adds a `concurrency` section keyed by concurrency level. Each level reports:
+
+- `non_stream_ms`
+- `stream_first_chunk_ms`
+- `stream_total_ms`
 
 ## Current Local Snapshot
 
