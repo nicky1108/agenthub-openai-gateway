@@ -15,6 +15,10 @@ TunnelOperation = Literal[
     "catalog.platform_models",
     "chat.complete",
     "usage.record",
+    "account.sync_upsert",
+    "account.sync_status",
+    "api_key.sync_upsert",
+    "api_key.sync_revoke",
 ]
 
 

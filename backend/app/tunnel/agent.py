@@ -66,6 +66,45 @@ class LocalGatewayDispatcher:
             response.raise_for_status()
             return response.json()
 
+    async def sync_account_upsert(self, payload: dict[str, Any]) -> dict[str, Any]:
+        async with httpx.AsyncClient(base_url=self._base_url, transport=self._transport, timeout=30.0) as client:
+            response = await client.post(
+                "/internal/public-gateway/accounts/upsert",
+                headers={"x-public-gateway-token": self._service_token},
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def get_account_mirror_status(self, public_account_id: str) -> dict[str, Any]:
+        async with httpx.AsyncClient(base_url=self._base_url, transport=self._transport, timeout=30.0) as client:
+            response = await client.get(
+                f"/internal/public-gateway/accounts/{public_account_id}/mirror",
+                headers={"x-public-gateway-token": self._service_token},
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def sync_api_key_upsert(self, payload: dict[str, Any]) -> dict[str, Any]:
+        async with httpx.AsyncClient(base_url=self._base_url, transport=self._transport, timeout=30.0) as client:
+            response = await client.post(
+                "/internal/public-gateway/api-keys/upsert",
+                headers={"x-public-gateway-token": self._service_token},
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def sync_api_key_revoke(self, payload: dict[str, Any]) -> dict[str, Any]:
+        async with httpx.AsyncClient(base_url=self._base_url, transport=self._transport, timeout=30.0) as client:
+            response = await client.post(
+                "/internal/public-gateway/api-keys/revoke",
+                headers={"x-public-gateway-token": self._service_token},
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def chat_complete(self, *, authorization: str, payload: dict[str, Any]) -> dict[str, Any]:
         async with httpx.AsyncClient(base_url=self._base_url, transport=self._transport, timeout=120.0) as client:
             response = await client.post(
@@ -260,6 +299,73 @@ class PublicGatewayTunnelAgent:
                         device_id=self.device_id,
                         op=message.op,
                         payload={"status_code": 202, "body": result},
+                    ),
+                )
+                return
+            if message.op == "account.sync_upsert":
+                body = message.payload.get("body", {})
+                if not isinstance(body, dict):
+                    raise ValueError("invalid account.sync_upsert payload")
+                result = await self.dispatcher.sync_account_upsert(body)
+                await self._send(
+                    websocket,
+                    ResponseEndMessage(
+                        type="response_end",
+                        request_id=message.request_id,
+                        device_id=self.device_id,
+                        op=message.op,
+                        payload={"status_code": 200, "body": result},
+                    ),
+                )
+                return
+            if message.op == "account.sync_status":
+                body = message.payload.get("body", {})
+                if not isinstance(body, dict):
+                    raise ValueError("invalid account.sync_status payload")
+                public_account_id = body.get("account_id")
+                if not isinstance(public_account_id, str) or not public_account_id:
+                    raise ValueError("invalid account.sync_status account_id")
+                result = await self.dispatcher.get_account_mirror_status(public_account_id)
+                await self._send(
+                    websocket,
+                    ResponseEndMessage(
+                        type="response_end",
+                        request_id=message.request_id,
+                        device_id=self.device_id,
+                        op=message.op,
+                        payload={"status_code": 200, "body": result},
+                    ),
+                )
+                return
+            if message.op == "api_key.sync_upsert":
+                body = message.payload.get("body", {})
+                if not isinstance(body, dict):
+                    raise ValueError("invalid api_key.sync_upsert payload")
+                result = await self.dispatcher.sync_api_key_upsert(body)
+                await self._send(
+                    websocket,
+                    ResponseEndMessage(
+                        type="response_end",
+                        request_id=message.request_id,
+                        device_id=self.device_id,
+                        op=message.op,
+                        payload={"status_code": 200, "body": result},
+                    ),
+                )
+                return
+            if message.op == "api_key.sync_revoke":
+                body = message.payload.get("body", {})
+                if not isinstance(body, dict):
+                    raise ValueError("invalid api_key.sync_revoke payload")
+                result = await self.dispatcher.sync_api_key_revoke(body)
+                await self._send(
+                    websocket,
+                    ResponseEndMessage(
+                        type="response_end",
+                        request_id=message.request_id,
+                        device_id=self.device_id,
+                        op=message.op,
+                        payload={"status_code": 200, "body": result},
                     ),
                 )
                 return

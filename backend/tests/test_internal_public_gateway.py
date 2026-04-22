@@ -157,3 +157,121 @@ def test_internal_usage_events_record_usage_without_deducting_credits(tmp_path, 
     )
     assert balance_row == (500,)
     assert ledger_count == (1,)
+
+
+def test_internal_account_upsert_and_key_sync_routes(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setenv("PUBLIC_GATEWAY_SERVICE_TOKEN", "public-gateway-token")
+
+    with TestClient(create_app()) as client:
+        account_response = client.post(
+            "/internal/public-gateway/accounts/upsert",
+            json={
+                "id": "1",
+                "workspace_id": "ws_public_account_1",
+                "name": "Public Account",
+                "email": "public@example.com",
+                "status": "active",
+            },
+            headers={"x-public-gateway-token": "public-gateway-token"},
+        )
+        key_response = client.post(
+            "/internal/public-gateway/api-keys/upsert",
+            json={
+                "id": "10",
+                "account_id": "1",
+                "name": "Primary",
+                "key_prefix": "abc12345",
+                "secret_hash": "deadbeef",
+                "status": "active",
+                "per_minute": 10,
+                "per_hour": 100,
+                "per_day": 1000,
+            },
+            headers={"x-public-gateway-token": "public-gateway-token"},
+        )
+        revoke_response = client.post(
+            "/internal/public-gateway/api-keys/revoke",
+            json={
+                "id": "10",
+                "account_id": "1",
+                "name": "Primary",
+                "key_prefix": "abc12345",
+                "secret_hash": "deadbeef",
+                "status": "revoked",
+            },
+            headers={"x-public-gateway-token": "public-gateway-token"},
+        )
+
+    assert account_response.status_code == 200
+    assert key_response.status_code == 200
+    assert revoke_response.status_code == 200
+
+    database = sqlite3.connect(tmp_path / "gateway.db")
+    try:
+        account_row = database.execute(
+            "SELECT public_account_id, public_workspace_id, email, status FROM accounts"
+        ).fetchone()
+        api_key_row = database.execute(
+            "SELECT public_api_key_id, key_prefix, secret_hash, status FROM api_keys"
+        ).fetchone()
+    finally:
+        database.close()
+
+    assert account_row == ("1", "ws_public_account_1", "public@example.com", "active")
+    assert api_key_row == ("10", "abc12345", "deadbeef", "revoked")
+
+
+def test_internal_account_mirror_status_route_returns_local_ids(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setenv("PUBLIC_GATEWAY_SERVICE_TOKEN", "public-gateway-token")
+
+    with TestClient(create_app()) as client:
+        client.post(
+            "/internal/public-gateway/accounts/upsert",
+            json={
+                "id": "3",
+                "workspace_id": "ws_public_account_3",
+                "name": "Tunnel Sync",
+                "email": "tunnel-sync@example.com",
+                "status": "active",
+            },
+            headers={"x-public-gateway-token": "public-gateway-token"},
+        )
+        client.post(
+            "/internal/public-gateway/api-keys/upsert",
+            json={
+                "id": "5",
+                "account_id": "3",
+                "name": "tunnel-primary",
+                "key_prefix": "903f369d",
+                "secret_hash": "deadbeef",
+                "status": "active",
+                "per_minute": None,
+                "per_hour": None,
+                "per_day": None,
+            },
+            headers={"x-public-gateway-token": "public-gateway-token"},
+        )
+        response = client.get(
+            "/internal/public-gateway/accounts/3/mirror",
+            headers={"x-public-gateway-token": "public-gateway-token"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "public_account_id": "3",
+        "workspace_id": "ws_public_account_3",
+        "local_account_id": "1",
+        "email": "tunnel-sync@example.com",
+        "status": "active",
+        "api_keys": [
+            {
+                "public_api_key_id": "5",
+                "local_api_key_id": "1",
+                "name": "tunnel-primary",
+                "key_prefix": "903f369d",
+                "status": "active",
+            }
+        ],
+    }

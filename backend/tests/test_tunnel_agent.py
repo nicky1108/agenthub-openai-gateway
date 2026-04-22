@@ -57,6 +57,37 @@ class StubDispatcher:
         self.calls.append(("usage.record", payload))
         return {"status": "accepted"}
 
+    async def sync_account_upsert(self, payload: dict[str, object]) -> dict[str, str]:
+        self.calls.append(("account.sync_upsert", payload))
+        return {"status": "synced"}
+
+    async def get_account_mirror_status(self, public_account_id: str) -> dict[str, object]:
+        self.calls.append(("account.sync_status", public_account_id))
+        return {
+            "public_account_id": public_account_id,
+            "workspace_id": f"ws_public_account_{public_account_id}",
+            "local_account_id": "17",
+            "email": "tunnel-sync@example.com",
+            "status": "active",
+            "api_keys": [
+                {
+                    "public_api_key_id": "5",
+                    "local_api_key_id": "15",
+                    "name": "tunnel-primary",
+                    "key_prefix": "903f369d",
+                    "status": "active",
+                }
+            ],
+        }
+
+    async def sync_api_key_upsert(self, payload: dict[str, object]) -> dict[str, str]:
+        self.calls.append(("api_key.sync_upsert", payload))
+        return {"status": "synced"}
+
+    async def sync_api_key_revoke(self, payload: dict[str, object]) -> dict[str, str]:
+        self.calls.append(("api_key.sync_revoke", payload))
+        return {"status": "revoked"}
+
     async def chat_complete(self, *, authorization: str, payload: dict[str, object]) -> dict[str, object]:
         self.calls.append(("chat.complete", {"authorization": authorization, "payload": payload}))
         return {"object": "chat.completion", "choices": [{"message": {"content": "ok"}}]}
@@ -154,6 +185,63 @@ async def test_agent_dispatches_introspection_and_catalog_requests() -> None:
     assert sent[2].op == "catalog.platform_models"
     assert sent[1].payload["body"]["account_id"] == "acct_1"
     assert sent[3].payload["body"]["data"][0]["id"] == "codex:gpt-5.4"
+
+
+@pytest.mark.asyncio
+async def test_agent_dispatches_account_and_api_key_sync_requests() -> None:
+    dispatcher = StubDispatcher()
+    websocket = FakeWebSocket(
+        [
+            _hello_ack(),
+            RequestMessage(
+                type="request",
+                request_id="req-account-sync",
+                device_id="device-local",
+                op="account.sync_upsert",
+                payload={"body": {"id": "1", "workspace_id": "ws_public_account_1"}},
+            ).model_dump_json(),
+            RequestMessage(
+                type="request",
+                request_id="req-key-sync",
+                device_id="device-local",
+                op="api_key.sync_upsert",
+                payload={"body": {"id": "10", "account_id": "1"}},
+            ).model_dump_json(),
+            RequestMessage(
+                type="request",
+                request_id="req-account-status",
+                device_id="device-local",
+                op="account.sync_status",
+                payload={"body": {"account_id": "1"}},
+            ).model_dump_json(),
+            RequestMessage(
+                type="request",
+                request_id="req-key-revoke",
+                device_id="device-local",
+                op="api_key.sync_revoke",
+                payload={"body": {"id": "10", "account_id": "1"}},
+            ).model_dump_json(),
+            None,
+        ]
+    )
+    agent = PublicGatewayTunnelAgent(
+        tunnel_url="wss://public.example.test/internal/tunnel/connect",
+        device_id="device-local",
+        shared_secret="shared-secret",
+        dispatcher=dispatcher,
+    )
+
+    await agent.connect_once(websocket=websocket)
+
+    assert dispatcher.calls == [
+        ("account.sync_upsert", {"id": "1", "workspace_id": "ws_public_account_1"}),
+        ("api_key.sync_upsert", {"id": "10", "account_id": "1"}),
+        ("account.sync_status", "1"),
+        ("api_key.sync_revoke", {"id": "10", "account_id": "1"}),
+    ]
+    sent = [parse_tunnel_message(message) for message in websocket.sent[1:]]
+    status_end = next(message for message in sent if message.request_id == "req-account-status" and message.type == "response_end")
+    assert status_end.payload["body"]["local_account_id"] == "17"
 
 
 @pytest.mark.asyncio

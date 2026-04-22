@@ -84,6 +84,10 @@ def backfill_sqlite_account_auth_columns(connection: Connection) -> None:
         connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN oauth_provider VARCHAR(32)")
     if "oauth_subject" not in column_names:
         connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN oauth_subject VARCHAR(255)")
+    if "public_account_id" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN public_account_id VARCHAR(128)")
+    if "public_workspace_id" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN public_workspace_id VARCHAR(128)")
     if "created_at" not in column_names:
         connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN created_at DATETIME")
     if "credit_balance" not in column_names:
@@ -136,6 +140,19 @@ def backfill_sqlite_usage_billing_columns(connection: Connection) -> None:
         connection.exec_driver_sql("ALTER TABLE usage_records ADD COLUMN token_source VARCHAR(32)")
 
 
+def backfill_sqlite_api_key_public_columns(connection: Connection) -> None:
+    if connection.dialect.name != "sqlite":
+        return
+
+    table_rows = connection.exec_driver_sql("PRAGMA table_info(api_keys)").mappings().all()
+    column_names = {row["name"] for row in table_rows}
+    if not column_names:
+        return
+
+    if "public_api_key_id" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE api_keys ADD COLUMN public_api_key_id VARCHAR(128)")
+
+
 def backfill_sqlite_model_pricing_columns(connection: Connection) -> None:
     if connection.dialect.name != "sqlite":
         return
@@ -159,6 +176,7 @@ async def lifespan(_: FastAPI):
         await connection.run_sync(Base.metadata.create_all)
         await connection.run_sync(backfill_sqlite_provider_capability_columns)
         await connection.run_sync(backfill_sqlite_account_auth_columns)
+        await connection.run_sync(backfill_sqlite_api_key_public_columns)
         await connection.run_sync(backfill_sqlite_usage_billing_columns)
         await connection.run_sync(backfill_sqlite_model_pricing_columns)
     session_factory = get_session_factory(settings.database_url)

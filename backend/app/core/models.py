@@ -78,6 +78,8 @@ class AccountRecord(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     oauth_provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
     oauth_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    public_account_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    public_workspace_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     credit_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -108,6 +110,7 @@ class ApiKeyRecord(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False, index=True)
+    public_api_key_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     key_prefix: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     secret_hash: Mapped[str] = mapped_column(String(128), nullable=False)
