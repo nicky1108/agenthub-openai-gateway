@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import AsyncIterator
 
@@ -9,7 +10,10 @@ from app.adapters.cli.gemini import GeminiCliAdapter
 from app.adapters.cli.process import ProcessCliAdapter
 from app.adapters.http.openai_compatible import OpenAICompatibleHttpAdapter
 from app.core.models import ProviderRecord
+from app.core.settings import Settings
 from app.registry.service import ProviderRegistry
+from app.runtime.gemini_acp_client import GeminiAcpClient
+from app.runtime.logging import log_gateway_event
 from app.runtime.provider_process_pool import provider_process_pool
 
 
@@ -51,6 +55,29 @@ class ChatOrchestrator:
             },
         )
         return handle.payload["adapter"]
+
+    def _gemini_acp_key(self, provider: ProviderRecord) -> str:
+        return f"gemini-acp:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:{provider.cli_env_json}:{provider.cli_cwd}"
+
+    def _gemini_acp_runtime(self, provider: ProviderRecord) -> dict[str, object]:
+        key = self._gemini_acp_key(provider)
+        handle = provider_process_pool.get_or_create(
+            key=key,
+            factory=lambda: {
+                "client": GeminiAcpClient(
+                    command=provider.cli_command or "",
+                    args=[*json.loads(provider.cli_args_json), "--acp"],
+                    env=json.loads(provider.cli_env_json),
+                    cwd=provider.cli_cwd,
+                    read_timeout_seconds=30,
+                ),
+                "lock": asyncio.Lock(),
+                "initialized": False,
+                "session_id": None,
+                "model_id": None,
+            },
+        )
+        return handle.payload
 
     def _cli_adapter(self, provider: ProviderRecord):
         if provider.name == "codex":
@@ -98,6 +125,63 @@ class ChatOrchestrator:
         )
         return handle.payload["adapter"]
 
+    async def _gemini_acp_chat(self, request: ChatRequest, provider: ProviderRecord) -> dict[str, object]:
+        runtime = self._gemini_acp_runtime(provider)
+        client = runtime["client"]
+        assert isinstance(client, GeminiAcpClient)
+        lock = runtime["lock"]
+        assert isinstance(lock, asyncio.Lock)
+        async with lock:
+            if not runtime["initialized"]:
+                await client.initialize()
+                runtime["initialized"] = True
+            if not runtime["session_id"]:
+                session = await client.new_session(provider.cli_cwd or ".")
+                runtime["session_id"] = session["sessionId"]
+                runtime["model_id"] = None
+            session_id = runtime["session_id"]
+            assert isinstance(session_id, str)
+            if runtime["model_id"] != request.provider_model:
+                await client.set_model(session_id, request.provider_model)
+                runtime["model_id"] = request.provider_model
+            prompt = "\n".join(
+                f"{str(message.get('role', 'user')).upper()}: {str(message.get('content', ''))}"
+                for message in request.messages
+            )
+            prompt_result = await client.prompt(session_id, prompt)
+
+        content_parts: list[str] = []
+        for update in prompt_result.updates:
+            payload = update.get("update")
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("sessionUpdate") != "agent_message_chunk":
+                continue
+            chunk = payload.get("content")
+            if isinstance(chunk, dict) and chunk.get("type") == "text":
+                content_parts.append(str(chunk.get("text", "")))
+        usage = (((prompt_result.result.get("_meta") or {}).get("quota") or {}).get("token_count") or {})
+        usage_payload = None
+        if isinstance(usage, dict):
+            usage_payload = {
+                "prompt_tokens": int(usage.get("input_tokens") or 0),
+                "completion_tokens": int(usage.get("output_tokens") or 0),
+                "prompt_tokens_details": {"cached_tokens": 0},
+            }
+        return {
+            "id": session_id,
+            "object": "chat.completion",
+            "model": f"{request.provider_name}:{request.provider_model}",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "".join(content_parts)},
+                    "finish_reason": "stop",
+                }
+            ],
+            **({"usage": usage_payload} if usage_payload is not None else {}),
+        }
+
     async def prepare(
         self,
         payload: dict[str, object],
@@ -112,6 +196,18 @@ class ChatOrchestrator:
     async def run(self, payload: dict[str, object], session: AsyncSession) -> dict[str, object]:
         request, provider = await self.prepare(payload, session)
         if provider.route_policy in {"cli-first", "fixed-cli"}:
+            if provider.name == "gemini" and not request.stream and Settings().gemini_acp_enabled:
+                try:
+                    return await self._gemini_acp_chat(request, provider)
+                except Exception as exc:
+                    provider_process_pool.invalidate(self._gemini_acp_key(provider))
+                    log_gateway_event(
+                        "gateway.gemini_acp.fallback",
+                        request_id=request.request_id,
+                        provider=provider.name,
+                        model=f"{request.provider_name}:{request.provider_model}",
+                        reason=str(exc),
+                    )
             return await self._cli_adapter(provider).chat(request)
         return await self._http_adapter(provider).chat(request)
 

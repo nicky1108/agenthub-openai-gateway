@@ -100,6 +100,9 @@ class GeminiAcpClient:
     async def new_session(self, cwd: str) -> dict[str, Any]:
         return await self._request("session/new", {"cwd": cwd, "mcpServers": []})
 
+    async def set_model(self, session_id: str, model_id: str) -> dict[str, Any]:
+        return await self._request("session/set_model", {"sessionId": session_id, "modelId": model_id})
+
     async def prompt(self, session_id: str, text: str) -> GeminiAcpPromptResult:
         self._prompt_updates[session_id] = []
         try:

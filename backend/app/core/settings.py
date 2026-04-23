@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     admin_secret: str = "change-me"
+    gemini_acp_enabled: bool = False
     public_gateway_service_token: str = "public-gateway-token"
     public_gateway_tunnel_url: str | None = None
     public_gateway_tunnel_reconnect_base_seconds: float = 1.0
