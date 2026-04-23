@@ -41,6 +41,9 @@ class GeminiAcpClient:
             and not self._reader_task.done()
         )
 
+    def is_healthy(self) -> bool:
+        return self._is_process_healthy()
+
     def _reset_handles(self) -> None:
         self._process = None
         self._reader_task = None

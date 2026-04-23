@@ -144,6 +144,17 @@ class ChatOrchestrator:
                 queued=runtime["waiters"],
                 elapsed_ms=elapsed_ms(queue_started_at),
             )
+            if hasattr(client, "is_healthy") and not client.is_healthy():
+                runtime["initialized"] = False
+                runtime["session_id"] = None
+                runtime["model_id"] = None
+                log_gateway_event(
+                    "gateway.gemini_acp.session_reset",
+                    request_id=request.request_id,
+                    provider=provider.name,
+                    model=f"{request.provider_name}:{request.provider_model}",
+                    reason="client_unhealthy",
+                )
             if not runtime["initialized"]:
                 await client.initialize()
                 runtime["initialized"] = True

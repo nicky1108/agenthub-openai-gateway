@@ -19,6 +19,7 @@ class _FakeGeminiAcpClient:
         self.prompt_calls = 0
         self.active_prompts = 0
         self.max_active_prompts = 0
+        self.healthy = True
 
     async def initialize(self) -> dict[str, object]:
         self.initialize_calls += 1
@@ -52,6 +53,9 @@ class _FakeGeminiAcpClient:
             )
         finally:
             self.active_prompts -= 1
+
+    def is_healthy(self) -> bool:
+        return self.healthy
 
 
 @pytest.mark.asyncio
@@ -106,3 +110,44 @@ async def test_gemini_acp_runtime_serializes_prompts_and_logs_reuse(caplog) -> N
     assert "gateway.gemini_acp.queue_wait" in caplog.text
     assert "gateway.gemini_acp.session_new" in caplog.text
     assert "gateway.gemini_acp.session_reuse" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_gemini_acp_runtime_resets_stale_session_when_client_is_unhealthy(caplog) -> None:
+    orchestrator = ChatOrchestrator()
+    fake_client = _FakeGeminiAcpClient()
+    fake_client.healthy = False
+    runtime = {
+        "client": fake_client,
+        "lock": asyncio.Lock(),
+        "initialized": True,
+        "session_id": "stale-session",
+        "model_id": "gemini-2.5-flash",
+        "waiters": 0,
+    }
+    provider = SimpleNamespace(
+        name="gemini",
+        cli_command="/opt/homebrew/bin/gemini",
+        cli_args_json="[]",
+        cli_env_json="{}",
+        cli_cwd="/tmp",
+    )
+    request = ChatRequest(
+        provider_name="gemini",
+        provider_model="gemini-2.5-flash",
+        messages=[{"role": "user", "content": "hello"}],
+        stream=False,
+        request_id="req-reset",
+    )
+    caplog.set_level(logging.INFO, logger="agenthub.gateway")
+
+    orchestrator._gemini_acp_runtime = lambda _provider: runtime  # type: ignore[method-assign]
+
+    result = await orchestrator._gemini_acp_chat(request, provider)
+
+    assert result["choices"][0]["message"]["content"] == "OK"
+    assert fake_client.initialize_calls == 1
+    assert fake_client.new_session_calls == 1
+    assert fake_client.set_model_calls == 1
+    assert runtime["session_id"] == "runtime-session"
+    assert "gateway.gemini_acp.session_reset" in caplog.text
