@@ -1,6 +1,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from time import perf_counter
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +14,7 @@ from app.core.models import ProviderRecord
 from app.core.settings import Settings
 from app.registry.service import ProviderRegistry
 from app.runtime.gemini_acp_client import GeminiAcpClient
-from app.runtime.logging import log_gateway_event
+from app.runtime.logging import elapsed_ms, log_gateway_event
 from app.runtime.provider_process_pool import provider_process_pool
 
 
@@ -75,6 +76,7 @@ class ChatOrchestrator:
                 "initialized": False,
                 "session_id": None,
                 "model_id": None,
+                "waiters": 0,
             },
         )
         return handle.payload
@@ -128,27 +130,74 @@ class ChatOrchestrator:
     async def _gemini_acp_chat(self, request: ChatRequest, provider: ProviderRecord) -> dict[str, object]:
         runtime = self._gemini_acp_runtime(provider)
         client = runtime["client"]
-        assert isinstance(client, GeminiAcpClient)
         lock = runtime["lock"]
         assert isinstance(lock, asyncio.Lock)
+        queue_started_at = perf_counter()
+        runtime["waiters"] = int(runtime.get("waiters", 0)) + 1
         async with lock:
+            runtime["waiters"] = max(0, int(runtime.get("waiters", 0)) - 1)
+            log_gateway_event(
+                "gateway.gemini_acp.queue_wait",
+                request_id=request.request_id,
+                provider=provider.name,
+                model=f"{request.provider_name}:{request.provider_model}",
+                queued=runtime["waiters"],
+                elapsed_ms=elapsed_ms(queue_started_at),
+            )
             if not runtime["initialized"]:
                 await client.initialize()
                 runtime["initialized"] = True
+                log_gateway_event(
+                    "gateway.gemini_acp.initialized",
+                    request_id=request.request_id,
+                    provider=provider.name,
+                    model=f"{request.provider_name}:{request.provider_model}",
+                )
             if not runtime["session_id"]:
                 session = await client.new_session(provider.cli_cwd or ".")
                 runtime["session_id"] = session["sessionId"]
                 runtime["model_id"] = None
+                log_gateway_event(
+                    "gateway.gemini_acp.session_new",
+                    request_id=request.request_id,
+                    provider=provider.name,
+                    model=f"{request.provider_name}:{request.provider_model}",
+                    session_id=runtime["session_id"],
+                )
             session_id = runtime["session_id"]
             assert isinstance(session_id, str)
+            if runtime["session_id"] and runtime["model_id"] == request.provider_model:
+                log_gateway_event(
+                    "gateway.gemini_acp.session_reuse",
+                    request_id=request.request_id,
+                    provider=provider.name,
+                    model=f"{request.provider_name}:{request.provider_model}",
+                    session_id=session_id,
+                )
             if runtime["model_id"] != request.provider_model:
                 await client.set_model(session_id, request.provider_model)
                 runtime["model_id"] = request.provider_model
+                log_gateway_event(
+                    "gateway.gemini_acp.model_set",
+                    request_id=request.request_id,
+                    provider=provider.name,
+                    model=f"{request.provider_name}:{request.provider_model}",
+                    session_id=session_id,
+                )
             prompt = "\n".join(
                 f"{str(message.get('role', 'user')).upper()}: {str(message.get('content', ''))}"
                 for message in request.messages
             )
+            prompt_started_at = perf_counter()
             prompt_result = await client.prompt(session_id, prompt)
+            log_gateway_event(
+                "gateway.gemini_acp.prompt_complete",
+                request_id=request.request_id,
+                provider=provider.name,
+                model=f"{request.provider_name}:{request.provider_model}",
+                session_id=session_id,
+                elapsed_ms=elapsed_ms(prompt_started_at),
+            )
 
         content_parts: list[str] = []
         for update in prompt_result.updates:

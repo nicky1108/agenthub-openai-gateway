@@ -33,9 +33,22 @@ class GeminiAcpClient:
         self._next_request_id = 1
         self._prompt_updates: dict[str, list[dict[str, Any]]] = {}
 
+    def _is_process_healthy(self) -> bool:
+        return (
+            self._process is not None
+            and self._process.returncode is None
+            and self._reader_task is not None
+            and not self._reader_task.done()
+        )
+
+    def _reset_handles(self) -> None:
+        self._process = None
+        self._reader_task = None
+
     async def _ensure_started(self) -> None:
-        if self._process is not None:
+        if self._is_process_healthy():
             return
+        self._reset_handles()
         self._process = await asyncio.create_subprocess_exec(
             self.command,
             *self.args,
@@ -50,26 +63,33 @@ class GeminiAcpClient:
     async def _read_stdout(self) -> None:
         assert self._process is not None
         assert self._process.stdout is not None
-        while True:
-            line = await self._process.stdout.readline()
-            if not line:
-                break
-            payload = json.loads(line.decode())
-            if "id" in payload:
-                request_id = int(payload["id"])
-                future = self._pending.pop(request_id, None)
-                if future is None:
+        try:
+            while True:
+                line = await self._process.stdout.readline()
+                if not line:
+                    break
+                payload = json.loads(line.decode())
+                if "id" in payload:
+                    request_id = int(payload["id"])
+                    future = self._pending.pop(request_id, None)
+                    if future is None:
+                        continue
+                    if "error" in payload:
+                        future.set_exception(RuntimeError(str(payload["error"])))
+                    else:
+                        future.set_result(payload["result"])
                     continue
-                if "error" in payload:
-                    future.set_exception(RuntimeError(str(payload["error"])))
-                else:
-                    future.set_result(payload["result"])
-                continue
-            if payload.get("method") == "session/update":
-                params = payload.get("params") or {}
-                session_id = params.get("sessionId")
-                if isinstance(session_id, str) and session_id in self._prompt_updates:
-                    self._prompt_updates[session_id].append(params)
+                if payload.get("method") == "session/update":
+                    params = payload.get("params") or {}
+                    session_id = params.get("sessionId")
+                    if isinstance(session_id, str) and session_id in self._prompt_updates:
+                        self._prompt_updates[session_id].append(params)
+        finally:
+            while self._pending:
+                _request_id, future = self._pending.popitem()
+                if not future.done():
+                    future.set_exception(RuntimeError("gemini acp process exited"))
+            self._reader_task = None
 
     async def _request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         await self._ensure_started()
@@ -81,7 +101,11 @@ class GeminiAcpClient:
         self._pending[request_id] = future
         message = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
         self._process.stdin.write((json.dumps(message) + "\n").encode())
-        await self._process.stdin.drain()
+        try:
+            await self._process.stdin.drain()
+        except (ConnectionResetError, BrokenPipeError) as exc:
+            self._pending.pop(request_id, None)
+            raise RuntimeError("gemini acp process exited") from exc
         return await asyncio.wait_for(future, timeout=self.read_timeout_seconds)
 
     async def initialize(self) -> dict[str, Any]:
@@ -121,8 +145,15 @@ class GeminiAcpClient:
         if self._process is None:
             return
         if self._process.stdin is not None:
-            self._process.stdin.close()
-        self._process.terminate()
+            try:
+                self._process.stdin.close()
+            except Exception:
+                pass
+        if self._process.returncode is None:
+            try:
+                self._process.terminate()
+            except ProcessLookupError:
+                pass
         try:
             await asyncio.wait_for(self._process.wait(), timeout=3)
         except asyncio.TimeoutError:
@@ -130,5 +161,4 @@ class GeminiAcpClient:
             await self._process.wait()
         if self._reader_task is not None:
             await self._reader_task
-        self._process = None
-        self._reader_task = None
+        self._reset_handles()
