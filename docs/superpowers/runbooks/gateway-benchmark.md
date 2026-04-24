@@ -182,4 +182,30 @@ Interpretation:
 
 - the warm ACP path still avoids most cold-start latency
 - two concurrent callers are serialized through the single ACP session, so wall time is close to the sum of queued prompt work
-- a full `2,4,8` sweep is still needed before changing default runtime behavior
+- the fuller `2,4,8` sweep below should be used for runtime policy decisions
+
+## Current Gemini ACP Queue Sweep
+
+Measured on 2026-04-24 against a temporary local backend started with `GEMINI_ACP_ENABLED=true`, using:
+
+- `sequential_requests=4`
+- `concurrency-levels=2,4,8`
+- `concurrency-rounds=2`
+
+### `gemini:gemini-2.5-flash`
+
+- cold start: `12101.56ms`
+- warm path median: `1271.18ms`
+- warm path p95: `1658.60ms`
+
+| Concurrency | Requests | Request median | Request p95 | Round wall median | Round wall p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 2 | 4 | `5068.37ms` | `10326.14ms` | `6628.31ms` | `10327.38ms` |
+| 4 | 8 | `3448.61ms` | `5791.89ms` | `5595.57ms` | `5795.03ms` |
+| 8 | 16 | `9997.53ms` | `17173.30ms` | `15317.23ms` | `18524.42ms` |
+
+Interpretation:
+
+- the ACP warm path is fast for single sequential callers
+- concurrent callers are still serialized through one ACP session, so tail latency grows with queue depth
+- `8` concurrent requests crosses `15s` median wall time locally, so defaulting ACP for broader traffic should wait until stream/cancel behavior and queue policy are explicitly designed
