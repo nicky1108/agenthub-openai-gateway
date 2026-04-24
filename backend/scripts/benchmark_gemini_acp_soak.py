@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import subprocess
@@ -11,7 +12,7 @@ from dataclasses import asdict
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from benchmark_gateway import compute_stats, create_ephemeral_api_key, log_progress
+from benchmark_gateway import compute_stats, create_ephemeral_api_key, log_progress, parse_concurrency_levels
 
 
 def parse_pid_lines(raw: str) -> list[int]:
@@ -63,6 +64,38 @@ def kill_gemini_acp_children(backend_pid: int) -> int:
     return len(child_pids)
 
 
+def benchmark_queue_concurrency(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    prompt: str,
+    concurrency_levels: list[int],
+    rounds: int,
+) -> dict[str, dict[str, object]]:
+    report: dict[str, dict[str, object]] = {}
+    for concurrency in concurrency_levels:
+        request_latencies_ms: list[float] = []
+        round_wall_latencies_ms: list[float] = []
+        for index in range(rounds):
+            log_progress(f"queue concurrency {concurrency}: round {index + 1}/{rounds}")
+            started = time.perf_counter()
+            with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                futures = [
+                    executor.submit(benchmark_non_stream, base_url, api_key, model, prompt)
+                    for _ in range(concurrency)
+                ]
+                request_latencies_ms.extend(future.result() for future in futures)
+            round_wall_latencies_ms.append((time.perf_counter() - started) * 1000)
+        report[str(concurrency)] = {
+            "rounds": rounds,
+            "requests": len(request_latencies_ms),
+            "request_ms": asdict(compute_stats(request_latencies_ms)),
+            "round_wall_ms": asdict(compute_stats(round_wall_latencies_ms)),
+        }
+    return report
+
+
 def build_soak_report(
     *,
     model: str,
@@ -94,10 +127,15 @@ def main() -> int:
     parser.add_argument("--sequential-requests", type=int, default=4)
     parser.add_argument("--recovery-cycles", type=int, default=0)
     parser.add_argument("--backend-pid", type=int, default=None)
+    parser.add_argument("--concurrency-levels", default="")
+    parser.add_argument("--concurrency-rounds", type=int, default=1)
     args = parser.parse_args()
 
     if args.recovery_cycles > 0 and not args.backend_pid:
         raise SystemExit("--backend-pid is required when --recovery-cycles is greater than zero")
+    concurrency_levels = parse_concurrency_levels(args.concurrency_levels)
+    if concurrency_levels and args.concurrency_rounds <= 0:
+        raise SystemExit("--concurrency-rounds must be greater than zero when --concurrency-levels is set")
 
     api_key = args.api_key or create_ephemeral_api_key(args.base_url, args.admin_secret, args.bootstrap_credits)
     sequential_latencies_ms: list[float] = []
@@ -118,6 +156,17 @@ def main() -> int:
         log_progress(f"recovery cycle {index + 1}/{args.recovery_cycles}: probing recovery")
         recovery_latencies_ms.append(benchmark_non_stream(args.base_url, api_key, args.model, args.prompt))
 
+    concurrency_report: dict[str, dict[str, object]] = {}
+    if concurrency_levels:
+        concurrency_report = benchmark_queue_concurrency(
+            base_url=args.base_url,
+            api_key=api_key,
+            model=args.model,
+            prompt=args.prompt,
+            concurrency_levels=concurrency_levels,
+            rounds=args.concurrency_rounds,
+        )
+
     report = build_soak_report(
         model=args.model,
         sequential_latencies_ms=sequential_latencies_ms,
@@ -126,6 +175,7 @@ def main() -> int:
     )
     report["base_url"] = args.base_url
     report["api_key"] = api_key
+    report["queue_concurrency"] = concurrency_report
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 

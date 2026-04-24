@@ -100,6 +100,26 @@ The JSON output reports:
 - `recovery_ms`
 - `killed_children`
 
+To measure how the single Gemini ACP session behaves when several external callers arrive at once, add a queue-concurrency sweep:
+
+```bash
+cd /Users/nicky/agenthub-openai-gateway/backend
+./.venv/bin/python scripts/benchmark_gemini_acp_soak.py \
+  --base-url http://127.0.0.1:8792 \
+  --model gemini:gemini-2.5-flash \
+  --sequential-requests 4 \
+  --concurrency-levels 2,4,8 \
+  --concurrency-rounds 2 \
+  --bootstrap-credits 500
+```
+
+The JSON output then adds `queue_concurrency`, keyed by concurrency level. Each level reports:
+
+- `request_ms`: latency distribution across all concurrent requests
+- `round_wall_ms`: wall-clock duration for each concurrent round
+- `requests`: total requests issued for that level
+- `rounds`: number of rounds executed
+
 ## Current Local Snapshot
 
 Measured on this repo's local runtime on 2026-04-22 with:
@@ -142,3 +162,24 @@ Interpretation:
 
 - warm session reuse is materially faster than the cold path
 - after killing the ACP child, the next request now rebuilds ACP state directly instead of falling back to the legacy Gemini CLI path
+
+## Current Gemini ACP Queue Smoke
+
+Measured on 2026-04-24 against a temporary local backend started with `GEMINI_ACP_ENABLED=true`, using:
+
+- `sequential_requests=2`
+- `concurrency-levels=2`
+- `concurrency-rounds=1`
+
+### `gemini:gemini-2.5-flash`
+
+- cold start: `11970.20ms`
+- warm path: `1601.29ms`
+- concurrency `2` request median: `2661.60ms`
+- concurrency `2` round wall time: `3635.91ms`
+
+Interpretation:
+
+- the warm ACP path still avoids most cold-start latency
+- two concurrent callers are serialized through the single ACP session, so wall time is close to the sum of queued prompt work
+- a full `2,4,8` sweep is still needed before changing default runtime behavior
