@@ -117,6 +117,7 @@ Examples:
 - `codex:gpt-5.4`
 - `codex:gpt-5.4-mini`
 - `codex:gpt-5.4-nano`
+- `codex:gpt-5.5`
 - `gemini:gemini-2.5-pro`
 - `gemini:gemini-2.5-flash`
 - `gemini:gemini-2.5-flash-lite`
@@ -125,6 +126,8 @@ Pricing comes from:
 
 - official pricing snapshots when available
 - manual overrides when an operator sets them
+
+For Codex, startup sync also reads `~/.codex/models_cache.json` when present, so newly listed local Codex models can be added without a code release. Bootstrap and pricing snapshots remain as fallbacks.
 
 The admin UI displays:
 
@@ -306,7 +309,7 @@ These wrapper scripts enforce single-instance startup for:
 - `hermes` and `opencode` are not fully brought up yet
 - public-gateway reverse tunnel is phase 1 and currently limited to gateway-plane ops
 - portal/session/dashboard tunnel routing is intentionally out of scope for phase 1
-- some provider model catalogs are still bootstrap-augmented rather than fully discovered from the provider CLI itself
+- Gemini model discovery is still bootstrap-augmented; Codex can additionally read the local Codex model cache
 
 ## Repository Notes
 

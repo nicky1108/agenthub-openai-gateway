@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.models import ProviderModelRecord, ProviderRecord
+from app.core.settings import Settings
 from app.pricing.service import OfficialPricingService
 
 
@@ -19,9 +22,13 @@ class DiscoveredModel:
 class ProviderDiscoveryService:
     _pricing = OfficialPricingService()
     _CODEX_BOOTSTRAP_MODELS = (
+        "gpt-5.5",
         "gpt-5-codex",
         "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
         "gpt-5.3-codex",
+        "gpt-5.2",
         "gpt-5.2-codex",
         "gpt-5.1-codex",
         "gpt-5.1-codex-mini",
@@ -49,9 +56,40 @@ class ProviderDiscoveryService:
                 ordered.append(model)
         return ordered
 
+    @staticmethod
+    def _codex_models_from_cache() -> list[str]:
+        cache_file = Settings().codex_models_cache_file
+        if not cache_file:
+            return []
+        path = Path(cache_file).expanduser()
+        if not path.is_file():
+            return []
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        models = payload.get("models") if isinstance(payload, dict) else None
+        if not isinstance(models, list):
+            return []
+
+        names: list[str] = []
+        for item in models:
+            if not isinstance(item, dict):
+                continue
+            slug = item.get("slug") or item.get("id") or item.get("model")
+            if not isinstance(slug, str) or not slug.strip():
+                continue
+            if item.get("visibility") not in {None, "list"}:
+                continue
+            if item.get("supported_in_api") is False:
+                continue
+            names.append(slug.strip())
+        return names
+
     def discover_models(self, provider: ProviderRecord) -> list[DiscoveredModel]:
         if provider.name == "codex":
             model_names = self._merge_model_names(
+                self._codex_models_from_cache(),
                 self._CODEX_BOOTSTRAP_MODELS,
                 [snapshot.native_model for snapshot in self._pricing.snapshots_for_provider("codex")],
             )

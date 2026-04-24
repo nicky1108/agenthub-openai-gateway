@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     codex_native_timeout_seconds: float = 120.0
     codex_native_token_refresh_skew_seconds: int = 120
     codex_native_reasoning_effort: str | None = "low"
+    codex_models_cache_file: str | None = "~/.codex/models_cache.json"
     gemini_native_enabled: bool = True
     gemini_native_auth_file: str = "~/.gemini/oauth_creds.json"
     gemini_native_base_url: str = "https://cloudcode-pa.googleapis.com"

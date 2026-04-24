@@ -36,6 +36,16 @@ class OfficialPricingService:
     _SNAPSHOTS: tuple[PricingSnapshot, ...] = (
         PricingSnapshot(
             provider_name="codex",
+            native_model="gpt-5.5",
+            source_url=_OPENAI_FLAGSHIP_SOURCE,
+            source_label="OpenAI API Pricing",
+            input_price=5.00,
+            cached_input_price=0.50,
+            output_price=30.00,
+            notes="Listed as GPT-5.5 coming soon on the official OpenAI API pricing page.",
+        ),
+        PricingSnapshot(
+            provider_name="codex",
             native_model="gpt-5.4",
             source_url=_OPENAI_FLAGSHIP_SOURCE,
             source_label="OpenAI API Pricing",
@@ -89,6 +99,15 @@ class OfficialPricingService:
             provider_name="codex",
             native_model="gpt-5.3-codex",
             source_url=f"{_OPENAI_MODEL_DOCS_BASE}/gpt-5.3-codex",
+            source_label="OpenAI Model Pricing",
+            input_price=1.75,
+            cached_input_price=0.175,
+            output_price=14.00,
+        ),
+        PricingSnapshot(
+            provider_name="codex",
+            native_model="gpt-5.2",
+            source_url=f"{_OPENAI_MODEL_DOCS_BASE}/gpt-5.2",
             source_label="OpenAI Model Pricing",
             input_price=1.75,
             cached_input_price=0.175,

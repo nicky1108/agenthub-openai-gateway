@@ -278,6 +278,14 @@ def test_admin_lists_official_pricing_for_provider_models(tmp_path, monkeypatch)
     gpt54mini = next(item for item in response.json() if item["native_model"] == "gpt-5.4-mini")
     assert gpt54mini["pricing"]["input_price"] == 0.75
     assert gpt54mini["pricing"]["output_price"] == 4.5
+    gpt55 = next(item for item in response.json() if item["native_model"] == "gpt-5.5")
+    assert gpt55["pricing"]["input_price"] == 5.0
+    assert gpt55["pricing"]["cached_input_price"] == 0.5
+    assert gpt55["pricing"]["output_price"] == 30.0
+    gpt52 = next(item for item in response.json() if item["native_model"] == "gpt-5.2")
+    assert gpt52["pricing"]["input_price"] == 1.75
+    assert gpt52["pricing"]["cached_input_price"] == 0.175
+    assert gpt52["pricing"]["output_price"] == 14.0
 
 
 def test_admin_can_override_provider_model_pricing(tmp_path, monkeypatch) -> None:
