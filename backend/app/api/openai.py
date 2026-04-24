@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.service import AuthContext, auth_service, require_api_key
@@ -20,6 +20,8 @@ orchestrator = ChatOrchestrator()
 
 
 class ChatCompletionCreate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     model: str
     messages: list[dict[str, Any]]
     stream: bool = False

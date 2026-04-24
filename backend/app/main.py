@@ -7,12 +7,14 @@ from app.api.auth import router as auth_router
 from app.api.admin import router as admin_router
 from app.api.health import router as health_router
 from app.api.internal_public_gateway import router as internal_public_gateway_router
+from app.api.openai import orchestrator as openai_orchestrator
 from app.api.openai import router as openai_router
 from app.core.db import get_engine, get_session_factory
 from app.core.models import Base, ProviderRecord
 from app.core.settings import Settings
 from app.discovery.service import ProviderDiscoveryService
 from app.pricing.service import OfficialPricingService
+from app.runtime.logging import log_gateway_event
 from sqlalchemy import select
 
 
@@ -191,6 +193,17 @@ async def lifespan(_: FastAPI):
         for provider in providers:
             await discovery.sync_provider_models(session, provider)
             await pricing.sync_provider_pricing(session, provider.name)
+            if settings.gemini_acp_prewarm_enabled:
+                try:
+                    await openai_orchestrator.prewarm_provider(provider)
+                except Exception as exc:
+                    log_gateway_event(
+                        "gateway.gemini_acp.startup_prewarm_failed",
+                        request_id="startup-prewarm",
+                        provider=provider.name,
+                        model=f"{provider.name}:{provider.exposed_model}",
+                        reason=str(exc),
+                    )
     yield
 
 

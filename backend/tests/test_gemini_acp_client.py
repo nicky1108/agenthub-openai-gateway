@@ -139,3 +139,28 @@ async def test_gemini_acp_client_fails_fast_when_process_exits_mid_prompt() -> N
             await client.prompt("crash-session", "hello")
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_gemini_acp_client_kills_process_after_request_timeout() -> None:
+    from app.runtime.gemini_acp_client import GeminiAcpClient
+
+    fixture = pathlib.Path(__file__).parent / "fixtures" / "gemini_acp_hang_stub.py"
+    command = str(pathlib.Path(__file__).resolve().parents[1] / ".venv" / "bin" / "python")
+    client = GeminiAcpClient(
+        command=command,
+        args=[str(fixture)],
+        env={},
+        cwd=None,
+        read_timeout_seconds=0.1,
+    )
+
+    try:
+        with pytest.raises(TimeoutError, match="gemini acp request timed out"):
+            await client.initialize()
+
+        assert client._pending == {}
+        assert not client.is_healthy()
+        assert client._process is None or client._process.returncode is not None
+    finally:
+        await client.close()

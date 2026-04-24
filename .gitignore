@@ -24,3 +24,5 @@ frontend/dist/
 frontend/.vite/
 frontend/.env
 frontend/.env.local
+.omx/
+.superpowers/

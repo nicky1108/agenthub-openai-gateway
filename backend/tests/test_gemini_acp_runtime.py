@@ -325,3 +325,34 @@ async def test_gemini_acp_runtime_resets_stale_session_when_client_is_unhealthy(
     assert fake_client.set_model_calls == 1
     assert slot["session_id"] == "runtime-session"
     assert "gateway.gemini_acp.session_reset" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_gemini_acp_runtime_can_prewarm_session_without_prompt(monkeypatch, caplog) -> None:
+    monkeypatch.setenv("GEMINI_ACP_ENABLED", "true")
+    orchestrator = ChatOrchestrator()
+    fake_client = _FakeGeminiAcpClient()
+    runtime = _runtime_with_clients(fake_client)
+    provider = SimpleNamespace(
+        name="gemini",
+        cli_enabled=True,
+        cli_command="/opt/homebrew/bin/gemini",
+        cli_args_json="[]",
+        cli_env_json="{}",
+        cli_cwd="/tmp",
+    )
+    caplog.set_level(logging.INFO, logger="agenthub.gateway")
+
+    orchestrator._gemini_acp_runtime = lambda _provider: runtime  # type: ignore[method-assign]
+
+    await orchestrator.prewarm_provider(provider)
+
+    slot = runtime["slots"][0]
+    assert slot["initialized"] is True
+    assert slot["session_id"] == "runtime-session"
+    assert slot["model_id"] is None
+    assert fake_client.initialize_calls == 1
+    assert fake_client.new_session_calls == 1
+    assert fake_client.set_model_calls == 0
+    assert fake_client.prompt_calls == 0
+    assert "gateway.gemini_acp.startup_prewarm" in caplog.text

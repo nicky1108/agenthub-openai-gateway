@@ -10,12 +10,15 @@ from app.adapters.cli.codex import CodexCliAdapter
 from app.adapters.cli.gemini import GeminiCliAdapter
 from app.adapters.cli.process import ProcessCliAdapter
 from app.adapters.http.openai_compatible import OpenAICompatibleHttpAdapter
+from app.adapters.native.codex import CodexNativeAdapter
+from app.adapters.native.gemini import GeminiNativeAdapter
 from app.core.models import ProviderRecord
 from app.core.settings import Settings
 from app.registry.service import ProviderRegistry
 from app.runtime.gemini_acp_client import GeminiAcpClient
 from app.runtime.logging import elapsed_ms, log_gateway_event
 from app.runtime.provider_process_pool import provider_process_pool
+from app.runtime.provider_cli_workspace import provider_cli_cwd
 
 
 class ChatOrchestrator:
@@ -63,19 +66,25 @@ class ChatOrchestrator:
 
     def _gemini_acp_key(self, provider: ProviderRecord) -> str:
         pool_size = self._gemini_acp_pool_size()
+        cwd = self._provider_cli_cwd(provider)
         return (
             f"gemini-acp:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:"
-            f"{provider.cli_env_json}:{provider.cli_cwd}:pool={pool_size}"
+            f"{provider.cli_env_json}:{cwd}:pool={pool_size}"
         )
 
     @staticmethod
+    def _provider_cli_cwd(provider: ProviderRecord) -> str | None:
+        return provider_cli_cwd(provider.name, provider.cli_cwd)
+
+    @staticmethod
     def _new_gemini_acp_slot(provider: ProviderRecord) -> dict[str, object]:
+        cwd = ChatOrchestrator._provider_cli_cwd(provider)
         return {
             "client": GeminiAcpClient(
                 command=provider.cli_command or "",
                 args=[*json.loads(provider.cli_args_json), "--acp"],
                 env=json.loads(provider.cli_env_json),
-                cwd=provider.cli_cwd,
+                cwd=cwd,
                 read_timeout_seconds=30,
             ),
             "lock": asyncio.Lock(),
@@ -83,6 +92,7 @@ class ChatOrchestrator:
             "session_id": None,
             "model_id": None,
             "waiters": 0,
+            "cwd": cwd,
         }
 
     def _gemini_acp_runtime(self, provider: ProviderRecord) -> dict[str, object]:
@@ -242,6 +252,48 @@ class ChatOrchestrator:
             finally:
                 lock.release()
 
+    async def prewarm_provider(self, provider: ProviderRecord) -> None:
+        settings = Settings()
+        if provider.name != "gemini" or not settings.gemini_acp_enabled or not provider.cli_enabled:
+            return
+        if not provider.cli_command:
+            return
+
+        runtime = self._gemini_acp_runtime(provider)
+        slots = runtime["slots"]
+        assert isinstance(slots, list)
+        request = ChatRequest(
+            provider_name=provider.name,
+            provider_model=str(getattr(provider, "exposed_model", None) or "default"),
+            messages=[{"role": "user", "content": ""}],
+            stream=False,
+            request_id="startup-prewarm",
+        )
+
+        for slot_index, slot in enumerate(slots):
+            assert isinstance(slot, dict)
+            if slot.get("initialized") and slot.get("session_id"):
+                continue
+            lock = slot["lock"]
+            assert isinstance(lock, asyncio.Lock)
+            await lock.acquire()
+            try:
+                if slot.get("initialized") and slot.get("session_id"):
+                    continue
+                client = slot["client"]
+                session_id = await self._ensure_gemini_acp_process_locked(request, provider, slot, client)
+                log_gateway_event(
+                    "gateway.gemini_acp.startup_prewarm",
+                    request_id=request.request_id,
+                    provider=provider.name,
+                    model=f"{request.provider_name}:{request.provider_model}",
+                    session_id=session_id,
+                    slot_index=slot_index,
+                    pool_size=len(slots),
+                )
+            finally:
+                lock.release()
+
     @staticmethod
     def _gemini_acp_prompt(request: ChatRequest) -> str:
         return "\n".join(
@@ -272,7 +324,7 @@ class ChatOrchestrator:
             return str(chunk.get("text", ""))
         return ""
 
-    async def _ensure_gemini_acp_session_locked(
+    async def _ensure_gemini_acp_process_locked(
         self,
         request: ChatRequest,
         provider: ProviderRecord,
@@ -300,7 +352,7 @@ class ChatOrchestrator:
                 model=f"{request.provider_name}:{request.provider_model}",
             )
         if not runtime["session_id"]:
-            session = await client.new_session(provider.cli_cwd or ".")
+            session = await client.new_session(str(runtime.get("cwd") or self._provider_cli_cwd(provider) or "."))
             runtime["session_id"] = session["sessionId"]
             runtime["model_id"] = None
             log_gateway_event(
@@ -312,6 +364,16 @@ class ChatOrchestrator:
             )
         session_id = runtime["session_id"]
         assert isinstance(session_id, str)
+        return session_id
+
+    async def _ensure_gemini_acp_session_locked(
+        self,
+        request: ChatRequest,
+        provider: ProviderRecord,
+        runtime: dict[str, object],
+        client: GeminiAcpClient,
+    ) -> str:
+        session_id = await self._ensure_gemini_acp_process_locked(request, provider, runtime, client)
         if runtime["session_id"] and runtime["model_id"] == request.provider_model:
             log_gateway_event(
                 "gateway.gemini_acp.session_reuse",
@@ -333,8 +395,9 @@ class ChatOrchestrator:
         return session_id
 
     def _cli_adapter(self, provider: ProviderRecord):
+        cwd = self._provider_cli_cwd(provider)
         if provider.name == "codex":
-            key = f"cli:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:{provider.cli_env_json}:{provider.cli_cwd}"
+            key = f"cli:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:{provider.cli_env_json}:{cwd}"
             handle = provider_process_pool.get_or_create(
                 key=key,
                 factory=lambda: {
@@ -342,14 +405,14 @@ class ChatOrchestrator:
                         command=provider.cli_command or "",
                         args=json.loads(provider.cli_args_json),
                         env=json.loads(provider.cli_env_json),
-                        cwd=provider.cli_cwd,
+                        cwd=cwd,
                         read_timeout_seconds=30,
                     )
                 },
             )
             return handle.payload["adapter"]
         if provider.name == "gemini":
-            key = f"cli:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:{provider.cli_env_json}:{provider.cli_cwd}"
+            key = f"cli:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:{provider.cli_env_json}:{cwd}"
             handle = provider_process_pool.get_or_create(
                 key=key,
                 factory=lambda: {
@@ -357,13 +420,13 @@ class ChatOrchestrator:
                         command=provider.cli_command or "",
                         args=json.loads(provider.cli_args_json),
                         env=json.loads(provider.cli_env_json),
-                        cwd=provider.cli_cwd,
+                        cwd=cwd,
                         read_timeout_seconds=30,
                     )
                 },
             )
             return handle.payload["adapter"]
-        key = f"cli:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:{provider.cli_env_json}:{provider.cli_cwd}"
+        key = f"cli:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:{provider.cli_env_json}:{cwd}"
         handle = provider_process_pool.get_or_create(
             key=key,
             factory=lambda: {
@@ -371,8 +434,58 @@ class ChatOrchestrator:
                     command=provider.cli_command or "",
                     args=json.loads(provider.cli_args_json),
                     env=json.loads(provider.cli_env_json),
-                    cwd=provider.cli_cwd,
+                    cwd=cwd,
                     read_timeout_seconds=30,
+                )
+            },
+        )
+        return handle.payload["adapter"]
+
+    def _codex_native_adapter(self) -> CodexNativeAdapter:
+        settings = Settings()
+        key = (
+            f"codex-native:{settings.codex_native_auth_file}:"
+            f"{settings.codex_native_base_url}:{settings.codex_native_timeout_seconds}:"
+            f"{settings.codex_native_token_refresh_skew_seconds}:{settings.codex_native_reasoning_effort}"
+        )
+        handle = provider_process_pool.get_or_create(
+            key=key,
+            factory=lambda: {
+                "adapter": CodexNativeAdapter(
+                    auth_file=settings.codex_native_auth_file,
+                    base_url=settings.codex_native_base_url,
+                    timeout_seconds=settings.codex_native_timeout_seconds,
+                    refresh_skew_seconds=settings.codex_native_token_refresh_skew_seconds,
+                    reasoning_effort=settings.codex_native_reasoning_effort,
+                )
+            },
+        )
+        return handle.payload["adapter"]
+
+    def _gemini_native_adapter(self) -> GeminiNativeAdapter:
+        settings = Settings()
+        key = (
+            f"gemini-native:{settings.gemini_native_auth_file}:"
+            f"{settings.gemini_native_base_url}:{settings.gemini_native_timeout_seconds}:"
+            f"{settings.gemini_native_token_refresh_skew_seconds}:{settings.gemini_native_project_id}:"
+            f"{settings.gemini_native_projects_file}:{settings.gemini_native_auto_discover_project}:"
+            f"{settings.gemini_native_refresh_enabled}:{settings.gemini_native_thinking_budget}"
+        )
+        handle = provider_process_pool.get_or_create(
+            key=key,
+            factory=lambda: {
+                "adapter": GeminiNativeAdapter(
+                    auth_file=settings.gemini_native_auth_file,
+                    base_url=settings.gemini_native_base_url,
+                    timeout_seconds=settings.gemini_native_timeout_seconds,
+                    refresh_skew_seconds=settings.gemini_native_token_refresh_skew_seconds,
+                    project_id=settings.gemini_native_project_id,
+                    projects_file=settings.gemini_native_projects_file,
+                    auto_discover_project=settings.gemini_native_auto_discover_project,
+                    refresh_enabled=settings.gemini_native_refresh_enabled,
+                    thinking_budget=settings.gemini_native_thinking_budget,
+                    oauth_client_id=settings.gemini_native_oauth_client_id,
+                    oauth_client_secret=settings.gemini_native_oauth_client_secret,
                 )
             },
         )
@@ -503,6 +616,28 @@ class ChatOrchestrator:
     async def run(self, payload: dict[str, object], session: AsyncSession) -> dict[str, object]:
         request, provider = await self.prepare(payload, session)
         if provider.route_policy in {"cli-first", "fixed-cli"}:
+            if provider.name == "codex" and Settings().codex_native_enabled:
+                try:
+                    return await self._codex_native_adapter().chat(request)
+                except Exception as exc:
+                    log_gateway_event(
+                        "gateway.codex_native.fallback",
+                        request_id=request.request_id,
+                        provider=provider.name,
+                        model=f"{request.provider_name}:{request.provider_model}",
+                        reason=str(exc),
+                    )
+            if provider.name == "gemini" and Settings().gemini_native_enabled:
+                try:
+                    return await self._gemini_native_adapter().chat(request)
+                except Exception as exc:
+                    log_gateway_event(
+                        "gateway.gemini_native.fallback",
+                        request_id=request.request_id,
+                        provider=provider.name,
+                        model=f"{request.provider_name}:{request.provider_model}",
+                        reason=str(exc),
+                    )
             if provider.name == "gemini" and not request.stream and Settings().gemini_acp_enabled:
                 for attempt in range(2):
                     try:
@@ -534,6 +669,40 @@ class ChatOrchestrator:
         provider: ProviderRecord,
     ) -> AsyncIterator[str]:
         if provider.route_policy in {"cli-first", "fixed-cli"}:
+            if provider.name == "codex" and Settings().codex_native_enabled:
+                emitted = False
+                try:
+                    async for chunk in self._codex_native_adapter().stream_chat(request):
+                        emitted = True
+                        yield chunk
+                    return
+                except Exception as exc:
+                    log_gateway_event(
+                        "gateway.codex_native.fallback",
+                        request_id=request.request_id,
+                        provider=provider.name,
+                        model=f"{request.provider_name}:{request.provider_model}",
+                        reason=str(exc),
+                    )
+                    if emitted:
+                        raise
+            if provider.name == "gemini" and Settings().gemini_native_enabled:
+                emitted = False
+                try:
+                    async for chunk in self._gemini_native_adapter().stream_chat(request):
+                        emitted = True
+                        yield chunk
+                    return
+                except Exception as exc:
+                    log_gateway_event(
+                        "gateway.gemini_native.fallback",
+                        request_id=request.request_id,
+                        provider=provider.name,
+                        model=f"{request.provider_name}:{request.provider_model}",
+                        reason=str(exc),
+                    )
+                    if emitted:
+                        raise
             if provider.name == "gemini" and Settings().gemini_acp_enabled:
                 for attempt in range(2):
                     emitted = False

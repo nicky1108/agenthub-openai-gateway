@@ -122,6 +122,10 @@ class GeminiAcpClient:
             raise RuntimeError("gemini acp process exited") from exc
         try:
             return await asyncio.wait_for(future, timeout=self.read_timeout_seconds)
+        except asyncio.TimeoutError as exc:
+            self._pending.pop(request_id, None)
+            await self.close()
+            raise TimeoutError("gemini acp request timed out") from exc
         finally:
             if future.cancelled():
                 self._pending.pop(request_id, None)
