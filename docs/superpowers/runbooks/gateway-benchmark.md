@@ -209,3 +209,19 @@ Interpretation:
 - the ACP warm path is fast for single sequential callers
 - concurrent callers are still serialized through one ACP session, so tail latency grows with queue depth
 - `8` concurrent requests crosses `15s` median wall time locally, so defaulting ACP for broader traffic should wait until stream/cancel behavior and queue policy are explicitly designed
+
+## Current Gemini ACP Stream Smoke
+
+Measured on 2026-04-24 against a temporary local backend started with `GEMINI_ACP_ENABLED=true`, using `benchmark_gateway.py` with `iterations=1` and `warmup=0`.
+
+### `gemini:gemini-2.5-flash`
+
+- non-stream total: `10454.27ms`
+- stream first chunk: `1620.31ms`
+- stream total: `1636.07ms`
+
+Interpretation:
+
+- the first non-stream call still pays the cold ACP start cost
+- the immediately following stream call reuses the warm ACP session and returns the first chunk in under `2s`
+- this validates the feature-flagged ACP stream path for a local smoke, but cancellation and longer streaming outputs still need targeted verification

@@ -19,7 +19,7 @@ Improve the gateway from a feature-complete local control plane into a more reli
 
 1. [x] Add a Gemini ACP queue-concurrency benchmark.
 2. [x] Run a real 2/4/8 Gemini ACP queue benchmark and record the local baseline.
-3. [ ] Add Gemini ACP stream support behind the existing ACP feature flag.
+3. [x] Add Gemini ACP stream support behind the existing ACP feature flag.
 4. [ ] Replace static bootstrap model discovery with provider-backed discovery where available.
 5. [ ] Move credit persistence from floating-point storage to an exact representation.
 6. [ ] Add reverse-tunnel soak and usage-record end-to-end verification.

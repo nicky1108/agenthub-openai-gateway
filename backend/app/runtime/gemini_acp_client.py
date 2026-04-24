@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -10,6 +11,12 @@ from typing import Any
 class GeminiAcpPromptResult:
     result: dict[str, Any]
     updates: list[dict[str, Any]]
+
+
+@dataclass(slots=True)
+class GeminiAcpStreamEvent:
+    update: dict[str, Any] | None = None
+    result: dict[str, Any] | None = None
 
 
 class GeminiAcpClient:
@@ -32,6 +39,7 @@ class GeminiAcpClient:
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._next_request_id = 1
         self._prompt_updates: dict[str, list[dict[str, Any]]] = {}
+        self._prompt_streams: dict[str, asyncio.Queue[dict[str, Any]]] = {}
 
     def _is_process_healthy(self) -> bool:
         return (
@@ -75,7 +83,7 @@ class GeminiAcpClient:
                 if "id" in payload:
                     request_id = int(payload["id"])
                     future = self._pending.pop(request_id, None)
-                    if future is None:
+                    if future is None or future.done():
                         continue
                     if "error" in payload:
                         future.set_exception(RuntimeError(str(payload["error"])))
@@ -87,6 +95,9 @@ class GeminiAcpClient:
                     session_id = params.get("sessionId")
                     if isinstance(session_id, str) and session_id in self._prompt_updates:
                         self._prompt_updates[session_id].append(params)
+                    queue = self._prompt_streams.get(session_id) if isinstance(session_id, str) else None
+                    if queue is not None:
+                        queue.put_nowait(params)
         finally:
             while self._pending:
                 _request_id, future = self._pending.popitem()
@@ -109,7 +120,11 @@ class GeminiAcpClient:
         except (ConnectionResetError, BrokenPipeError) as exc:
             self._pending.pop(request_id, None)
             raise RuntimeError("gemini acp process exited") from exc
-        return await asyncio.wait_for(future, timeout=self.read_timeout_seconds)
+        try:
+            return await asyncio.wait_for(future, timeout=self.read_timeout_seconds)
+        finally:
+            if future.cancelled():
+                self._pending.pop(request_id, None)
 
     async def initialize(self) -> dict[str, Any]:
         return await self._request(
@@ -130,6 +145,9 @@ class GeminiAcpClient:
     async def set_model(self, session_id: str, model_id: str) -> dict[str, Any]:
         return await self._request("session/set_model", {"sessionId": session_id, "modelId": model_id})
 
+    async def cancel_session(self, session_id: str) -> dict[str, Any]:
+        return await self._request("session/cancel", {"sessionId": session_id})
+
     async def prompt(self, session_id: str, text: str) -> GeminiAcpPromptResult:
         self._prompt_updates[session_id] = []
         try:
@@ -143,6 +161,50 @@ class GeminiAcpClient:
             return GeminiAcpPromptResult(result=result, updates=list(self._prompt_updates[session_id]))
         finally:
             self._prompt_updates.pop(session_id, None)
+
+    async def prompt_stream(self, session_id: str, text: str) -> AsyncIterator[GeminiAcpStreamEvent]:
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._prompt_streams[session_id] = queue
+        task = asyncio.create_task(
+            self._request(
+                "session/prompt",
+                {
+                    "sessionId": session_id,
+                    "prompt": [{"type": "text", "text": text}],
+                },
+            )
+        )
+        try:
+            while True:
+                if task.done() and queue.empty():
+                    break
+                queue_task = asyncio.create_task(queue.get())
+                done, _pending = await asyncio.wait(
+                    {task, queue_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if queue_task in done:
+                    yield GeminiAcpStreamEvent(update=queue_task.result())
+                    continue
+                queue_task.cancel()
+                try:
+                    await queue_task
+                except asyncio.CancelledError:
+                    pass
+            result = await task
+            yield GeminiAcpStreamEvent(result=result)
+        finally:
+            self._prompt_streams.pop(session_id, None)
+            if not task.done():
+                try:
+                    await asyncio.wait_for(self.cancel_session(session_id), timeout=1.0)
+                except Exception:
+                    pass
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     async def close(self) -> None:
         if self._process is None:

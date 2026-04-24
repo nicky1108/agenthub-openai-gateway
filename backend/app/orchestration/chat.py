@@ -81,6 +81,96 @@ class ChatOrchestrator:
         )
         return handle.payload
 
+    @staticmethod
+    def _gemini_acp_prompt(request: ChatRequest) -> str:
+        return "\n".join(
+            f"{str(message.get('role', 'user')).upper()}: {str(message.get('content', ''))}"
+            for message in request.messages
+        )
+
+    @staticmethod
+    def _gemini_acp_usage_payload(result: dict[str, object]) -> dict[str, object] | None:
+        usage = (((result.get("_meta") or {}).get("quota") or {}).get("token_count") or {})
+        if not isinstance(usage, dict):
+            return None
+        return {
+            "prompt_tokens": int(usage.get("input_tokens") or 0),
+            "completion_tokens": int(usage.get("output_tokens") or 0),
+            "prompt_tokens_details": {"cached_tokens": 0},
+        }
+
+    @staticmethod
+    def _gemini_acp_update_text(update: dict[str, object]) -> str:
+        payload = update.get("update")
+        if not isinstance(payload, dict):
+            return ""
+        if payload.get("sessionUpdate") != "agent_message_chunk":
+            return ""
+        chunk = payload.get("content")
+        if isinstance(chunk, dict) and chunk.get("type") == "text":
+            return str(chunk.get("text", ""))
+        return ""
+
+    async def _ensure_gemini_acp_session_locked(
+        self,
+        request: ChatRequest,
+        provider: ProviderRecord,
+        runtime: dict[str, object],
+        client: GeminiAcpClient,
+    ) -> str:
+        if hasattr(client, "is_healthy") and not client.is_healthy():
+            runtime["initialized"] = False
+            runtime["session_id"] = None
+            runtime["model_id"] = None
+            log_gateway_event(
+                "gateway.gemini_acp.session_reset",
+                request_id=request.request_id,
+                provider=provider.name,
+                model=f"{request.provider_name}:{request.provider_model}",
+                reason="client_unhealthy",
+            )
+        if not runtime["initialized"]:
+            await client.initialize()
+            runtime["initialized"] = True
+            log_gateway_event(
+                "gateway.gemini_acp.initialized",
+                request_id=request.request_id,
+                provider=provider.name,
+                model=f"{request.provider_name}:{request.provider_model}",
+            )
+        if not runtime["session_id"]:
+            session = await client.new_session(provider.cli_cwd or ".")
+            runtime["session_id"] = session["sessionId"]
+            runtime["model_id"] = None
+            log_gateway_event(
+                "gateway.gemini_acp.session_new",
+                request_id=request.request_id,
+                provider=provider.name,
+                model=f"{request.provider_name}:{request.provider_model}",
+                session_id=runtime["session_id"],
+            )
+        session_id = runtime["session_id"]
+        assert isinstance(session_id, str)
+        if runtime["session_id"] and runtime["model_id"] == request.provider_model:
+            log_gateway_event(
+                "gateway.gemini_acp.session_reuse",
+                request_id=request.request_id,
+                provider=provider.name,
+                model=f"{request.provider_name}:{request.provider_model}",
+                session_id=session_id,
+            )
+        if runtime["model_id"] != request.provider_model:
+            await client.set_model(session_id, request.provider_model)
+            runtime["model_id"] = request.provider_model
+            log_gateway_event(
+                "gateway.gemini_acp.model_set",
+                request_id=request.request_id,
+                provider=provider.name,
+                model=f"{request.provider_name}:{request.provider_model}",
+                session_id=session_id,
+            )
+        return session_id
+
     def _cli_adapter(self, provider: ProviderRecord):
         if provider.name == "codex":
             key = f"cli:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:{provider.cli_env_json}:{provider.cli_cwd}"
@@ -144,61 +234,8 @@ class ChatOrchestrator:
                 queued=runtime["waiters"],
                 elapsed_ms=elapsed_ms(queue_started_at),
             )
-            if hasattr(client, "is_healthy") and not client.is_healthy():
-                runtime["initialized"] = False
-                runtime["session_id"] = None
-                runtime["model_id"] = None
-                log_gateway_event(
-                    "gateway.gemini_acp.session_reset",
-                    request_id=request.request_id,
-                    provider=provider.name,
-                    model=f"{request.provider_name}:{request.provider_model}",
-                    reason="client_unhealthy",
-                )
-            if not runtime["initialized"]:
-                await client.initialize()
-                runtime["initialized"] = True
-                log_gateway_event(
-                    "gateway.gemini_acp.initialized",
-                    request_id=request.request_id,
-                    provider=provider.name,
-                    model=f"{request.provider_name}:{request.provider_model}",
-                )
-            if not runtime["session_id"]:
-                session = await client.new_session(provider.cli_cwd or ".")
-                runtime["session_id"] = session["sessionId"]
-                runtime["model_id"] = None
-                log_gateway_event(
-                    "gateway.gemini_acp.session_new",
-                    request_id=request.request_id,
-                    provider=provider.name,
-                    model=f"{request.provider_name}:{request.provider_model}",
-                    session_id=runtime["session_id"],
-                )
-            session_id = runtime["session_id"]
-            assert isinstance(session_id, str)
-            if runtime["session_id"] and runtime["model_id"] == request.provider_model:
-                log_gateway_event(
-                    "gateway.gemini_acp.session_reuse",
-                    request_id=request.request_id,
-                    provider=provider.name,
-                    model=f"{request.provider_name}:{request.provider_model}",
-                    session_id=session_id,
-                )
-            if runtime["model_id"] != request.provider_model:
-                await client.set_model(session_id, request.provider_model)
-                runtime["model_id"] = request.provider_model
-                log_gateway_event(
-                    "gateway.gemini_acp.model_set",
-                    request_id=request.request_id,
-                    provider=provider.name,
-                    model=f"{request.provider_name}:{request.provider_model}",
-                    session_id=session_id,
-                )
-            prompt = "\n".join(
-                f"{str(message.get('role', 'user')).upper()}: {str(message.get('content', ''))}"
-                for message in request.messages
-            )
+            session_id = await self._ensure_gemini_acp_session_locked(request, provider, runtime, client)
+            prompt = self._gemini_acp_prompt(request)
             prompt_started_at = perf_counter()
             prompt_result = await client.prompt(session_id, prompt)
             log_gateway_event(
@@ -212,22 +249,8 @@ class ChatOrchestrator:
 
         content_parts: list[str] = []
         for update in prompt_result.updates:
-            payload = update.get("update")
-            if not isinstance(payload, dict):
-                continue
-            if payload.get("sessionUpdate") != "agent_message_chunk":
-                continue
-            chunk = payload.get("content")
-            if isinstance(chunk, dict) and chunk.get("type") == "text":
-                content_parts.append(str(chunk.get("text", "")))
-        usage = (((prompt_result.result.get("_meta") or {}).get("quota") or {}).get("token_count") or {})
-        usage_payload = None
-        if isinstance(usage, dict):
-            usage_payload = {
-                "prompt_tokens": int(usage.get("input_tokens") or 0),
-                "completion_tokens": int(usage.get("output_tokens") or 0),
-                "prompt_tokens_details": {"cached_tokens": 0},
-            }
+            content_parts.append(self._gemini_acp_update_text(update))
+        usage_payload = self._gemini_acp_usage_payload(prompt_result.result)
         return {
             "id": session_id,
             "object": "chat.completion",
@@ -241,6 +264,59 @@ class ChatOrchestrator:
             ],
             **({"usage": usage_payload} if usage_payload is not None else {}),
         }
+
+    async def _gemini_acp_stream_chat(self, request: ChatRequest, provider: ProviderRecord) -> AsyncIterator[str]:
+        runtime = self._gemini_acp_runtime(provider)
+        client = runtime["client"]
+        lock = runtime["lock"]
+        assert isinstance(lock, asyncio.Lock)
+        queue_started_at = perf_counter()
+        runtime["waiters"] = int(runtime.get("waiters", 0)) + 1
+        async with lock:
+            runtime["waiters"] = max(0, int(runtime.get("waiters", 0)) - 1)
+            log_gateway_event(
+                "gateway.gemini_acp.queue_wait",
+                request_id=request.request_id,
+                provider=provider.name,
+                model=f"{request.provider_name}:{request.provider_model}",
+                queued=runtime["waiters"],
+                elapsed_ms=elapsed_ms(queue_started_at),
+            )
+            session_id = await self._ensure_gemini_acp_session_locked(request, provider, runtime, client)
+            prompt = self._gemini_acp_prompt(request)
+            prompt_started_at = perf_counter()
+            async for event in client.prompt_stream(session_id, prompt):
+                if event.update is not None:
+                    text = self._gemini_acp_update_text(event.update)
+                    if not text:
+                        continue
+                    payload = {
+                        "id": session_id,
+                        "object": "chat.completion.chunk",
+                        "model": f"{request.provider_name}:{request.provider_model}",
+                        "choices": [{"index": 0, "delta": {"content": text}, "finish_reason": None}],
+                    }
+                    yield f"data: {json.dumps(payload)}\n\n"
+                if event.result is not None:
+                    finish_payload = {
+                        "id": session_id,
+                        "object": "chat.completion.chunk",
+                        "model": f"{request.provider_name}:{request.provider_model}",
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    }
+                    usage_payload = self._gemini_acp_usage_payload(event.result)
+                    if usage_payload is not None:
+                        finish_payload["usage"] = usage_payload
+                    yield f"data: {json.dumps(finish_payload)}\n\n"
+                    log_gateway_event(
+                        "gateway.gemini_acp.prompt_complete",
+                        request_id=request.request_id,
+                        provider=provider.name,
+                        model=f"{request.provider_name}:{request.provider_model}",
+                        session_id=session_id,
+                        elapsed_ms=elapsed_ms(prompt_started_at),
+                    )
+            yield "data: [DONE]\n\n"
 
     async def prepare(
         self,
@@ -277,6 +353,24 @@ class ChatOrchestrator:
         provider: ProviderRecord,
     ) -> AsyncIterator[str]:
         if provider.route_policy in {"cli-first", "fixed-cli"}:
+            if provider.name == "gemini" and Settings().gemini_acp_enabled:
+                emitted = False
+                try:
+                    async for chunk in self._gemini_acp_stream_chat(request, provider):
+                        emitted = True
+                        yield chunk
+                    return
+                except Exception as exc:
+                    provider_process_pool.invalidate(self._gemini_acp_key(provider))
+                    log_gateway_event(
+                        "gateway.gemini_acp.fallback",
+                        request_id=request.request_id,
+                        provider=provider.name,
+                        model=f"{request.provider_name}:{request.provider_model}",
+                        reason=str(exc),
+                    )
+                    if emitted:
+                        raise
             async for chunk in self._cli_adapter(provider).stream_chat(request):
                 yield chunk
             return
