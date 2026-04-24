@@ -20,9 +20,10 @@ Improve the gateway from a feature-complete local control plane into a more reli
 1. [x] Add a Gemini ACP queue-concurrency benchmark.
 2. [x] Run a real 2/4/8 Gemini ACP queue benchmark and record the local baseline.
 3. [x] Add Gemini ACP stream support behind the existing ACP feature flag.
-4. [ ] Replace static bootstrap model discovery with provider-backed discovery where available.
-5. [ ] Move credit persistence from floating-point storage to an exact representation.
-6. [ ] Add reverse-tunnel soak and usage-record end-to-end verification.
+4. [x] Add conservative Gemini ACP retry and pool controls.
+5. [ ] Replace static bootstrap model discovery with provider-backed discovery where available.
+6. [ ] Move credit persistence from floating-point storage to an exact representation.
+7. [ ] Add reverse-tunnel soak and usage-record end-to-end verification.
 
 ## Task 1: Gemini ACP Queue-Concurrency Benchmark
 
@@ -57,7 +58,17 @@ Acceptance criteria:
 - Cancellation does not leave a stale ACP prompt in flight.
 - Tests cover stream chunks, final usage extraction, fallback, and cancellation.
 
-## Task 4: Real Model Discovery
+## Task 4: ACP Retry And Pool Controls
+
+Acceptance criteria:
+
+- Transient ACP failures rebuild ACP state and retry once before falling back to legacy Gemini CLI.
+- Stream retry only happens before any SSE chunk is emitted.
+- ACP pool size is configurable but defaults to the stable single-session behavior.
+- Optional prewarm exists as an explicit tuning switch, not a default, because local benchmark evidence showed multi-process Gemini ACP can degrade warm latency.
+- Tests cover retry, warm-slot selection, cold-slot avoidance, and optional prewarm.
+
+## Task 5: Real Model Discovery
 
 Acceptance criteria:
 
@@ -66,7 +77,7 @@ Acceptance criteria:
 - Codex discovery gets a documented source or a safe probe before changing behavior.
 - Admin rediscover clearly labels `provider`, `bootstrap`, `pricing`, and manual entries.
 
-## Task 5: Exact Credit Storage
+## Task 6: Exact Credit Storage
 
 Acceptance criteria:
 
@@ -75,7 +86,7 @@ Acceptance criteria:
 - API responses keep two-decimal user-facing values.
 - Regression tests cover small charges, manual adjustments, and insufficient balance.
 
-## Task 6: Reverse Tunnel Soak
+## Task 7: Reverse Tunnel Soak
 
 Acceptance criteria:
 

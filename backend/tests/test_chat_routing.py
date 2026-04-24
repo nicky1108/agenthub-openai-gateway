@@ -28,7 +28,7 @@ def _create_api_key(client: TestClient) -> str:
 
 
 async def _fake_quote_request(*args, **kwargs):
-    return SimpleNamespace(pricing=None)
+    return SimpleNamespace(pricing=None, estimated_credits_ceiling=0.01)
 
 
 async def _fake_settle_inference(*args, **kwargs):

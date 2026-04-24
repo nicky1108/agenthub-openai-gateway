@@ -210,6 +210,38 @@ Interpretation:
 - concurrent callers are still serialized through one ACP session, so tail latency grows with queue depth
 - `8` concurrent requests crosses `15s` median wall time locally, so defaulting ACP for broader traffic should wait until stream/cancel behavior and queue policy are explicitly designed
 
+## Gemini ACP Pool Tuning
+
+Gemini ACP now supports explicit pool controls:
+
+- `GEMINI_ACP_POOL_SIZE`: defaults to `1`
+- `GEMINI_ACP_PREWARM_ENABLED`: defaults to `false`
+
+Keep the defaults for normal local operation. A local 2026-04-24 experiment with `GEMINI_ACP_POOL_SIZE=2` showed mixed results: once both slots were warm, concurrency `4` improved versus the single-session queue, but cold-slot expansion and background prewarm could degrade sequential warm latency and high-concurrency tails on this Mac. Treat pool size greater than `1` as a host-specific tuning option that must be benchmarked before enabling.
+
+The runtime avoids sending user requests to cold idle slots when a warm ACP session already exists. Transient ACP failures now invalidate the runtime and retry ACP once before falling back to the legacy Gemini CLI path.
+
+## Current Gemini ACP Retry Smoke
+
+Measured on 2026-04-24 against a temporary local backend started with default ACP runtime controls:
+
+- `GEMINI_ACP_ENABLED=true`
+- `GEMINI_ACP_POOL_SIZE=1`
+- `GEMINI_ACP_PREWARM_ENABLED=false`
+- `sequential_requests=4`
+
+### `gemini:gemini-2.5-flash`
+
+- cold start: `14005.70ms`
+- warm path median: `3467.86ms`
+- warm path p95: `5111.64ms`
+
+Interpretation:
+
+- the default path remains conservative single-session ACP
+- the smoke completed all four requests without falling through to a legacy CLI timeout
+- this run validates the retry guard, not a new latency SLO
+
 ## Current Gemini ACP Stream Smoke
 
 Measured on 2026-04-24 against a temporary local backend started with `GEMINI_ACP_ENABLED=true`, using `benchmark_gateway.py` with `iterations=1` and `warmup=0`.

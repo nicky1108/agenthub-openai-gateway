@@ -187,6 +187,65 @@ def test_chat_completions_falls_back_when_gemini_acp_errors(tmp_path, monkeypatc
     assert "gateway.gemini_acp.fallback" in caplog.text
 
 
+def test_chat_completions_retries_gemini_acp_once_before_fallback(tmp_path, monkeypatch, caplog) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setenv("GEMINI_ACP_ENABLED", "true")
+    monkeypatch.setattr(billing_service, "quote_request", _fake_quote_request)
+    monkeypatch.setattr(billing_service, "settle_inference", _fake_settle_inference)
+    caplog.set_level(logging.INFO, logger="agenthub.gateway")
+    attempts = 0
+
+    async def _flaky_gemini_acp_chat(request, provider):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("transient acp failure")
+        return {
+            "id": "gemini-acp-retry",
+            "object": "chat.completion",
+            "model": f"{request.provider_name}:{request.provider_model}",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "retried-acp"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(openai_api.orchestrator, "_gemini_acp_chat", _flaky_gemini_acp_chat)
+
+    with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
+        client.post(
+            "/admin/providers",
+            json={
+                "name": "gemini",
+                "http_enabled": False,
+                "cli_enabled": True,
+                "route_policy": "fixed-cli",
+                "cli_command": "/opt/homebrew/bin/gemini",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gemini:default",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": False,
+            },
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["choices"][0]["message"]["content"] == "retried-acp"
+    assert attempts == 2
+    assert "gateway.gemini_acp.retry" in caplog.text
+    assert "gateway.gemini_acp.fallback" not in caplog.text
+
+
 def test_chat_completions_returns_404_for_unknown_provider(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
     monkeypatch.setattr(billing_service, "quote_request", _fake_quote_request)

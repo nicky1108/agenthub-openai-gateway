@@ -129,12 +129,18 @@ def test_streaming_chat_uses_gemini_acp_when_enabled(tmp_path, monkeypatch) -> N
     monkeypatch.setattr(billing_service, "settle_inference", _fake_settle_inference)
     fake_client = FakeGeminiAcpClient()
     runtime = {
-        "client": fake_client,
-        "lock": asyncio.Lock(),
-        "initialized": False,
-        "session_id": None,
-        "model_id": None,
-        "waiters": 0,
+        "slots": [
+            {
+                "client": fake_client,
+                "lock": asyncio.Lock(),
+                "initialized": False,
+                "session_id": None,
+                "model_id": None,
+                "waiters": 0,
+            }
+        ],
+        "selection_lock": asyncio.Lock(),
+        "next_slot": 0,
     }
     monkeypatch.setattr(openai_api.orchestrator, "_gemini_acp_runtime", lambda _provider: runtime)
 
@@ -169,6 +175,57 @@ def test_streaming_chat_uses_gemini_acp_when_enabled(tmp_path, monkeypatch) -> N
     assert '"finish_reason": "stop"' in body
     assert "[DONE]" in body
     assert fake_client.prompt_stream_calls == 1
+
+
+def test_streaming_chat_retries_gemini_acp_before_cli_fallback(tmp_path, monkeypatch, caplog) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setenv("GEMINI_ACP_ENABLED", "true")
+    monkeypatch.setattr(billing_service, "quote_request", _fake_quote_request)
+    monkeypatch.setattr(billing_service, "settle_inference", _fake_settle_inference)
+    caplog.set_level(logging.INFO, logger="agenthub.gateway")
+    attempts = 0
+
+    async def _flaky_gemini_acp_stream(request, provider):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("transient stream failure")
+        yield 'data: {"choices":[{"delta":{"content":"retried-acp"}}]}\n\n'
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(openai_api.orchestrator, "_gemini_acp_stream_chat", _flaky_gemini_acp_stream)
+
+    with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
+        client.post(
+            "/admin/providers",
+            json={
+                "name": "gemini",
+                "http_enabled": False,
+                "cli_enabled": True,
+                "route_policy": "fixed-cli",
+                "cli_command": "/bin/echo",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+
+        with client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json={
+                "model": "gemini:gemini-2.5-flash",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": True,
+            },
+            headers={"authorization": f"Bearer {api_key}"},
+        ) as response:
+            body = b"".join(response.iter_bytes()).decode()
+
+    assert response.status_code == 200
+    assert "retried-acp" in body
+    assert attempts == 2
+    assert "gateway.gemini_acp.retry" in caplog.text
+    assert "gateway.gemini_acp.fallback" not in caplog.text
 
 
 def test_streaming_chat_returns_404_for_unknown_provider(tmp_path, monkeypatch) -> None:

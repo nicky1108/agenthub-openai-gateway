@@ -1,5 +1,4 @@
 import asyncio
-import json
 from collections.abc import AsyncIterator
 
 import httpx
@@ -10,7 +9,6 @@ from app.tunnel.protocol import (
     CancelMessage,
     HelloAckMessage,
     RequestMessage,
-    build_hello_message,
     parse_tunnel_message,
     verify_hello_message,
 )

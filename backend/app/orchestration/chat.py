@@ -57,29 +57,190 @@ class ChatOrchestrator:
         )
         return handle.payload["adapter"]
 
+    @staticmethod
+    def _gemini_acp_pool_size() -> int:
+        return max(1, Settings().gemini_acp_pool_size)
+
     def _gemini_acp_key(self, provider: ProviderRecord) -> str:
-        return f"gemini-acp:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:{provider.cli_env_json}:{provider.cli_cwd}"
+        pool_size = self._gemini_acp_pool_size()
+        return (
+            f"gemini-acp:{provider.name}:{provider.cli_command}:{provider.cli_args_json}:"
+            f"{provider.cli_env_json}:{provider.cli_cwd}:pool={pool_size}"
+        )
+
+    @staticmethod
+    def _new_gemini_acp_slot(provider: ProviderRecord) -> dict[str, object]:
+        return {
+            "client": GeminiAcpClient(
+                command=provider.cli_command or "",
+                args=[*json.loads(provider.cli_args_json), "--acp"],
+                env=json.loads(provider.cli_env_json),
+                cwd=provider.cli_cwd,
+                read_timeout_seconds=30,
+            ),
+            "lock": asyncio.Lock(),
+            "initialized": False,
+            "session_id": None,
+            "model_id": None,
+            "waiters": 0,
+        }
 
     def _gemini_acp_runtime(self, provider: ProviderRecord) -> dict[str, object]:
         key = self._gemini_acp_key(provider)
         handle = provider_process_pool.get_or_create(
             key=key,
             factory=lambda: {
-                "client": GeminiAcpClient(
-                    command=provider.cli_command or "",
-                    args=[*json.loads(provider.cli_args_json), "--acp"],
-                    env=json.loads(provider.cli_env_json),
-                    cwd=provider.cli_cwd,
-                    read_timeout_seconds=30,
-                ),
-                "lock": asyncio.Lock(),
-                "initialized": False,
-                "session_id": None,
-                "model_id": None,
-                "waiters": 0,
+                "slots": [self._new_gemini_acp_slot(provider) for _ in range(self._gemini_acp_pool_size())],
+                "selection_lock": asyncio.Lock(),
+                "next_slot": 0,
+                "warmup_task": None,
             },
         )
         return handle.payload
+
+    @staticmethod
+    async def _acquire_gemini_acp_slot(
+        runtime: dict[str, object],
+    ) -> tuple[int, dict[str, object], float]:
+        slots = runtime["slots"]
+        assert isinstance(slots, list)
+        assert slots
+        selection_lock = runtime["selection_lock"]
+        assert isinstance(selection_lock, asyncio.Lock)
+        queue_started_at = perf_counter()
+        selected_index = 0
+        selected_slot: dict[str, object] | None = None
+        selected_lock: asyncio.Lock | None = None
+        should_wait = False
+
+        async with selection_lock:
+            start_index = int(runtime.get("next_slot", 0)) % len(slots)
+            initialized_slots = [slot for slot in slots if isinstance(slot, dict) and slot.get("initialized")]
+            scan_cold_slots = not initialized_slots
+            for offset in range(len(slots)):
+                index = (start_index + offset) % len(slots)
+                slot = slots[index]
+                assert isinstance(slot, dict)
+                lock = slot["lock"]
+                assert isinstance(lock, asyncio.Lock)
+                if lock.locked() or not slot.get("initialized"):
+                    continue
+                selected_index = index
+                selected_slot = slot
+                selected_lock = lock
+                runtime["next_slot"] = (index + 1) % len(slots)
+                await lock.acquire()
+                break
+
+            if selected_slot is None and scan_cold_slots:
+                for offset in range(len(slots)):
+                    index = (start_index + offset) % len(slots)
+                    slot = slots[index]
+                    assert isinstance(slot, dict)
+                    lock = slot["lock"]
+                    assert isinstance(lock, asyncio.Lock)
+                    if lock.locked():
+                        continue
+                    selected_index = index
+                    selected_slot = slot
+                    selected_lock = lock
+                    runtime["next_slot"] = (index + 1) % len(slots)
+                    await lock.acquire()
+                    break
+
+            if selected_slot is None:
+                candidates: list[tuple[int, int, dict[str, object], asyncio.Lock]] = []
+                for offset in range(len(slots)):
+                    index = (start_index + offset) % len(slots)
+                    slot = slots[index]
+                    assert isinstance(slot, dict)
+                    if initialized_slots and not slot.get("initialized"):
+                        continue
+                    lock = slot["lock"]
+                    assert isinstance(lock, asyncio.Lock)
+                    candidates.append((int(slot.get("waiters", 0)), index, slot, lock))
+                _, selected_index, selected_slot, selected_lock = min(candidates, key=lambda candidate: candidate[0])
+                selected_slot["waiters"] = int(selected_slot.get("waiters", 0)) + 1
+                runtime["next_slot"] = (selected_index + 1) % len(slots)
+                should_wait = True
+
+        assert selected_slot is not None
+        assert selected_lock is not None
+        if should_wait:
+            await selected_lock.acquire()
+            selected_slot["waiters"] = max(0, int(selected_slot.get("waiters", 0)) - 1)
+        return selected_index, selected_slot, elapsed_ms(queue_started_at)
+
+    def _schedule_gemini_acp_pool_warmup(
+        self,
+        request: ChatRequest,
+        provider: ProviderRecord,
+        runtime: dict[str, object],
+    ) -> None:
+        if not Settings().gemini_acp_prewarm_enabled:
+            return
+        slots = runtime["slots"]
+        assert isinstance(slots, list)
+        if len(slots) <= 1 or runtime.get("warmup_task") is not None:
+            return
+
+        async def warmup() -> None:
+            await self._warm_gemini_acp_idle_slots(request, provider, runtime)
+
+        task = asyncio.create_task(warmup())
+        runtime["warmup_task"] = task
+
+        def clear_warmup(completed: asyncio.Task[None]) -> None:
+            if runtime.get("warmup_task") is completed:
+                runtime["warmup_task"] = None
+            if completed.cancelled():
+                return
+            try:
+                completed.result()
+            except Exception as exc:
+                log_gateway_event(
+                    "gateway.gemini_acp.pool_warmup_failed",
+                    request_id=request.request_id,
+                    provider=provider.name,
+                    model=f"{request.provider_name}:{request.provider_model}",
+                    reason=str(exc),
+                )
+
+        task.add_done_callback(clear_warmup)
+
+    async def _warm_gemini_acp_idle_slots(
+        self,
+        request: ChatRequest,
+        provider: ProviderRecord,
+        runtime: dict[str, object],
+    ) -> None:
+        slots = runtime["slots"]
+        assert isinstance(slots, list)
+        for slot_index, slot in enumerate(slots):
+            assert isinstance(slot, dict)
+            if slot.get("initialized"):
+                continue
+            lock = slot["lock"]
+            assert isinstance(lock, asyncio.Lock)
+            if lock.locked():
+                continue
+            await lock.acquire()
+            try:
+                if slot.get("initialized"):
+                    continue
+                client = slot["client"]
+                session_id = await self._ensure_gemini_acp_session_locked(request, provider, slot, client)
+                log_gateway_event(
+                    "gateway.gemini_acp.pool_warmup",
+                    request_id=request.request_id,
+                    provider=provider.name,
+                    model=f"{request.provider_name}:{request.provider_model}",
+                    session_id=session_id,
+                    slot_index=slot_index,
+                    pool_size=len(slots),
+                )
+            finally:
+                lock.release()
 
     @staticmethod
     def _gemini_acp_prompt(request: ChatRequest) -> str:
@@ -219,22 +380,24 @@ class ChatOrchestrator:
 
     async def _gemini_acp_chat(self, request: ChatRequest, provider: ProviderRecord) -> dict[str, object]:
         runtime = self._gemini_acp_runtime(provider)
-        client = runtime["client"]
-        lock = runtime["lock"]
+        slot_index, slot, queue_wait_ms = await self._acquire_gemini_acp_slot(runtime)
+        client = slot["client"]
+        lock = slot["lock"]
         assert isinstance(lock, asyncio.Lock)
-        queue_started_at = perf_counter()
-        runtime["waiters"] = int(runtime.get("waiters", 0)) + 1
-        async with lock:
-            runtime["waiters"] = max(0, int(runtime.get("waiters", 0)) - 1)
+        slots = runtime["slots"]
+        assert isinstance(slots, list)
+        try:
             log_gateway_event(
                 "gateway.gemini_acp.queue_wait",
                 request_id=request.request_id,
                 provider=provider.name,
                 model=f"{request.provider_name}:{request.provider_model}",
-                queued=runtime["waiters"],
-                elapsed_ms=elapsed_ms(queue_started_at),
+                queued=slot["waiters"],
+                slot_index=slot_index,
+                pool_size=len(slots),
+                elapsed_ms=queue_wait_ms,
             )
-            session_id = await self._ensure_gemini_acp_session_locked(request, provider, runtime, client)
+            session_id = await self._ensure_gemini_acp_session_locked(request, provider, slot, client)
             prompt = self._gemini_acp_prompt(request)
             prompt_started_at = perf_counter()
             prompt_result = await client.prompt(session_id, prompt)
@@ -246,6 +409,9 @@ class ChatOrchestrator:
                 session_id=session_id,
                 elapsed_ms=elapsed_ms(prompt_started_at),
             )
+            self._schedule_gemini_acp_pool_warmup(request, provider, runtime)
+        finally:
+            lock.release()
 
         content_parts: list[str] = []
         for update in prompt_result.updates:
@@ -267,22 +433,24 @@ class ChatOrchestrator:
 
     async def _gemini_acp_stream_chat(self, request: ChatRequest, provider: ProviderRecord) -> AsyncIterator[str]:
         runtime = self._gemini_acp_runtime(provider)
-        client = runtime["client"]
-        lock = runtime["lock"]
+        slot_index, slot, queue_wait_ms = await self._acquire_gemini_acp_slot(runtime)
+        client = slot["client"]
+        lock = slot["lock"]
         assert isinstance(lock, asyncio.Lock)
-        queue_started_at = perf_counter()
-        runtime["waiters"] = int(runtime.get("waiters", 0)) + 1
-        async with lock:
-            runtime["waiters"] = max(0, int(runtime.get("waiters", 0)) - 1)
+        slots = runtime["slots"]
+        assert isinstance(slots, list)
+        try:
             log_gateway_event(
                 "gateway.gemini_acp.queue_wait",
                 request_id=request.request_id,
                 provider=provider.name,
                 model=f"{request.provider_name}:{request.provider_model}",
-                queued=runtime["waiters"],
-                elapsed_ms=elapsed_ms(queue_started_at),
+                queued=slot["waiters"],
+                slot_index=slot_index,
+                pool_size=len(slots),
+                elapsed_ms=queue_wait_ms,
             )
-            session_id = await self._ensure_gemini_acp_session_locked(request, provider, runtime, client)
+            session_id = await self._ensure_gemini_acp_session_locked(request, provider, slot, client)
             prompt = self._gemini_acp_prompt(request)
             prompt_started_at = perf_counter()
             async for event in client.prompt_stream(session_id, prompt):
@@ -316,7 +484,10 @@ class ChatOrchestrator:
                         session_id=session_id,
                         elapsed_ms=elapsed_ms(prompt_started_at),
                     )
+                    self._schedule_gemini_acp_pool_warmup(request, provider, runtime)
             yield "data: [DONE]\n\n"
+        finally:
+            lock.release()
 
     async def prepare(
         self,
@@ -333,17 +504,27 @@ class ChatOrchestrator:
         request, provider = await self.prepare(payload, session)
         if provider.route_policy in {"cli-first", "fixed-cli"}:
             if provider.name == "gemini" and not request.stream and Settings().gemini_acp_enabled:
-                try:
-                    return await self._gemini_acp_chat(request, provider)
-                except Exception as exc:
-                    provider_process_pool.invalidate(self._gemini_acp_key(provider))
-                    log_gateway_event(
-                        "gateway.gemini_acp.fallback",
-                        request_id=request.request_id,
-                        provider=provider.name,
-                        model=f"{request.provider_name}:{request.provider_model}",
-                        reason=str(exc),
-                    )
+                for attempt in range(2):
+                    try:
+                        return await self._gemini_acp_chat(request, provider)
+                    except Exception as exc:
+                        provider_process_pool.invalidate(self._gemini_acp_key(provider))
+                        if attempt == 0:
+                            log_gateway_event(
+                                "gateway.gemini_acp.retry",
+                                request_id=request.request_id,
+                                provider=provider.name,
+                                model=f"{request.provider_name}:{request.provider_model}",
+                                reason=str(exc),
+                            )
+                            continue
+                        log_gateway_event(
+                            "gateway.gemini_acp.fallback",
+                            request_id=request.request_id,
+                            provider=provider.name,
+                            model=f"{request.provider_name}:{request.provider_model}",
+                            reason=str(exc),
+                        )
             return await self._cli_adapter(provider).chat(request)
         return await self._http_adapter(provider).chat(request)
 
@@ -354,23 +535,41 @@ class ChatOrchestrator:
     ) -> AsyncIterator[str]:
         if provider.route_policy in {"cli-first", "fixed-cli"}:
             if provider.name == "gemini" and Settings().gemini_acp_enabled:
-                emitted = False
-                try:
-                    async for chunk in self._gemini_acp_stream_chat(request, provider):
-                        emitted = True
-                        yield chunk
-                    return
-                except Exception as exc:
-                    provider_process_pool.invalidate(self._gemini_acp_key(provider))
-                    log_gateway_event(
-                        "gateway.gemini_acp.fallback",
-                        request_id=request.request_id,
-                        provider=provider.name,
-                        model=f"{request.provider_name}:{request.provider_model}",
-                        reason=str(exc),
-                    )
-                    if emitted:
-                        raise
+                for attempt in range(2):
+                    emitted = False
+                    try:
+                        async for chunk in self._gemini_acp_stream_chat(request, provider):
+                            emitted = True
+                            yield chunk
+                        return
+                    except Exception as exc:
+                        provider_process_pool.invalidate(self._gemini_acp_key(provider))
+                        if emitted:
+                            log_gateway_event(
+                                "gateway.gemini_acp.fallback",
+                                request_id=request.request_id,
+                                provider=provider.name,
+                                model=f"{request.provider_name}:{request.provider_model}",
+                                reason=str(exc),
+                            )
+                            raise
+                        if attempt == 0:
+                            log_gateway_event(
+                                "gateway.gemini_acp.retry",
+                                request_id=request.request_id,
+                                provider=provider.name,
+                                model=f"{request.provider_name}:{request.provider_model}",
+                                reason=str(exc),
+                            )
+                            continue
+                        log_gateway_event(
+                            "gateway.gemini_acp.fallback",
+                            request_id=request.request_id,
+                            provider=provider.name,
+                            model=f"{request.provider_name}:{request.provider_model}",
+                            reason=str(exc),
+                        )
+                        break
             async for chunk in self._cli_adapter(provider).stream_chat(request):
                 yield chunk
             return
