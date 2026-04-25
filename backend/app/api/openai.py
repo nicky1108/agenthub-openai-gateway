@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.service import AuthContext, auth_service, require_api_key
-from app.billing.service import billing_service
+from app.billing.service import UsageSnapshot, billing_service
 from app.core.db import get_session
 from app.core.models import UserProviderRecord
 from app.orchestration.chat import ChatOrchestrator
@@ -21,11 +21,13 @@ from app.services.custom_provider_runtime import (
     execute_custom_completion,
     stream_custom_completion,
 )
+from app.services import builtin_tools
 from app.services.provider_presets import resolved_custom_provider_models
 
 router = APIRouter(prefix="/v1", tags=["openai"])
 registry = ProviderRegistry()
 orchestrator = ChatOrchestrator()
+MAX_BUILTIN_TOOL_ROUNDS = 3
 
 
 class ChatCompletionCreate(BaseModel):
@@ -131,6 +133,113 @@ def custom_provider_http_exception(exc: CustomProviderRequestError | CustomProvi
     return HTTPException(status_code=502, detail="custom provider returned invalid response")
 
 
+def combine_usage_snapshots(usages: list[UsageSnapshot]) -> UsageSnapshot:
+    if not usages:
+        return UsageSnapshot(input_tokens=0, output_tokens=0, cached_input_tokens=0, token_source="estimated")
+    token_sources = {usage.token_source for usage in usages}
+    token_source = token_sources.pop() if len(token_sources) == 1 else "mixed"
+    return UsageSnapshot(
+        input_tokens=sum(usage.input_tokens for usage in usages),
+        output_tokens=sum(usage.output_tokens for usage in usages),
+        cached_input_tokens=sum(usage.cached_input_tokens for usage in usages),
+        token_source=token_source,
+    )
+
+
+async def run_platform_completion_with_builtin_tools(
+    request_payload: dict[str, Any],
+    session: AsyncSession,
+) -> tuple[dict[str, Any], list[UsageSnapshot], list[dict[str, Any]]]:
+    if not builtin_tools.request_enables_web_fetch(request_payload):
+        return await orchestrator.run(request_payload, session), [], list(request_payload["messages"])
+
+    current_payload = {**request_payload, "stream": False, "messages": list(request_payload["messages"])}
+    tool_round_usages: list[UsageSnapshot] = []
+    for _ in range(MAX_BUILTIN_TOOL_ROUNDS):
+        result = await orchestrator.run(current_payload, session)
+        assistant_message = builtin_tools.result_assistant_message(result)
+        if assistant_message is None:
+            return result, tool_round_usages, list(current_payload["messages"])
+        tool_messages = await builtin_tools.execute_builtin_tool_calls(assistant_message)
+        if not tool_messages:
+            return result, tool_round_usages, list(current_payload["messages"])
+        tool_round_usages.append(billing_service.usage_from_result(current_payload["messages"], result))
+        current_payload = {
+            **current_payload,
+            "messages": builtin_tools.append_tool_exchange(
+                list(current_payload["messages"]),
+                assistant_message,
+                tool_messages,
+            ),
+        }
+
+    result = await orchestrator.run({**current_payload, "tool_choice": "none"}, session)
+    return result, tool_round_usages, list(current_payload["messages"])
+
+
+async def prepare_stream_payload_with_builtin_tools(
+    request_payload: dict[str, Any],
+    session: AsyncSession,
+) -> tuple[dict[str, Any], list[UsageSnapshot], dict[str, Any] | None]:
+    if not builtin_tools.request_enables_web_fetch(request_payload):
+        return request_payload, [], None
+
+    probe_payload = {**request_payload, "stream": False, "messages": list(request_payload["messages"])}
+    result = await orchestrator.run(probe_payload, session)
+    assistant_message = builtin_tools.result_assistant_message(result)
+    if assistant_message is None:
+        return request_payload, [], result
+    tool_messages = await builtin_tools.execute_builtin_tool_calls(assistant_message)
+    if not tool_messages:
+        return request_payload, [], result
+
+    resolved_messages = builtin_tools.append_tool_exchange(
+        list(probe_payload["messages"]),
+        assistant_message,
+        tool_messages,
+    )
+    resolved_payload = {
+        **request_payload,
+        "messages": resolved_messages,
+        "stream": True,
+        "tool_choice": "none",
+    }
+    usage = billing_service.usage_from_result(probe_payload["messages"], result)
+    return resolved_payload, [usage], None
+
+
+async def stream_chat_completion_result(result: dict[str, Any]):
+    choices = result.get("choices")
+    choice = choices[0] if isinstance(choices, list) and choices else {}
+    message = choice.get("message", {}) if isinstance(choice, dict) else {}
+    content = message.get("content", "") if isinstance(message, dict) else ""
+    finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+    if content:
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "id": result.get("id", "chatcmpl-result"),
+                    "object": "chat.completion.chunk",
+                    "model": result.get("model"),
+                    "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
+                }
+            )
+            + "\n\n"
+        )
+    finish_payload: dict[str, Any] = {
+        "id": result.get("id", "chatcmpl-result"),
+        "object": "chat.completion.chunk",
+        "model": result.get("model"),
+        "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason or "stop"}],
+    }
+    usage = result.get("usage")
+    if isinstance(usage, dict):
+        finish_payload["usage"] = usage
+    yield "data: " + json.dumps(finish_payload) + "\n\n"
+    yield "data: [DONE]\n\n"
+
+
 @router.get("/models")
 async def list_models(
     session: AsyncSession = Depends(get_session),
@@ -216,12 +325,33 @@ async def create_chat_completion(
                 elapsed_ms=elapsed_ms(started_at),
             )
 
+            stream_request = request
+            stream_provider = provider
+            pre_stream_usage: list[UsageSnapshot] = []
+            pre_stream_result: dict[str, Any] | None = None
+            if builtin_tools.request_enables_web_fetch(request_payload):
+                current_phase = "builtin_tools.resolve"
+                stream_payload, pre_stream_usage, pre_stream_result = await prepare_stream_payload_with_builtin_tools(
+                    {
+                        **request_payload,
+                        "model": f"{request.provider_name}:{request.provider_model}",
+                    },
+                    session,
+                )
+                if pre_stream_result is None:
+                    stream_request, stream_provider = await orchestrator.prepare(stream_payload, session)
+
             async def billable_stream():
                 assistant_text = ""
                 usage_payload: dict[str, Any] | None = None
                 first_chunk_logged = False
                 try:
-                    async for chunk in orchestrator.stream_prepared(request, provider):
+                    stream_source = (
+                        stream_chat_completion_result(pre_stream_result)
+                        if pre_stream_result is not None
+                        else orchestrator.stream_prepared(stream_request, stream_provider)
+                    )
+                    async for chunk in stream_source:
                         if chunk.startswith("data: "):
                             data = chunk.removeprefix("data: ").strip()
                             if data and data != "[DONE]":
@@ -243,7 +373,7 @@ async def create_chat_completion(
                                                     log_gateway_event(
                                                         "gateway.stream.first_chunk",
                                                         request_id=request_id,
-                                                        provider=provider.name,
+                                                        provider=stream_provider.name,
                                                         model=payload.model,
                                                         elapsed_ms=elapsed_ms(started_at),
                                                     )
@@ -253,19 +383,24 @@ async def create_chat_completion(
                     log_gateway_event(
                         "gateway.request.failed",
                         request_id=request_id,
-                        provider=provider.name,
+                        provider=stream_provider.name,
                         model=payload.model,
                         phase="stream.execute",
                         elapsed_ms=elapsed_ms(started_at),
                     )
-                    await auth_service.record_usage(session, auth, provider.name, payload.model, "error")
+                    await auth_service.record_usage(session, auth, stream_provider.name, payload.model, "error")
                     raise
-                usage = billing_service.usage_from_stream(request.messages, assistant_text, usage_payload)
+                usage = combine_usage_snapshots(
+                    [
+                        *pre_stream_usage,
+                        billing_service.usage_from_stream(stream_request.messages, assistant_text, usage_payload),
+                    ]
+                )
                 current_settle_started = perf_counter()
                 await billing_service.settle_inference(
                     session,
                     auth,
-                    provider.name,
+                    stream_provider.name,
                     payload.model,
                     quote.pricing,
                     usage,
@@ -273,14 +408,14 @@ async def create_chat_completion(
                 log_gateway_event(
                     "gateway.billing.settle",
                     request_id=request_id,
-                    provider=provider.name,
+                    provider=stream_provider.name,
                     model=payload.model,
                     elapsed_ms=elapsed_ms(current_settle_started),
                 )
                 log_gateway_event(
                     "gateway.request.complete",
                     request_id=request_id,
-                    provider=provider.name,
+                    provider=stream_provider.name,
                     model=payload.model,
                     stream=True,
                     elapsed_ms=elapsed_ms(started_at),
@@ -318,7 +453,7 @@ async def create_chat_completion(
             elapsed_ms=elapsed_ms(started_at),
         )
         current_phase = "provider.execute"
-        result = await orchestrator.run(
+        result, tool_round_usages, final_request_messages = await run_platform_completion_with_builtin_tools(
             {
                 **request_payload,
                 "model": f"{request.provider_name}:{request.provider_model}",
@@ -332,7 +467,9 @@ async def create_chat_completion(
             model=payload.model,
             elapsed_ms=elapsed_ms(started_at),
         )
-        usage = billing_service.usage_from_result(payload.messages, result)
+        usage = combine_usage_snapshots(
+            [*tool_round_usages, billing_service.usage_from_result(final_request_messages, result)]
+        )
         current_phase = "billing.settle"
         settle_started = perf_counter()
         await billing_service.settle_inference(

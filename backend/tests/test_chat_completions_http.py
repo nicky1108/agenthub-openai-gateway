@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 import logging
+import json
 
 from types import SimpleNamespace
 
@@ -163,6 +164,100 @@ def test_chat_completions_accepts_bare_exposed_platform_model_id(tmp_path, monke
     assert response.status_code == 200
     assert response.json()["choices"][0]["message"]["content"] == "OK"
     assert captured == {"provider_name": "codex", "provider_model": "gpt-5.4"}
+
+
+def test_chat_completions_executes_explicit_web_fetch_tool_call(tmp_path, monkeypatch) -> None:
+    run_payloads: list[dict[str, object]] = []
+
+    class FakeOrchestrator:
+        async def prepare(self, payload, _session):
+            return (
+                ChatRequest(
+                    provider_name="codex",
+                    provider_model="gpt-5.4-mini",
+                    messages=list(payload["messages"]),
+                    stream=bool(payload.get("stream", False)),
+                    max_tokens=payload.get("max_tokens"),
+                ),
+                SimpleNamespace(name="codex", route_policy="fixed-cli"),
+            )
+
+        async def run(self, payload, _session):
+            run_payloads.append(payload)
+            if len(run_payloads) == 1:
+                return {
+                    "id": "chatcmpl-tool",
+                    "object": "chat.completion",
+                    "model": payload["model"],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "",
+                                "tool_calls": [
+                                    {
+                                        "id": "call_fetch_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "web_fetch",
+                                            "arguments": json.dumps({"url": "https://example.com/page"}),
+                                        },
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 7, "completion_tokens": 1},
+                }
+            return {
+                "id": "chatcmpl-final",
+                "object": "chat.completion",
+                "model": payload["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "Fetched: Example body"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 4},
+            }
+
+    async def _fake_web_fetch(arguments):
+        assert arguments == {"url": "https://example.com/page"}
+        return {"ok": True, "url": arguments["url"], "text": "Example body"}
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setattr(openai_api, "orchestrator", FakeOrchestrator())
+    monkeypatch.setattr(openai_api.builtin_tools, "web_fetch", _fake_web_fetch)
+    monkeypatch.setattr(billing_service, "quote_request", _fake_quote_request)
+    monkeypatch.setattr(billing_service, "settle_inference", _fake_settle_inference)
+
+    with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "codex-mini-latest",
+                "messages": [{"role": "user", "content": "fetch https://example.com/page"}],
+                "tools": [{"type": "function", "function": {"name": "web_fetch"}}],
+                "stream": False,
+            },
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["choices"][0]["message"]["content"] == "Fetched: Example body"
+    assert len(run_payloads) == 2
+    assert run_payloads[0]["model"] == "codex:gpt-5.4-mini"
+    second_messages = run_payloads[1]["messages"]
+    assert second_messages[-2]["role"] == "assistant"
+    assert second_messages[-2]["tool_calls"][0]["id"] == "call_fetch_1"
+    assert second_messages[-1]["role"] == "tool"
+    assert second_messages[-1]["tool_call_id"] == "call_fetch_1"
+    assert json.loads(second_messages[-1]["content"])["text"] == "Example body"
 
 
 def test_chat_completions_uses_gemini_acp_when_enabled(tmp_path, monkeypatch) -> None:

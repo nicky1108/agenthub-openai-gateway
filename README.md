@@ -280,6 +280,38 @@ curl -sN http://127.0.0.1:8787/v1/chat/completions \
   }'
 ```
 
+### Managed Model Web Fetch
+
+`web_fetch` is an opt-in gateway-side tool for managed models. It only runs when the request declares the tool, and it blocks localhost, private/reserved IPs, unsupported schemes, and non-text responses.
+
+```bash
+curl -s http://127.0.0.1:8787/v1/chat/completions \
+  -H 'Authorization: Bearer <API_KEY>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "codex:gpt-5.4",
+    "messages": [
+      { "role": "user", "content": "Fetch https://example.com and summarize it in one sentence." }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "web_fetch",
+          "description": "Fetch a public HTTP or HTTPS URL and return readable text.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "url": { "type": "string", "description": "Public HTTP or HTTPS URL" }
+            },
+            "required": ["url"]
+          }
+        }
+      }
+    ]
+  }'
+```
+
 ## Basic Admin Checks
 
 ### Health

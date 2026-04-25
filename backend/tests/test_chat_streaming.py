@@ -140,6 +140,92 @@ def test_streaming_chat_accepts_bare_exposed_platform_model_id(tmp_path, monkeyp
     assert captured == {"provider_name": "codex", "provider_model": "gpt-5.4"}
 
 
+def test_streaming_chat_resolves_web_fetch_before_final_stream(tmp_path, monkeypatch) -> None:
+    run_payloads: list[dict[str, object]] = []
+    streamed_messages: list[dict[str, object]] = []
+
+    class FakeOrchestrator:
+        async def prepare(self, payload, _session):
+            return (
+                ChatRequest(
+                    provider_name="codex",
+                    provider_model="gpt-5.4-mini",
+                    messages=list(payload["messages"]),
+                    stream=bool(payload.get("stream", False)),
+                    max_tokens=payload.get("max_tokens"),
+                ),
+                SimpleNamespace(name="codex", route_policy="fixed-cli"),
+            )
+
+        async def run(self, payload, _session):
+            run_payloads.append(payload)
+            return {
+                "id": "chatcmpl-tool",
+                "object": "chat.completion",
+                "model": payload["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call_fetch_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "web_fetch",
+                                        "arguments": json.dumps({"url": "https://example.com/page"}),
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+                "usage": {"prompt_tokens": 7, "completion_tokens": 1},
+            }
+
+        async def stream_prepared(self, request, _provider):
+            streamed_messages.extend(request.messages)
+            yield 'data: {"choices":[{"delta":{"content":"Fetched stream"}}]}\n\n'
+            yield "data: [DONE]\n\n"
+
+    async def _fake_web_fetch(arguments):
+        assert arguments == {"url": "https://example.com/page"}
+        return {"ok": True, "url": arguments["url"], "text": "Example body"}
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setattr(openai_api, "orchestrator", FakeOrchestrator())
+    monkeypatch.setattr(openai_api.builtin_tools, "web_fetch", _fake_web_fetch)
+    monkeypatch.setattr(billing_service, "quote_request", _fake_quote_request)
+    monkeypatch.setattr(billing_service, "settle_inference", _fake_settle_inference)
+
+    with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
+        with client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json={
+                "model": "codex-mini-latest",
+                "messages": [{"role": "user", "content": "fetch https://example.com/page"}],
+                "tools": [{"type": "function", "function": {"name": "web_fetch"}}],
+                "stream": True,
+            },
+            headers={"authorization": f"Bearer {api_key}"},
+        ) as response:
+            body = b"".join(response.iter_bytes()).decode()
+
+    assert response.status_code == 200
+    assert "Fetched stream" in body
+    assert "[DONE]" in body
+    assert len(run_payloads) == 1
+    assert run_payloads[0]["stream"] is False
+    assert streamed_messages[-2]["role"] == "assistant"
+    assert streamed_messages[-1]["role"] == "tool"
+    assert json.loads(streamed_messages[-1]["content"])["text"] == "Example body"
+
+
 def test_streaming_chat_uses_gemini_acp_when_enabled(tmp_path, monkeypatch) -> None:
     class FakeGeminiAcpClient:
         def __init__(self) -> None:
