@@ -180,6 +180,84 @@ export type CreditLedgerEntry = {
   created_at: string;
 };
 
+export type PortalUsageRecord = {
+  id: number;
+  api_key_id: number;
+  provider_name: string | null;
+  model_id: string | null;
+  outcome: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cached_input_tokens: number | null;
+  usd_amount: number | null;
+  credits_charged: number | null;
+  created_at: string;
+};
+
+export type PortalDashboard = {
+  credits_balance: number;
+  api_key_count: number;
+  request_count_24h: number;
+  request_count_7d: number;
+  platform_requests_24h: number;
+  custom_requests_24h: number;
+  local_provider_count: number;
+  recent_usage: PortalUsageRecord[];
+  credit_ledger: CreditLedgerEntry[];
+};
+
+export type PortalModelRecord = {
+  id: string;
+  provider: string;
+  source: string;
+  enabled: boolean;
+};
+
+export type PortalCatalog = {
+  platform_models: PortalModelRecord[];
+  custom_models: PortalModelRecord[];
+};
+
+export type ProviderPreset = {
+  id: string;
+  display_name: string;
+  slug: string;
+  protocol: string;
+  base_url: string;
+  description: string;
+  recommended_models: string[];
+};
+
+export type UserApiKey = ApiKey & {
+  created_at: string;
+  total_requests: number;
+  limited_requests: number;
+};
+
+export type UserProvider = {
+  id: number;
+  account_id: string;
+  slug: string;
+  name: string;
+  protocol: string;
+  base_url: string;
+  description: string | null;
+  status: string;
+  last_probe_at: string | null;
+  last_probe_ok: boolean | null;
+  last_probe_model: string | null;
+  last_probe_detail: string | null;
+  last_detected_models: string[];
+};
+
+export type ProviderProbeResult = {
+  models_endpoint_supported: boolean;
+  detected_models: string[];
+  completion_probe_ok: boolean;
+  completion_probe_model: string | null;
+  detail: string | null;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -485,4 +563,76 @@ export async function getAuthProviders(): Promise<AuthProviderStatus> {
     throw new Error(`auth request failed: ${response.status}`);
   }
   return response.json() as Promise<AuthProviderStatus>;
+}
+
+export async function getPortalDashboard(): Promise<PortalDashboard> {
+  return authRequest<PortalDashboard>("/portal/dashboard");
+}
+
+export async function getPortalCatalog(): Promise<PortalCatalog> {
+  return authRequest<PortalCatalog>("/portal/catalog");
+}
+
+export async function getProviderPresets(): Promise<ProviderPreset[]> {
+  return authRequest<ProviderPreset[]>("/portal/provider-presets");
+}
+
+export async function getUserApiKeys(): Promise<UserApiKey[]> {
+  return authRequest<UserApiKey[]>("/portal/api-keys");
+}
+
+export async function createUserApiKey(payload: {
+  name: string;
+  per_minute?: number;
+  per_hour?: number;
+  per_day?: number;
+}): Promise<CreatedApiKey & UserApiKey> {
+  const params = new URLSearchParams();
+  params.append("name", payload.name);
+  if (payload.per_minute) params.append("per_minute", String(payload.per_minute));
+  if (payload.per_hour) params.append("per_hour", String(payload.per_hour));
+  if (payload.per_day) params.append("per_day", String(payload.per_day));
+  return authRequest<CreatedApiKey & UserApiKey>(`/portal/api-keys?${params.toString()}`, {
+    method: "POST",
+  });
+}
+
+export async function deleteUserApiKey(keyId: number): Promise<{ status: string }> {
+  return authRequest<{ status: string }>(`/portal/api-keys/${keyId}/revoke`, {
+    method: "POST",
+  });
+}
+
+export async function getUserProviders(): Promise<UserProvider[]> {
+  return authRequest<UserProvider[]>("/portal/providers");
+}
+
+export async function createUserProvider(payload: {
+  name: string;
+  protocol: string;
+  base_url: string;
+  api_key: string;
+  description?: string;
+}): Promise<UserProvider> {
+  const params = new URLSearchParams();
+  params.append("name", payload.name);
+  params.append("protocol", payload.protocol);
+  params.append("base_url", payload.base_url);
+  params.append("api_key", payload.api_key);
+  if (payload.description) params.append("description", payload.description);
+  return authRequest<UserProvider>(`/portal/providers?${params.toString()}`, {
+    method: "POST",
+  });
+}
+
+export async function deleteUserProvider(providerId: number): Promise<{ status: string }> {
+  return authRequest<{ status: string }>(`/portal/providers/${providerId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function probeUserProvider(providerId: number): Promise<UserProvider> {
+  return authRequest<UserProvider>(`/portal/providers/${providerId}/probe`, {
+    method: "POST",
+  });
 }

@@ -9,6 +9,7 @@ describe("App", () => {
   });
 
   beforeEach(() => {
+    window.history.pushState(null, "", "/admin");
     window.location.hash = "";
     const storage = new Map<string, string>();
     vi.stubGlobal("localStorage", {
@@ -254,6 +255,108 @@ describe("App", () => {
             }),
           );
         }
+        if (path.endsWith("/portal/dashboard")) {
+          return new Response(
+            JSON.stringify({
+              credits_balance: 500,
+              api_key_count: 1,
+              request_count_24h: 3,
+              request_count_7d: 9,
+              platform_requests_24h: 2,
+              custom_requests_24h: 1,
+              local_provider_count: 1,
+              recent_usage: [
+                {
+                  id: 1,
+                  api_key_id: 1,
+                  provider_name: "minimax-cn",
+                  model_id: "minimax-cn:MiniMax-M2.7",
+                  outcome: "success",
+                  input_tokens: null,
+                  output_tokens: null,
+                  cached_input_tokens: null,
+                  usd_amount: null,
+                  credits_charged: 0,
+                  created_at: "2026-04-21T00:00:00Z",
+                },
+              ],
+              credit_ledger: [],
+            }),
+          );
+        }
+        if (path.endsWith("/portal/catalog")) {
+          return new Response(
+            JSON.stringify({
+              platform_models: [{ id: "codex:gpt-5.4", provider: "codex", source: "platform", enabled: true }],
+              custom_models: [{ id: "minimax-cn:MiniMax-M2.7", provider: "minimax-cn", source: "custom", enabled: true }],
+            }),
+          );
+        }
+        if (path.endsWith("/portal/provider-presets")) {
+          return new Response(
+            JSON.stringify([
+              {
+                id: "minimax-cn",
+                display_name: "MiniMax",
+                slug: "minimax-cn",
+                protocol: "openai",
+                base_url: "https://api.minimaxi.com/v1",
+                description: "MiniMax OpenAI-compatible API.",
+                recommended_models: ["MiniMax-M2.7"],
+              },
+              {
+                id: "other-openai-compatible",
+                display_name: "Other OpenAI-compatible",
+                slug: "custom-openai",
+                protocol: "openai",
+                base_url: "",
+                description: "Use this for any provider that exposes /v1/chat/completions.",
+                recommended_models: ["default"],
+              },
+            ]),
+          );
+        }
+        if (path.endsWith("/portal/api-keys") && (!init || init.method === undefined || init.method === "GET")) {
+          return new Response(
+            JSON.stringify([
+              {
+                id: 1,
+                account_id: 1,
+                name: "user-key",
+                key_prefix: "user1234",
+                status: "active",
+                created_at: "2026-04-21T00:00:00Z",
+                per_minute: null,
+                per_hour: null,
+                per_day: null,
+                last_used_at: null,
+                total_requests: 3,
+                limited_requests: 0,
+              },
+            ]),
+          );
+        }
+        if (path.endsWith("/portal/providers") && (!init || init.method === undefined || init.method === "GET")) {
+          return new Response(
+            JSON.stringify([
+              {
+                id: 1,
+                account_id: "1",
+                slug: "minimax-cn",
+                name: "MiniMax CN",
+                protocol: "openai",
+                base_url: "https://api.minimaxi.com/v1",
+                description: null,
+                status: "active",
+                last_probe_at: "2026-04-21T00:00:00Z",
+                last_probe_ok: true,
+                last_probe_model: "MiniMax-M2.7",
+                last_probe_detail: null,
+                last_detected_models: ["MiniMax-M2.7"],
+              },
+            ]),
+          );
+        }
         return new Response(JSON.stringify({}), { status: 201 });
       }),
     );
@@ -314,6 +417,28 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "7d" }));
     expect(await screen.findByText("7d default")).toBeTruthy();
     expect(screen.getByText("9 requests in window")).toBeTruthy();
+  });
+
+  it("keeps the public website separate from the admin console", async () => {
+    window.history.pushState(null, "", "/");
+
+    render(<App />);
+
+    expect(await screen.findByText("One OpenAI-compatible gateway for managed and custom models.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Admin console" })).toBeTruthy();
+    expect(screen.queryByText("Platform Overview")).toBeNull();
+  });
+
+  it("renders the customer portal outside the admin sidebar", async () => {
+    window.history.pushState(null, "", "/portal");
+
+    render(<App />);
+
+    expect(await screen.findByText("User Portal")).toBeTruthy();
+    expect(screen.getByText("Admin console")).toBeTruthy();
+    expect(screen.getAllByText("minimax-cn:MiniMax-M2.7").length).toBeGreaterThan(0);
+    expect(screen.getByText("verified: MiniMax-M2.7")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Dashboard" })).toBeNull();
   });
 
   it("surfaces model test failures inline", async () => {

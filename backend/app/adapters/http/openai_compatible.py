@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -19,6 +20,8 @@ class OpenAICompatibleHttpAdapter:
         if api_key:
             merged_headers["Authorization"] = f"Bearer {api_key}"
         self._base_url = base_url.rstrip("/")
+        normalized_path = urlparse(self._base_url).path.rstrip("/")
+        self._chat_completions_path = "/chat/completions" if normalized_path.endswith("/v1") else "/v1/chat/completions"
         self._headers = merged_headers
         self._transport = transport
 
@@ -34,7 +37,7 @@ class OpenAICompatibleHttpAdapter:
     async def chat(self, request: ChatRequest) -> dict[str, Any]:
         async with self._client() as client:
             response = await client.post(
-                "/v1/chat/completions",
+                self._chat_completions_path,
                 json={
                     "model": request.provider_model,
                     "messages": request.messages,
@@ -53,7 +56,7 @@ class OpenAICompatibleHttpAdapter:
         async with self._client() as client:
             async with client.stream(
                 "POST",
-                "/v1/chat/completions",
+                self._chat_completions_path,
                 json={
                     "model": request.provider_model,
                     "messages": request.messages,

@@ -42,3 +42,40 @@ async def test_http_adapter_posts_to_upstream_openai_shape() -> None:
     )
 
     assert result["choices"][0]["message"]["content"] == "real-http-response"
+
+
+@pytest.mark.asyncio
+async def test_http_adapter_does_not_duplicate_v1_path() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        return httpx.Response(
+            200,
+            json={
+                "id": "upstream-1",
+                "object": "chat.completion",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    adapter = OpenAICompatibleHttpAdapter(
+        base_url="http://upstream.test/v1",
+        api_key="test-key",
+        headers={},
+        transport=httpx.MockTransport(handler),
+    )
+    result = await adapter.chat(
+        ChatRequest(
+            provider_name="custom",
+            provider_model="model-a",
+            messages=[{"role": "user", "content": "hello"}],
+            stream=False,
+        )
+    )
+
+    assert result["choices"][0]["message"]["content"] == "ok"

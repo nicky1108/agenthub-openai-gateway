@@ -1,0 +1,20 @@
+[Unit]
+Description=AgentHub OpenAI Gateway backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agenthub
+Group=agenthub
+WorkingDirectory=/opt/agenthub-openai-gateway/current/backend
+EnvironmentFile=/etc/agenthub-openai-gateway.env
+ExecStart=/opt/agenthub-openai-gateway/current/backend/.venv/bin/python scripts/run_backend.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+

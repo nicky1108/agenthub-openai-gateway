@@ -2,15 +2,20 @@
 
 Local-first OpenAI-compatible gateway for local model runtimes and operator-managed access control.
 
-This project runs on a local machine and exposes:
+This project can run as a single-server AgentHub gateway. In that mode the operator installs Codex CLI and Gemini CLI on the server, and this service directly exposes the public API, user portal APIs, local admin APIs, billing, usage, and provider runtime from one database.
+
+It also still contains legacy internal public-gateway and reverse-tunnel integration code for compatibility.
+
+This project exposes:
 
 - OpenAI-compatible user APIs under `/v1/*`
 - a localhost-only admin control plane under `/admin/*`
 - a product-style admin UI
 - account, API key, credit-balance, pricing, and usage management
 - local provider routing for HTTP and CLI-backed model runtimes
-- internal contract routes used by `agenthub-public-gateway`
-- a reverse-tunnel agent for external public-gateway integration
+- user portal APIs for self-service API keys and custom providers
+- internal contract routes used by legacy `agenthub-public-gateway` deployments
+- a reverse-tunnel agent for legacy external public-gateway integration
 
 ## What It Does
 
@@ -19,6 +24,7 @@ At a high level, this gateway sits between clients and local provider runtimes.
 It can:
 
 - expose platform-managed models like `codex:*` and `gemini:*`
+- expose user custom OpenAI-compatible and Anthropic-compatible providers
 - proxy requests to local CLI or HTTP runtimes
 - enforce API key auth and request limits
 - settle usage against a local credit balance
@@ -28,11 +34,38 @@ It can:
 
 ## Main Surfaces
 
+### Frontend Routes
+
+- `/` public website for customers
+- `/product` public product page
+- `/docs` customer-facing API documentation
+- `/login` and `/register` customer auth
+- `/portal` customer self-service portal for API keys, custom providers, models, usage, and API examples
+- `/admin` operator management console for accounts, credits, providers, pricing, usage, and runtime health
+
 ### User API
 
 - `GET /v1/models`
 - `POST /v1/chat/completions`
 - SSE streaming for `chat/completions`
+
+### Portal API
+
+- `GET /portal/dashboard`
+- `GET /portal/catalog`
+- `GET /portal/provider-presets`
+- `GET /portal/api-keys`
+- `POST /portal/api-keys`
+- `PATCH /portal/api-keys/{id}`
+- `POST /portal/api-keys/{id}/revoke`
+- `GET /portal/providers`
+- `POST /portal/providers`
+- `PATCH /portal/providers/{id}`
+- `DELETE /portal/providers/{id}`
+- `POST /portal/providers/probe`
+- `POST /portal/providers/{id}/probe`
+
+Legacy `/user/api-keys` and `/user/providers` aliases remain available for local compatibility.
 
 ### Admin API
 
@@ -63,7 +96,7 @@ These routes are for the sibling public gateway and are protected by `x-public-g
 
 ### Reverse Tunnel Agent
 
-The local machine can dial out to a public `agenthub-public-gateway` over a reverse `WSS` tunnel.
+The local machine can dial out to a public `agenthub-public-gateway` over a reverse `WSS` tunnel. This is now a legacy compatibility path for split public/local deployments. The recommended deployment is the single-server mode documented in `docs/single-server-deployment.md`.
 
 Supported typed ops:
 
@@ -154,7 +187,7 @@ For CLI-backed providers:
 Default local ports:
 
 - backend: `127.0.0.1:8787`
-- frontend: `127.0.0.1:3000`
+- frontend: `127.0.0.1:3002` in local single-server development, or any reverse-proxied public host in production
 
 ## Environment
 
@@ -193,8 +226,20 @@ cd backend
 ```bash
 cd frontend
 npm install
-npm run dev -- --host 127.0.0.1 --port 3000
+npm run dev -- --host 127.0.0.1 --port 3002 --strictPort
 ```
+
+## CI/CD Deployment
+
+The recommended production deployment is GitHub Actions + SSH + systemd + Nginx.
+
+See `docs/cicd-deployment.md` for:
+
+- one-time server setup
+- required GitHub secrets
+- systemd service
+- Nginx routing for `/`, `/portal`, `/admin`, `/v1`
+- deployment flow from push to `main`
 
 ## Basic User API Checks
 

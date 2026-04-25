@@ -41,12 +41,17 @@ class Settings(BaseSettings):
     google_oauth_client_secret: str | None = None
     public_gateway_tunnel_device_id: str | None = None
     public_gateway_tunnel_secret: str | None = None
+    reserved_provider_slugs_csv: str = "openai,codex,gemini,anthropic"
 
     model_config = SettingsConfigDict(env_file="../.env", extra="ignore")
 
     @property
     def database_scheme(self) -> str:
         return self.database_url.split("://", 1)[0]
+
+    @property
+    def reserved_provider_slugs(self) -> set[str]:
+        return {item.strip() for item in self.reserved_provider_slugs_csv.split(",") if item.strip()}
 
     @property
     def github_oauth_enabled(self) -> bool:

@@ -9,6 +9,8 @@ from app.api.health import router as health_router
 from app.api.internal_public_gateway import router as internal_public_gateway_router
 from app.api.openai import orchestrator as openai_orchestrator
 from app.api.openai import router as openai_router
+from app.api.portal import router as portal_router
+from app.api.user import router as user_router
 from app.core.db import get_engine, get_session_factory
 from app.core.models import Base, ProviderRecord
 from app.core.settings import Settings
@@ -155,6 +157,35 @@ def backfill_sqlite_api_key_public_columns(connection: Connection) -> None:
         connection.exec_driver_sql("ALTER TABLE api_keys ADD COLUMN public_api_key_id VARCHAR(128)")
 
 
+def backfill_sqlite_user_provider_columns(connection: Connection) -> None:
+    if connection.dialect.name != "sqlite":
+        return
+
+    table_rows = connection.exec_driver_sql("PRAGMA table_info(user_providers)").mappings().all()
+    column_names = {row["name"] for row in table_rows}
+    if not column_names:
+        return
+
+    if "protocol" not in column_names:
+        connection.exec_driver_sql(
+            "ALTER TABLE user_providers ADD COLUMN protocol VARCHAR(32) NOT NULL DEFAULT 'openai'"
+        )
+    if "secret_ref" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE user_providers ADD COLUMN secret_ref VARCHAR(255) NOT NULL DEFAULT ''")
+    if "last_probe_at" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE user_providers ADD COLUMN last_probe_at DATETIME")
+    if "last_probe_ok" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE user_providers ADD COLUMN last_probe_ok BOOLEAN")
+    if "last_probe_model" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE user_providers ADD COLUMN last_probe_model VARCHAR(300)")
+    if "last_probe_detail" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE user_providers ADD COLUMN last_probe_detail VARCHAR(500)")
+    if "last_detected_models_json" not in column_names:
+        connection.exec_driver_sql(
+            "ALTER TABLE user_providers ADD COLUMN last_detected_models_json TEXT NOT NULL DEFAULT '[]'"
+        )
+
+
 def backfill_sqlite_model_pricing_columns(connection: Connection) -> None:
     if connection.dialect.name != "sqlite":
         return
@@ -179,6 +210,7 @@ async def lifespan(_: FastAPI):
         await connection.run_sync(backfill_sqlite_provider_capability_columns)
         await connection.run_sync(backfill_sqlite_account_auth_columns)
         await connection.run_sync(backfill_sqlite_api_key_public_columns)
+        await connection.run_sync(backfill_sqlite_user_provider_columns)
         await connection.run_sync(backfill_sqlite_usage_billing_columns)
         await connection.run_sync(backfill_sqlite_model_pricing_columns)
     session_factory = get_session_factory(settings.database_url)
@@ -214,6 +246,9 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(internal_public_gateway_router)
     app.include_router(openai_router)
+    app.include_router(portal_router)
+    app.include_router(user_router, prefix="/user")
+    app.include_router(user_router, prefix="/portal")
     return app
 
 

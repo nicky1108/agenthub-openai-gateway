@@ -127,6 +127,28 @@ class ApiKeyRecord(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class UserProviderRecord(Base):
+    __tablename__ = "user_providers"
+    __table_args__ = (
+        UniqueConstraint("account_id", "slug", name="uq_user_providers_account_slug"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    account_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    slug: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    protocol: Mapped[str] = mapped_column(String(32), nullable=False, default="openai")
+    base_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    secret_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    last_probe_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_probe_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    last_probe_model: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    last_probe_detail: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    last_detected_models_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+
+
 class UsageRecord(Base):
     __tablename__ = "usage_records"
 

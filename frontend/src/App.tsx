@@ -37,9 +37,12 @@ import type {
   SettingsOverview,
 } from "./api";
 import { LOCALE_STORAGE_KEY, messages, type Locale } from "./i18n";
+import { PublicSite } from "./PublicSite";
+import { UserPortalPage } from "./UserPortalPage";
 
 type DashboardSummary = Awaited<ReturnType<typeof getDashboardSummary>>;
 type RouteId = "dashboard" | "providers" | "models" | "accounts" | "api-keys" | "usage" | "settings";
+type PublicRouteId = "home" | "product" | "docs";
 type DashboardWindow = "24h" | "7d";
 type ModalId =
   | null
@@ -57,6 +60,16 @@ function getRouteFromHash(hash: string): RouteId {
     return value as RouteId;
   }
   return "dashboard";
+}
+
+function getPublicRouteFromPath(pathname: string): PublicRouteId {
+  if (pathname.startsWith("/product")) {
+    return "product";
+  }
+  if (pathname.startsWith("/docs")) {
+    return "docs";
+  }
+  return "home";
 }
 
 function aggregateUsage(
@@ -191,6 +204,7 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [currentRoute, setCurrentRoute] = useState<RouteId>(() => getRouteFromHash(window.location.hash));
+  const [pathname, setPathname] = useState(() => window.location.pathname || "/");
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -257,6 +271,11 @@ export default function App() {
   const testChatAbortRef = useRef<AbortController | null>(null);
   const testTranscriptRef = useRef<HTMLUListElement | null>(null);
   const copy = messages[locale];
+  const isAdminSurface = pathname === "/admin" || pathname.startsWith("/admin/");
+  const isPortalSurface = pathname === "/portal" || pathname.startsWith("/portal/");
+  const isAuthSurface = pathname === "/login" || pathname === "/register";
+  const isPublicSurface = !isAdminSurface && !isPortalSurface && !isAuthSurface;
+  const publicRoute = getPublicRouteFromPath(pathname);
   const NAV_ITEMS: Array<{ id: RouteId; label: string }> = [
     { id: "dashboard", label: copy.nav.dashboard },
     { id: "providers", label: copy.nav.providers },
@@ -266,6 +285,14 @@ export default function App() {
     { id: "usage", label: copy.nav.usage },
     { id: "settings", label: copy.nav.settings },
   ];
+
+  function navigateTo(path: string) {
+    window.history.pushState(null, "", path);
+    setPathname(window.location.pathname || "/");
+    if (path.startsWith("/admin") && !window.location.hash) {
+      window.location.hash = "#dashboard";
+    }
+  }
 
   useEffect(() => {
     globalThis.localStorage?.setItem(LOCALE_STORAGE_KEY, locale);
@@ -311,18 +338,32 @@ export default function App() {
   }
 
   useEffect(() => {
+    const syncPath = () => setPathname(window.location.pathname || "/");
+    window.addEventListener("popstate", syncPath);
+    return () => window.removeEventListener("popstate", syncPath);
+  }, []);
+
+  useEffect(() => {
+    if (pathname === "/register") {
+      setAuthMode("register");
+    } else if (pathname === "/login") {
+      setAuthMode("login");
+    }
+  }, [pathname]);
+
+  useEffect(() => {
     const syncRoute = () => {
       setCurrentRoute(getRouteFromHash(window.location.hash));
     };
 
-    if (!window.location.hash) {
+    if (isAdminSurface && !window.location.hash) {
       window.location.hash = "#dashboard";
       syncRoute();
     }
 
     window.addEventListener("hashchange", syncRoute);
     return () => window.removeEventListener("hashchange", syncRoute);
-  }, []);
+  }, [isAdminSurface]);
 
   useEffect(() => {
     void getAuthProviders()
@@ -338,17 +379,23 @@ export default function App() {
 
   useEffect(() => {
     void getCurrentAccount()
-      .then(async (account) => {
+      .then((account) => {
         setAuthUser(account);
         setAuthState("authenticated");
         setAuthError(null);
-        await loadAuthenticatedData();
       })
       .catch(() => {
         setAuthUser(null);
         setAuthState("unauthenticated");
       });
   }, []);
+
+  useEffect(() => {
+    if (authState !== "authenticated" || !isAdminSurface) {
+      return;
+    }
+    void loadAuthenticatedData();
+  }, [authState, isAdminSurface]);
 
   useEffect(() => {
     if (providers.length === 0) {
@@ -764,7 +811,11 @@ export default function App() {
         const loginAccount = await loginWithPassword({ email: authEmail, password: authPassword });
         setAuthUser(loginAccount);
       }
-      await loadAuthenticatedData();
+      if (isAdminSurface) {
+        await loadAuthenticatedData();
+      } else {
+        navigateTo("/portal");
+      }
       setAuthPassword("");
       setCurrentRoute(getRouteFromHash(window.location.hash));
     } catch (error: unknown) {
@@ -784,6 +835,9 @@ export default function App() {
     setDashboardSummary(null);
     setDashboardSeries(null);
     setSettingsOverview(null);
+    if (!isAdminSurface) {
+      navigateTo("/");
+    }
   }
 
   const recentKeyActivity = [...(usageOverview?.key_activity ?? [])].sort((left, right) => {
@@ -1901,6 +1955,18 @@ export default function App() {
     }
   }
 
+  if (isPublicSurface) {
+    return (
+      <PublicSite
+        authUser={authUser}
+        locale={locale}
+        route={publicRoute}
+        onNavigate={navigateTo}
+        onToggleLocale={() => setLocale(locale === "en" ? "zh" : "en")}
+      />
+    );
+  }
+
   if (authState === "loading") {
     return (
       <main className="auth-shell">
@@ -1922,6 +1988,26 @@ export default function App() {
           </div>
           <p>{copy.auth.checkingSession}</p>
         </section>
+      </main>
+    );
+  }
+
+  if (authState === "authenticated" && (isPortalSurface || isAuthSurface)) {
+    return (
+      <main className="customer-portal-shell">
+        <header className="customer-portal-header">
+          <button type="button" className="public-logo" onClick={() => navigateTo("/")}>
+            <span className="public-logo-mark">AG</span>
+            <span>AgentHub</span>
+          </button>
+          <div className="customer-portal-actions">
+            <button type="button" onClick={() => navigateTo("/docs")}>API Docs</button>
+            <button type="button" onClick={() => navigateTo("/admin")}>Admin console</button>
+            <span>{authUser?.email ?? copy.common.signedIn}</span>
+            <button type="button" onClick={handleLogout}>{copy.shell.signOut}</button>
+          </div>
+        </header>
+        <UserPortalPage />
       </main>
     );
   }

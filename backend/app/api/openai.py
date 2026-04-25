@@ -5,14 +5,23 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, field_validator
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.service import AuthContext, auth_service, require_api_key
 from app.billing.service import billing_service
 from app.core.db import get_session
+from app.core.models import UserProviderRecord
 from app.orchestration.chat import ChatOrchestrator
 from app.registry.service import ProviderNotFoundError, ProviderRegistry
 from app.runtime.logging import elapsed_ms, log_gateway_event, new_request_id
+from app.services.custom_provider_runtime import (
+    CustomProviderRequestError,
+    CustomProviderResponseError,
+    execute_custom_completion,
+    stream_custom_completion,
+)
+from app.services.provider_presets import resolved_custom_provider_models
 
 router = APIRouter(prefix="/v1", tags=["openai"])
 registry = ProviderRegistry()
@@ -33,10 +42,93 @@ class ChatCompletionCreate(BaseModel):
     @field_validator("model")
     @classmethod
     def validate_model(cls, value: str) -> str:
-        provider_name, separator, provider_model = value.partition(":")
-        if not separator or not provider_name or not provider_model:
-            raise ValueError("must be in '<provider>:<model>' format")
+        if not value or value.startswith(":") or value.endswith(":"):
+            raise ValueError("must be a model id or '<provider>:<model>'")
         return value
+
+
+async def list_user_custom_models(session: AsyncSession, account_id: int) -> list[dict[str, object]]:
+    rows = list(
+        await session.scalars(
+            select(UserProviderRecord)
+            .where(
+                UserProviderRecord.account_id == str(account_id),
+                UserProviderRecord.status == "active",
+            )
+            .order_by(UserProviderRecord.slug.asc())
+        )
+    )
+    return [
+        {
+            "id": f"{provider.slug}:{model_name}",
+            "object": "model",
+            "created": 0,
+            "owned_by": provider.slug,
+            "source": "custom",
+        }
+        for provider in rows
+        for model_name in resolved_custom_provider_models(
+            provider_slug=provider.slug,
+            base_url=provider.base_url,
+            protocol=provider.protocol,
+            detected_models_json=provider.last_detected_models_json,
+            preferred_model=provider.last_probe_model,
+        )
+    ]
+
+
+async def resolve_user_provider(
+    session: AsyncSession,
+    account_id: int,
+    model_id: str,
+) -> tuple[UserProviderRecord, str] | None:
+    provider_slug = model_id.split(":", 1)[0] if ":" in model_id else model_id
+    provider = await session.scalar(
+        select(UserProviderRecord).where(
+            UserProviderRecord.account_id == str(account_id),
+            UserProviderRecord.slug == provider_slug,
+            UserProviderRecord.status == "active",
+        )
+    )
+    if provider is None:
+        return None
+    provider_model = model_id.split(":", 1)[1] if ":" in model_id else "default"
+    return provider, f"{provider.slug}:{provider_model}"
+
+
+def custom_provider_descriptor(provider: UserProviderRecord) -> dict[str, object]:
+    return {
+        "base_url": provider.base_url,
+        "secret_value": provider.secret_ref,
+        "slug": provider.slug,
+        "protocol": provider.protocol,
+    }
+
+
+async def route_custom_completion(
+    request_payload: dict[str, Any],
+    provider: UserProviderRecord,
+) -> dict[str, Any]:
+    return await execute_custom_completion(request_payload, custom_provider_descriptor(provider))
+
+
+async def route_custom_completion_stream(
+    request_payload: dict[str, Any],
+    provider: UserProviderRecord,
+):
+    async for chunk in stream_custom_completion(request_payload, custom_provider_descriptor(provider)):
+        yield chunk
+
+
+def custom_provider_http_exception(exc: CustomProviderRequestError | CustomProviderResponseError) -> HTTPException:
+    if isinstance(exc, CustomProviderRequestError):
+        if exc.status_code is not None:
+            detail = f"custom provider returned {exc.status_code}"
+            if exc.detail:
+                detail = f"{detail}: {exc.detail}"
+            return HTTPException(status_code=502, detail=detail)
+        return HTTPException(status_code=503, detail="custom provider request failed")
+    return HTTPException(status_code=502, detail="custom provider returned invalid response")
 
 
 @router.get("/models")
@@ -44,7 +136,9 @@ async def list_models(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(require_api_key),
 ) -> dict[str, object]:
-    payload = {"object": "list", "data": await registry.list_public_models(session)}
+    platform_models = await registry.list_public_models(session)
+    custom_models = await list_user_custom_models(session, auth.account.id)
+    payload = {"object": "list", "data": [*platform_models, *custom_models]}
     await auth_service.record_usage(session, auth, None, None, "success")
     return payload
 
@@ -68,6 +162,38 @@ async def create_chat_completion(
         stream=payload.stream,
     )
     try:
+        custom_resolution = await resolve_user_provider(session, auth.account.id, payload.model)
+        if custom_resolution is not None:
+            custom_provider, canonical_model = custom_resolution
+            custom_request_payload = {**request_payload, "model": canonical_model}
+            if request_payload["stream"]:
+
+                async def custom_stream_response():
+                    try:
+                        async for chunk in route_custom_completion_stream(custom_request_payload, custom_provider):
+                            yield chunk
+                    except (CustomProviderRequestError, CustomProviderResponseError):
+                        await auth_service.record_usage(session, auth, custom_provider.slug, canonical_model, "error")
+                        raise
+                    await auth_service.record_usage(session, auth, custom_provider.slug, canonical_model, "success")
+
+                return StreamingResponse(custom_stream_response(), media_type="text/event-stream")
+
+            try:
+                result = await route_custom_completion(custom_request_payload, custom_provider)
+            except (CustomProviderRequestError, CustomProviderResponseError) as exc:
+                await auth_service.record_usage(session, auth, custom_provider.slug, canonical_model, "error")
+                raise custom_provider_http_exception(exc) from exc
+            await auth_service.record_usage(session, auth, custom_provider.slug, canonical_model, "success")
+            return result
+
+        if ":" not in payload.model:
+            await auth_service.record_usage(session, auth, payload.model, payload.model, "error")
+            raise HTTPException(
+                status_code=404,
+                detail=f"model or provider '{payload.model}' not found",
+            )
+
         if request_payload["stream"]:
             request_payload["_request_id"] = request_id
             current_phase = "provider.prepare"
