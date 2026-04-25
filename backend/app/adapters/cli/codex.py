@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 from collections.abc import AsyncIterator
 from time import perf_counter
@@ -30,7 +31,7 @@ class CodexCliAdapter:
         )
 
     async def _spawn(self, request: ChatRequest) -> asyncio.subprocess.Process:
-        return await asyncio.create_subprocess_exec(
+        process = await asyncio.create_subprocess_exec(
             self.command,
             *self.args,
             "exec",
@@ -42,13 +43,19 @@ class CodexCliAdapter:
             "--ignore-rules",
             "-m",
             request.provider_model,
-            self._prompt(request),
-            stdin=asyncio.subprocess.DEVNULL,
+            "-",
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=self.cwd,
             env=self.env or None,
         )
+        if process.stdin is not None:
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                process.stdin.write(self._prompt(request).encode())
+                await process.stdin.drain()
+            process.stdin.close()
+        return process
 
     def _log_cli_event(
         self,

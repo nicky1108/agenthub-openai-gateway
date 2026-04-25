@@ -7,6 +7,10 @@ def main() -> None:
     model = "unknown"
     if "-m" in sys.argv:
         model = sys.argv[sys.argv.index("-m") + 1]
+    prompt = sys.stdin.read()
+    if "-" not in sys.argv or "USER: hello" not in prompt:
+        sys.stderr.write("expected prompt on stdin\n")
+        raise SystemExit(2)
 
     events = [
         {"type": "thread.started", "thread_id": "thread-1"},
