@@ -8,6 +8,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.admins import account_is_named_admin
 from app.auth.service import generate_api_key, hash_api_key
 from app.billing.service import billing_service
 from app.discovery.service import ProviderDiscoveryService
@@ -286,10 +287,12 @@ async def require_admin(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> None:
-    if x_admin_secret and x_admin_secret == settings.admin_secret:
-        return
-
-    if agh_session and settings.admin_emails:
+    if settings.admin_emails:
+        if not agh_session:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="invalid admin credentials",
+            )
         session_record = await session.scalar(
             select(AuthSessionRecord).where(
                 AuthSessionRecord.session_token_hash == hash_api_key(agh_session),
@@ -299,13 +302,15 @@ async def require_admin(
         )
         if session_record is not None:
             account = await session.get(AccountRecord, session_record.account_id)
-            if (
-                account is not None
-                and account.status == "active"
-                and account.email
-                and account.email.lower() in settings.admin_emails
-            ):
+            if account_is_named_admin(account, settings):
                 return
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid admin credentials",
+        )
+
+    if x_admin_secret and x_admin_secret == settings.admin_secret:
+        return
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

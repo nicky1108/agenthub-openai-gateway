@@ -1666,6 +1666,266 @@ p {
   background: var(--portal-panel);
 }
 
+.admin-auth-shell,
+.admin-shell {
+  min-height: 100vh;
+  padding: 24px;
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.12), transparent 35%),
+    linear-gradient(315deg, rgba(34, 197, 94, 0.1), transparent 30%),
+    var(--page);
+}
+
+.admin-auth-shell {
+  display: grid;
+  place-items: center;
+}
+
+.admin-auth-card,
+.admin-shell__hero,
+.admin-shell__nav,
+.admin-grid,
+.admin-shell .table-shell {
+  width: min(1180px, 100%);
+  margin: 0 auto 18px;
+}
+
+.admin-auth-card,
+.admin-shell__hero,
+.admin-shell__nav,
+.admin-grid .detail-panel,
+.admin-grid .metric-card,
+.admin-shell .table-shell {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-soft);
+}
+
+.admin-auth-card {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+}
+
+.admin-auth-card__field {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-auth-card__field input {
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink);
+}
+
+.admin-shell__hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+}
+
+.admin-shell__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px;
+}
+
+.admin-shell__nav button {
+  min-height: 40px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  color: var(--ink-soft);
+}
+
+.admin-shell__nav button.active,
+.admin-shell__nav button:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--ink);
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-grid .detail-panel--wide {
+  grid-column: 1 / -1;
+}
+
+.admin-shell .detail-grid {
+  width: min(1180px, 100%);
+  margin: 0 auto 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-shell .form-panel,
+.admin-shell .detail-panel,
+.admin-shell .table-shell,
+.admin-shell .provider-row,
+.admin-shell .secret-banner {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-soft);
+  color: var(--ink);
+}
+
+.admin-shell .form-panel,
+.admin-shell .detail-panel,
+.admin-shell .secret-banner {
+  padding: 18px;
+}
+
+.admin-shell .form-panel__header p,
+.admin-shell .detail-panel p,
+.admin-shell .provider-row p,
+.admin-shell .provider-row small,
+.admin-shell .detail-panel__meta,
+.admin-shell .empty-state,
+.admin-shell .empty-state p {
+  color: var(--ink-soft);
+}
+
+.admin-shell .provider-form,
+.admin-shell .inline-form,
+.admin-shell .api-key-form {
+  gap: 12px;
+}
+
+.admin-shell .provider-form label,
+.admin-shell .inline-form label,
+.admin-shell .api-key-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.admin-shell .provider-form label span,
+.admin-shell .inline-form label span,
+.admin-shell .api-key-form label span {
+  color: var(--ink-muted);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.admin-shell input,
+.admin-shell select {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink);
+}
+
+.admin-shell input[type="checkbox"] {
+  width: auto;
+  min-height: auto;
+  padding: 0;
+}
+
+.admin-shell .model-chip-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink-soft);
+}
+
+.admin-shell .provider-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.admin-shell .provider-row__body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.admin-shell .provider-row__actions,
+.admin-shell .data-table__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.admin-shell .table-shell {
+  overflow-x: auto;
+}
+
+.admin-shell .data-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+}
+
+.admin-shell .data-table th,
+.admin-shell .data-table td {
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-shell .data-table th {
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.admin-shell .data-table tbody tr:hover {
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.admin-shell .status-pill {
+  border-color: var(--line);
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.admin-shell .secret-banner code {
+  display: block;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: #0b1220;
+  color: #e2e8f0;
+  overflow-wrap: anywhere;
+}
+
+.admin-shell .chart-svg {
+  width: 100%;
+  height: auto;
+  margin-top: 12px;
+}
+
+.admin-shell .chart-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  color: var(--ink-muted);
+  font-size: 0.86rem;
+}
+
 .app-loading__pulse {
   width: 12px;
   height: 12px;
@@ -1747,13 +2007,20 @@ p {
     overflow-x: auto;
     padding-bottom: 4px;
   }
+
+  .admin-grid,
+  .admin-shell .detail-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 760px) {
   .site-shell,
   .portal-main,
   .portal-sidebar,
-  .auth-shell {
+  .auth-shell,
+  .admin-auth-shell,
+  .admin-shell {
     padding: 16px;
   }
 
@@ -1769,7 +2036,8 @@ p {
   .detail-panel__title-row,
   .provider-preset-note__header,
   .portal-main__topbar,
-  .portal-main__topbar > div {
+  .portal-main__topbar > div,
+  .admin-shell__hero {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1830,7 +2098,12 @@ p {
   .cta-section,
   .comparison-section,
   .subpage-intro,
-  .auth-shell__panel {
+  .auth-shell__panel,
+  .admin-auth-card,
+  .admin-shell__nav,
+  .admin-shell .form-panel,
+  .admin-shell .detail-panel,
+  .admin-shell .secret-banner {
     padding: 18px;
   }
 

@@ -335,6 +335,11 @@ export function PortalShell({
             <strong>{workspaceStatusText}</strong>
           </div>
           <div className="portal-sidebar__actions">
+            {user?.is_admin ? (
+              <button className="ghost-action ghost-action--bright" onClick={() => onNavigate("/admin")}>
+                {copy.common.admin}
+              </button>
+            ) : null}
             <button className="ghost-action" onClick={onToggleLocale}>
               {copy.common.locale}
             </button>

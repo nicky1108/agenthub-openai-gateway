@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.admins import account_is_named_admin
 from app.auth.passwords import hash_password, verify_password
 from app.auth.service import hash_api_key
 from app.core.db import get_session
@@ -63,8 +64,13 @@ class AuthProviderStatus(BaseModel):
     google_enabled: bool
 
 
-def serialize_account(account: AccountRecord) -> dict[str, object]:
-    return {"id": account.id, "name": account.name, "email": account.email}
+def serialize_account(account: AccountRecord, settings: Settings) -> dict[str, object]:
+    return {
+        "id": account.id,
+        "name": account.name,
+        "email": account.email,
+        "is_admin": account_is_named_admin(account, settings),
+    }
 
 
 def normalize_timestamp(value: datetime) -> datetime:
@@ -234,6 +240,7 @@ async def upsert_oauth_account(
 async def register(
     payload: RegisterPayload,
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
     existing_email = await session.scalar(select(AccountRecord).where(AccountRecord.email == payload.email))
     if existing_email is not None:
@@ -254,7 +261,7 @@ async def register(
         await session.rollback()
         raise HTTPException(status_code=409, detail="account already exists") from exc
     await session.refresh(account)
-    return serialize_account(account)
+    return serialize_account(account, settings)
 
 
 @router.post("/login")
@@ -262,6 +269,7 @@ async def login(
     payload: LoginPayload,
     response: Response,
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
     account = await session.scalar(select(AccountRecord).where(AccountRecord.email == payload.email))
     if account is None or not account.password_hash or not verify_password(
@@ -270,7 +278,7 @@ async def login(
         raise HTTPException(status_code=401, detail="invalid credentials")
 
     await create_auth_session(response, session, account)
-    return serialize_account(account)
+    return serialize_account(account, settings)
 
 
 @router.post("/logout")
@@ -409,6 +417,7 @@ async def google_oauth_callback(
 async def me(
     agh_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
     if not agh_session:
         raise HTTPException(status_code=401, detail="missing session cookie")
@@ -426,4 +435,4 @@ async def me(
     if account is None or account.status != "active":
         raise HTTPException(status_code=401, detail="account is not active")
 
-    return serialize_account(account)
+    return serialize_account(account, settings)

@@ -23,6 +23,11 @@ export function ProductPage({ authUser, copy, locale, onNavigate, onToggleLocale
           <button className="locale-switch" onClick={onToggleLocale}>
             {copy.common.locale}
           </button>
+          {authUser?.is_admin ? (
+            <button className="ghost-action" onClick={() => onNavigate("/admin")}>
+              {copy.common.admin}
+            </button>
+          ) : null}
           <button className="ghost-action" onClick={() => onNavigate(authUser ? "/portal" : "/login")}>
             {authUser ? copy.common.console : copy.common.signIn}
           </button>

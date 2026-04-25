@@ -7,6 +7,7 @@ export type Copy = {
     loading: string;
     signIn: string;
     register: string;
+    admin: string;
     docs: string;
     product: string;
     console: string;
@@ -118,6 +119,7 @@ export const messages: Record<Locale, Copy> = {
       loading: "正在连接服务…",
       signIn: "登录",
       register: "注册",
+      admin: "Admin",
       docs: "文档",
       product: "产品",
       console: "控制台",
@@ -230,6 +232,7 @@ export const messages: Record<Locale, Copy> = {
       loading: "Connecting to the service…",
       signIn: "Sign In",
       register: "Register",
+      admin: "Admin",
       docs: "Docs",
       product: "Product",
       console: "Console",

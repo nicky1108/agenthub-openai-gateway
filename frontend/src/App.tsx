@@ -12,8 +12,8 @@ import {
   type Locale,
   messages,
 } from "./i18n";
+import { AdminShell } from "./pages/admin/AdminShell";
 import { AuthPage } from "./pages/auth/AuthPage";
-import { DashboardPage } from "./pages/portal/DashboardPage";
 import { PortalShell } from "./pages/portal/PortalShell";
 import { DocsPage } from "./pages/public/DocsPage";
 import { HomePage } from "./pages/public/HomePage";
@@ -83,6 +83,28 @@ export default function App() {
           <p>{copy.common.loading}</p>
         </div>
       </div>
+    );
+  }
+
+  if (pathname.startsWith("/admin")) {
+    if (authState === "unauthenticated") {
+      navigate("/login", { replace: true });
+      return null;
+    }
+    if (!authUser?.is_admin) {
+      navigate("/portal", { replace: true });
+      return null;
+    }
+    return (
+      <AdminShell
+        adminSecret=""
+        locale={locale}
+        onLogout={() => {
+          setAuthUser(null);
+          setAuthState("unauthenticated");
+          navigate("/", { replace: true });
+        }}
+      />
     );
   }
 

@@ -3,12 +3,167 @@ export type AuthAccount = {
   workspace_id: string;
   name: string;
   email: string;
+  is_admin?: boolean;
 };
 
 export type AuthProviderStatus = {
   email_password_enabled: boolean;
   github_enabled: boolean;
   google_enabled: boolean;
+};
+
+export type AdminDashboardSummary = {
+  total_requests: number;
+  active_api_keys: number;
+  error_rate: number;
+  rate_limit_hits: number;
+};
+
+export type AdminDashboardTimeseriesBucket = {
+  label: string;
+  start_at: string;
+  total_requests: number;
+  error_requests: number;
+  limited_requests: number;
+};
+
+export type AdminDashboardTimeseries = {
+  window: "24h" | "7d";
+  buckets: AdminDashboardTimeseriesBucket[];
+};
+
+export type AdminSettingsOverview = {
+  gateway_host: string;
+  gateway_port: number;
+  frontend_base_url: string;
+  database_scheme: string;
+  email_password_enabled: boolean;
+  github_oauth_enabled: boolean;
+  google_oauth_enabled: boolean;
+  admin_secret_configured: boolean;
+};
+
+export type AdminProviderHealthRecord = {
+  name: string;
+  route_policy: string;
+  capabilities: {
+    chat: boolean;
+    stream: boolean;
+    http: boolean;
+    cli: boolean;
+  };
+};
+
+export type AdminModelPricingRecord = {
+  provider_name: string;
+  native_model: string;
+  source_kind: string;
+  source_url: string;
+  source_label: string;
+  currency: string;
+  unit: string;
+  input_price: number | null;
+  cached_input_price: number | null;
+  output_price: number | null;
+  input_price_high: number | null;
+  cached_input_price_high: number | null;
+  output_price_high: number | null;
+  high_price_threshold_tokens: number | null;
+  notes: string | null;
+  synced_at: string;
+};
+
+export type AdminProviderRecord = {
+  id: number;
+  name: string;
+  exposed_model: string;
+  route_policy: string;
+  http_enabled: boolean;
+  cli_enabled: boolean;
+  chat_capable: boolean;
+  stream_capable: boolean;
+  http_base_url?: string | null;
+  cli_command?: string | null;
+};
+
+export type AdminProviderModelRecord = {
+  id: number;
+  native_model: string;
+  exposed_model_id: string;
+  source: string;
+  enabled: boolean;
+  manually_overridden: boolean;
+  pricing?: AdminModelPricingRecord | null;
+};
+
+export type AdminAccountRecord = {
+  id: number;
+  name: string;
+  email?: string | null;
+  status: string;
+  credit_balance?: number;
+};
+
+export type AdminCreditLedgerEntry = {
+  id: number;
+  amount: number;
+  type: string;
+  status: string;
+  reference?: string | null;
+  balance_after: number;
+  created_at: string;
+};
+
+export type AdminApiKeyRecord = {
+  id: number;
+  account_id: number;
+  name: string;
+  key_prefix: string;
+  status: string;
+  per_minute?: number | null;
+  per_hour?: number | null;
+  per_day?: number | null;
+  last_used_at?: string | null;
+};
+
+export type AdminUsageOverview = {
+  key_activity: Array<{
+    api_key_id: number;
+    account_id: number;
+    name: string;
+    key_prefix: string;
+    status: string;
+    last_used_at: string | null;
+    total_requests: number;
+    limited_requests: number;
+  }>;
+  by_provider: Record<string, number>;
+  by_model: Record<string, number>;
+};
+
+export type AdminAccountSyncSummary = {
+  total_accounts: number;
+  mirrored_accounts: number;
+  accounts_needing_backfill: number;
+  accounts_with_pending_sync: number;
+  accounts_with_failed_sync: number;
+  accounts_fully_converged: number;
+};
+
+export type AdminTestChatResponse = {
+  choices: Array<{
+    message: {
+      content: string;
+    };
+  }>;
+};
+
+export type AdminTestChatChunk = {
+  choices?: Array<{
+    delta?: {
+      content?: string;
+    };
+  }>;
 };
 
 export type ApiKeyRecord = {
@@ -146,6 +301,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (response.status === 401) {
       throw new Error("unauthorized");
     }
+    const err = await response.json().catch(() => ({ detail: `request failed: ${response.status}` }));
+    throw new Error(err.detail || `request failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+async function requestAdmin<T>(path: string, _adminSecret: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    credentials: "same-origin",
+    headers: {
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
     const err = await response.json().catch(() => ({ detail: `request failed: ${response.status}` }));
     throw new Error(err.detail || `request failed: ${response.status}`);
   }
@@ -291,6 +464,218 @@ export async function logoutSession(): Promise<{ status: string }> {
   return request<{ status: string }>("/auth/logout", {
     method: "POST",
   });
+}
+
+export async function getAdminDashboardSummary(adminSecret: string): Promise<AdminDashboardSummary> {
+  return requestAdmin<AdminDashboardSummary>("/admin-api/dashboard/summary", adminSecret);
+}
+
+export async function getAdminDashboardTimeseries(
+  adminSecret: string,
+  window: "24h" | "7d",
+): Promise<AdminDashboardTimeseries> {
+  return requestAdmin<AdminDashboardTimeseries>(`/admin-api/dashboard/timeseries?window=${window}`, adminSecret);
+}
+
+export async function getAdminSettingsOverview(adminSecret: string): Promise<AdminSettingsOverview> {
+  return requestAdmin<AdminSettingsOverview>("/admin-api/settings/overview", adminSecret);
+}
+
+export async function getAdminProviders(adminSecret: string): Promise<AdminProviderRecord[]> {
+  return requestAdmin<AdminProviderRecord[]>("/admin-api/providers", adminSecret);
+}
+
+export async function getAdminHealth(adminSecret: string): Promise<AdminProviderHealthRecord[]> {
+  return requestAdmin<AdminProviderHealthRecord[]>("/admin-api/health", adminSecret);
+}
+
+export async function getAdminProviderModels(
+  adminSecret: string,
+  providerName: string,
+): Promise<AdminProviderModelRecord[]> {
+  return requestAdmin<AdminProviderModelRecord[]>(`/admin-api/providers/${providerName}/models`, adminSecret);
+}
+
+export async function rediscoverAdminProviderModels(
+  adminSecret: string,
+  providerName: string,
+): Promise<AdminProviderModelRecord[]> {
+  return requestAdmin<AdminProviderModelRecord[]>(`/admin-api/providers/${providerName}/rediscover`, adminSecret, {
+    method: "POST",
+  });
+}
+
+export async function refreshAdminProviderPricing(
+  adminSecret: string,
+  providerName: string,
+): Promise<AdminProviderModelRecord[]> {
+  return requestAdmin<AdminProviderModelRecord[]>(`/admin-api/providers/${providerName}/pricing/refresh`, adminSecret, {
+    method: "POST",
+  });
+}
+
+export async function patchAdminProviderModel(
+  adminSecret: string,
+  providerName: string,
+  nativeModel: string,
+  payload: { exposed_model_id?: string; enabled?: boolean },
+): Promise<AdminProviderModelRecord> {
+  return requestAdmin<AdminProviderModelRecord>(`/admin-api/providers/${providerName}/models/${nativeModel}`, adminSecret, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function patchAdminProviderModelPricing(
+  adminSecret: string,
+  providerName: string,
+  nativeModel: string,
+  payload: {
+    input_price?: number | null;
+    cached_input_price?: number | null;
+    output_price?: number | null;
+    input_price_high?: number | null;
+    cached_input_price_high?: number | null;
+    output_price_high?: number | null;
+    high_price_threshold_tokens?: number | null;
+    notes?: string | null;
+  },
+): Promise<AdminModelPricingRecord> {
+  return requestAdmin<AdminModelPricingRecord>(`/admin-api/providers/${providerName}/models/${nativeModel}/pricing`, adminSecret, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createAdminProvider(
+  adminSecret: string,
+  payload: Record<string, unknown>,
+): Promise<AdminProviderRecord> {
+  return requestAdmin<AdminProviderRecord>("/admin-api/providers", adminSecret, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createAdminProviderModel(
+  adminSecret: string,
+  providerName: string,
+  payload: { native_model: string; exposed_model_id: string; enabled: boolean },
+): Promise<AdminProviderModelRecord> {
+  return requestAdmin<AdminProviderModelRecord>(`/admin-api/providers/${providerName}/models`, adminSecret, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getAdminAccounts(adminSecret: string): Promise<AdminAccountRecord[]> {
+  return requestAdmin<AdminAccountRecord[]>("/admin-api/accounts", adminSecret);
+}
+
+export async function createAdminAccount(
+  adminSecret: string,
+  payload: { name: string },
+): Promise<AdminAccountRecord> {
+  return requestAdmin<AdminAccountRecord>("/admin-api/accounts", adminSecret, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getAdminAccountSyncSummary(adminSecret: string): Promise<AdminAccountSyncSummary> {
+  return requestAdmin<AdminAccountSyncSummary>("/admin-api/account-sync/summary", adminSecret);
+}
+
+export async function adjustAdminAccountCredits(
+  adminSecret: string,
+  accountId: number,
+  payload: { credits_delta: number; notes?: string },
+): Promise<AdminAccountRecord> {
+  return requestAdmin<AdminAccountRecord>(`/admin-api/accounts/${accountId}/credits/adjust`, adminSecret, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getAdminAccountCreditLedger(
+  adminSecret: string,
+  accountId: number,
+): Promise<AdminCreditLedgerEntry[]> {
+  return requestAdmin<AdminCreditLedgerEntry[]>(`/admin-api/accounts/${accountId}/credits/ledger`, adminSecret);
+}
+
+export async function getAdminApiKeys(adminSecret: string): Promise<AdminApiKeyRecord[]> {
+  return requestAdmin<AdminApiKeyRecord[]>("/admin-api/api-keys", adminSecret);
+}
+
+export async function createAdminApiKey(
+  adminSecret: string,
+  payload: { account_id: number; name: string; per_minute?: number | null; per_hour?: number | null; per_day?: number | null },
+): Promise<AdminApiKeyRecord & { api_key: string }> {
+  return requestAdmin<AdminApiKeyRecord & { api_key: string }>("/admin-api/api-keys", adminSecret, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function revokeAdminApiKey(adminSecret: string, keyId: number): Promise<AdminApiKeyRecord> {
+  return requestAdmin<AdminApiKeyRecord>(`/admin-api/api-keys/${keyId}/revoke`, adminSecret, {
+    method: "POST",
+  });
+}
+
+export async function getAdminUsageOverview(adminSecret: string): Promise<AdminUsageOverview> {
+  return requestAdmin<AdminUsageOverview>("/admin-api/usage/overview", adminSecret);
+}
+
+export async function sendAdminTestChat(
+  adminSecret: string,
+  payload: { model: string; messages: Array<{ role: string; content: string }>; temperature?: number | null; top_p?: number | null; max_tokens?: number | null },
+): Promise<AdminTestChatResponse> {
+  return requestAdmin<AdminTestChatResponse>("/admin-api/test-chat", adminSecret, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function streamAdminTestChat(
+  _adminSecret: string,
+  payload: { model: string; messages: Array<{ role: string; content: string }>; temperature?: number | null; top_p?: number | null; max_tokens?: number | null },
+  options: { signal?: AbortSignal; onChunk: (chunk: AdminTestChatChunk) => void },
+): Promise<void> {
+  const response = await fetch("/admin-api/test-chat", {
+    method: "POST",
+    credentials: "same-origin",
+    signal: options.signal,
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ ...payload, stream: true }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: `request failed: ${response.status}` }));
+    throw new Error(err.detail || `request failed: ${response.status}`);
+  }
+  if (!response.body) {
+    throw new Error("stream unavailable");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+    for (const eventBlock of events) {
+      const dataLines = eventBlock.split("\n").filter((line) => line.startsWith("data: ")).map((line) => line.slice(6).trim());
+      if (dataLines.length === 0) continue;
+      const data = dataLines.join("\n");
+      if (data === "[DONE]") return;
+      options.onChunk(JSON.parse(data) as AdminTestChatChunk);
+    }
+    if (done) return;
+  }
 }
 
 export async function getAuthProviders(): Promise<AuthProviderStatus> {
