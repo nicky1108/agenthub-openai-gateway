@@ -243,6 +243,7 @@ def test_chat_completions_executes_explicit_web_fetch_tool_call(tmp_path, monkey
                 "model": "codex-mini-latest",
                 "messages": [{"role": "user", "content": "fetch https://example.com/page"}],
                 "tools": [{"type": "function", "function": {"name": "web_fetch"}}],
+                "tool_choice": {"type": "function", "function": {"name": "web_fetch"}},
                 "stream": False,
             },
             headers={"authorization": f"Bearer {api_key}"},
@@ -252,6 +253,7 @@ def test_chat_completions_executes_explicit_web_fetch_tool_call(tmp_path, monkey
     assert response.json()["choices"][0]["message"]["content"] == "Fetched: Example body"
     assert len(run_payloads) == 2
     assert run_payloads[0]["model"] == "codex:gpt-5.4-mini"
+    assert run_payloads[1]["tool_choice"] == "none"
     second_messages = run_payloads[1]["messages"]
     assert second_messages[-2]["role"] == "assistant"
     assert second_messages[-2]["tool_calls"][0]["id"] == "call_fetch_1"

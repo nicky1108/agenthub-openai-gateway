@@ -53,6 +53,22 @@ def test_builtin_tool_request_requires_explicit_web_fetch_declaration() -> None:
     )
 
 
+def test_builtin_tool_detects_forced_web_fetch_choice() -> None:
+    assert not builtin_tools.tool_choice_forces_web_fetch({"tool_choice": "required", "tools": []})
+    assert builtin_tools.tool_choice_forces_web_fetch(
+        {
+            "tool_choice": "required",
+            "tools": [{"type": "function", "function": {"name": "web_fetch"}}],
+        }
+    )
+    assert builtin_tools.tool_choice_forces_web_fetch(
+        {"tool_choice": {"type": "function", "function": {"name": "web_fetch"}}}
+    )
+    assert not builtin_tools.tool_choice_forces_web_fetch(
+        {"tool_choice": {"type": "function", "function": {"name": "custom_tool"}}}
+    )
+
+
 @pytest.mark.asyncio
 async def test_execute_builtin_tool_calls_returns_tool_messages(monkeypatch) -> None:
     async def _fake_web_fetch(arguments):

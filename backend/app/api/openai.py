@@ -164,8 +164,11 @@ async def run_platform_completion_with_builtin_tools(
         if not tool_messages:
             return result, tool_round_usages, list(current_payload["messages"])
         tool_round_usages.append(billing_service.usage_from_result(current_payload["messages"], result))
+        next_payload = {**current_payload}
+        if builtin_tools.tool_choice_forces_web_fetch(next_payload):
+            next_payload["tool_choice"] = "none"
         current_payload = {
-            **current_payload,
+            **next_payload,
             "messages": builtin_tools.append_tool_exchange(
                 list(current_payload["messages"]),
                 assistant_message,

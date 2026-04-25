@@ -208,6 +208,20 @@ def request_enables_web_fetch(payload: dict[str, Any]) -> bool:
     return False
 
 
+def tool_choice_forces_web_fetch(payload: dict[str, Any]) -> bool:
+    tool_choice = payload.get("tool_choice")
+    if tool_choice == "required":
+        return request_enables_web_fetch(payload)
+    if not isinstance(tool_choice, dict):
+        return False
+    function = tool_choice.get("function")
+    return (
+        tool_choice.get("type") == "function"
+        and isinstance(function, dict)
+        and function.get("name") in WEB_FETCH_TOOL_NAMES
+    )
+
+
 def result_assistant_message(result: dict[str, Any]) -> dict[str, Any] | None:
     choices = result.get("choices")
     if not isinstance(choices, list) or not choices:
