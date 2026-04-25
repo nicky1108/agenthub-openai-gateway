@@ -115,7 +115,8 @@ describe("DocsPage", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "复制示例" }));
+    await screen.findAllByText(/codex:gpt-5\.4-mini/);
+    fireEvent.click(screen.getByRole("button", { name: "复制示例" }));
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('"model": "codex:gpt-5.4-mini"'));
   });
