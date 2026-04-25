@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "smoke:routes": "node scripts/route-smoke.mjs",
     "test": "vitest run"
   },
   "dependencies": {
