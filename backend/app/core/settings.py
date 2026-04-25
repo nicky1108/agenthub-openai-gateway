@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     admin_secret: str = "change-me"
+    admin_emails_csv: str = ""
     codex_native_enabled: bool = True
     codex_native_auth_file: str = "~/.codex/auth.json"
     codex_native_base_url: str = "https://chatgpt.com/backend-api/codex"
@@ -52,6 +53,10 @@ class Settings(BaseSettings):
     @property
     def reserved_provider_slugs(self) -> set[str]:
         return {item.strip() for item in self.reserved_provider_slugs_csv.split(",") if item.strip()}
+
+    @property
+    def admin_emails(self) -> set[str]:
+        return {item.strip().lower() for item in self.admin_emails_csv.split(",") if item.strip()}
 
     @property
     def github_oauth_enabled(self) -> bool:

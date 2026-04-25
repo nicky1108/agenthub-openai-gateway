@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, model_validator, field_validator
 from sqlalchemy import case, func, select
@@ -14,6 +14,7 @@ from app.discovery.service import ProviderDiscoveryService
 from app.core.db import get_session
 from app.core.models import (
     AccountRecord,
+    AuthSessionRecord,
     ApiKeyRecord,
     CreditLedgerRecord,
     ModelPricingRecord,
@@ -279,15 +280,37 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def require_admin(
-    x_admin_secret: str = Header(...),
+async def require_admin(
+    x_admin_secret: str | None = Header(default=None),
+    agh_session: str | None = Cookie(default=None, alias="agh_session"),
+    session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> None:
-    if x_admin_secret != settings.admin_secret:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid admin secret",
+    if x_admin_secret and x_admin_secret == settings.admin_secret:
+        return
+
+    if agh_session and settings.admin_emails:
+        session_record = await session.scalar(
+            select(AuthSessionRecord).where(
+                AuthSessionRecord.session_token_hash == hash_api_key(agh_session),
+                AuthSessionRecord.status == "active",
+                AuthSessionRecord.expires_at > datetime.now(timezone.utc),
+            )
         )
+        if session_record is not None:
+            account = await session.get(AccountRecord, session_record.account_id)
+            if (
+                account is not None
+                and account.status == "active"
+                and account.email
+                and account.email.lower() in settings.admin_emails
+            ):
+                return
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="invalid admin credentials",
+    )
 
 
 def normalize_timestamp(value: datetime) -> datetime:
