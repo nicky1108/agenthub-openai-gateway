@@ -78,4 +78,11 @@ jobs:
           if [ -z "$HEALTH_URL" ]; then
             HEALTH_URL="http://${{ secrets.DEPLOY_HOST }}/healthz"
           fi
+          for attempt in {1..30}; do
+            if curl -fsS "$HEALTH_URL"; then
+              exit 0
+            fi
+            echo "health check not ready yet, retry ${attempt}/30"
+            sleep 2
+          done
           curl -fsS "$HEALTH_URL"
