@@ -3,6 +3,7 @@ import json
 from collections.abc import AsyncIterator
 from time import perf_counter
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.base import ChatRequest
@@ -12,9 +13,9 @@ from app.adapters.cli.process import ProcessCliAdapter
 from app.adapters.http.openai_compatible import OpenAICompatibleHttpAdapter
 from app.adapters.native.codex import CodexNativeAdapter
 from app.adapters.native.gemini import GeminiNativeAdapter
-from app.core.models import ProviderRecord
+from app.core.models import ProviderModelRecord, ProviderRecord
 from app.core.settings import Settings
-from app.registry.service import ProviderRegistry
+from app.registry.service import ProviderNotFoundError, ProviderRegistry
 from app.runtime.gemini_acp_client import GeminiAcpClient
 from app.runtime.logging import elapsed_ms, log_gateway_event
 from app.runtime.provider_process_pool import provider_process_pool
@@ -607,6 +608,26 @@ class ChatOrchestrator:
         payload: dict[str, object],
         session: AsyncSession,
     ) -> tuple[ChatRequest, ProviderRecord]:
+        requested_model = str(payload["model"])
+        mapping_result = await session.execute(
+            select(ProviderModelRecord, ProviderRecord)
+            .join(ProviderRecord, ProviderModelRecord.provider_id == ProviderRecord.id)
+            .where(
+                ProviderModelRecord.exposed_model_id == requested_model,
+                ProviderModelRecord.enabled.is_(True),
+                (ProviderRecord.http_enabled.is_(True) | ProviderRecord.cli_enabled.is_(True)),
+            )
+            .order_by(ProviderModelRecord.id.asc())
+        )
+        model_mapping = mapping_result.first()
+        if model_mapping is not None:
+            model_row, provider = model_mapping
+            request = self._build_request({**payload, "model": f"{provider.name}:{model_row.native_model}"})
+            return request, provider
+
+        if ":" not in requested_model:
+            raise ProviderNotFoundError(requested_model)
+
         request = self._build_request(payload)
         provider = await self.registry.get_provider(session, request.provider_name)
         if request.provider_model == "default":

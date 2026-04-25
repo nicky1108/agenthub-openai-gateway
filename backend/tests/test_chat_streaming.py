@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from app.adapters.base import ChatRequest
 from app.adapters.cli.base import MockCliAdapter
 from app.adapters.http.base import MockHttpAdapter
 from app.billing.service import billing_service
@@ -81,6 +82,62 @@ def test_streaming_chat_returns_sse_chunks(tmp_path, monkeypatch, caplog) -> Non
     assert "gateway.billing.quote" in caplog.text
     assert "gateway.stream.first_chunk" in caplog.text
     assert "gateway.request.complete" in caplog.text
+
+
+def test_streaming_chat_accepts_bare_exposed_platform_model_id(tmp_path, monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    class CapturingHttpAdapter:
+        async def stream_chat(self, request: ChatRequest):
+            captured["provider_name"] = request.provider_name
+            captured["provider_model"] = request.provider_model
+            yield 'data: {"object":"chat.completion.chunk","model":"codex-mini-latest"}\n\n'
+            yield "data: [DONE]\n\n"
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setattr(openai_api.orchestrator, "_http_adapter", lambda provider: CapturingHttpAdapter())
+    monkeypatch.setattr(billing_service, "quote_request", _fake_quote_request)
+    monkeypatch.setattr(billing_service, "settle_inference", _fake_settle_inference)
+
+    with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
+        client.post(
+            "/admin/providers",
+            json={
+                "name": "codex",
+                "http_enabled": True,
+                "cli_enabled": False,
+                "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        client.patch(
+            "/admin/providers/codex/models/codex-mini-latest",
+            json={"enabled": False},
+            headers={"x-admin-secret": "change-me"},
+        )
+        client.patch(
+            "/admin/providers/codex/models/gpt-5.4",
+            json={"exposed_model_id": "codex-mini-latest"},
+            headers={"x-admin-secret": "change-me"},
+        )
+
+        with client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json={
+                "model": "codex-mini-latest",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": True,
+            },
+            headers={"authorization": f"Bearer {api_key}"},
+        ) as response:
+            body = b"".join(response.iter_bytes()).decode()
+
+    assert response.status_code == 200
+    assert body == 'data: {"object":"chat.completion.chunk","model":"codex-mini-latest"}\n\ndata: [DONE]\n\n'
+    assert captured == {"provider_name": "codex", "provider_model": "gpt-5.4"}
 
 
 def test_streaming_chat_uses_gemini_acp_when_enabled(tmp_path, monkeypatch) -> None:

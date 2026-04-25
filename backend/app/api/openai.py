@@ -187,13 +187,6 @@ async def create_chat_completion(
             await auth_service.record_usage(session, auth, custom_provider.slug, canonical_model, "success")
             return result
 
-        if ":" not in payload.model:
-            await auth_service.record_usage(session, auth, payload.model, payload.model, "error")
-            raise HTTPException(
-                status_code=404,
-                detail=f"model or provider '{payload.model}' not found",
-            )
-
         if request_payload["stream"]:
             request_payload["_request_id"] = request_id
             current_phase = "provider.prepare"
@@ -376,9 +369,14 @@ async def create_chat_completion(
             elapsed_ms=elapsed_ms(started_at),
         )
         await auth_service.record_usage(session, auth, exc.provider_name, payload.model, "error")
+        detail = (
+            f"model or provider '{payload.model}' not found"
+            if ":" not in payload.model
+            else f"provider '{exc.provider_name}' not found"
+        )
         raise HTTPException(
             status_code=404,
-            detail=f"provider '{exc.provider_name}' not found",
+            detail=detail,
         ) from exc
     except HTTPException:
         log_gateway_event(

@@ -4,6 +4,7 @@ import logging
 
 from types import SimpleNamespace
 
+from app.adapters.base import ChatRequest
 from app.adapters.http.base import MockHttpAdapter
 from app.billing.service import billing_service
 from app.api import openai as openai_api
@@ -93,6 +94,75 @@ def test_chat_completions_returns_openai_shaped_response(tmp_path, monkeypatch, 
     assert "gateway.billing.quote" in caplog.text
     assert "gateway.request.complete" in caplog.text
     assert "request_id=" in caplog.text
+
+
+def test_chat_completions_accepts_bare_exposed_platform_model_id(tmp_path, monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    class CapturingHttpAdapter:
+        async def chat(self, request: ChatRequest) -> dict[str, object]:
+            captured["provider_name"] = request.provider_name
+            captured["provider_model"] = request.provider_model
+            return {
+                "id": "chatcmpl-http-1",
+                "object": "chat.completion",
+                "model": "codex-mini-latest",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "OK"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "prompt_tokens_details": {"cached_tokens": 0},
+                },
+            }
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setattr(openai_api.orchestrator, "_http_adapter", lambda provider: CapturingHttpAdapter())
+    monkeypatch.setattr(billing_service, "quote_request", _fake_quote_request)
+    monkeypatch.setattr(billing_service, "settle_inference", _fake_settle_inference)
+
+    with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
+        client.post(
+            "/admin/providers",
+            json={
+                "name": "codex",
+                "http_enabled": True,
+                "cli_enabled": False,
+                "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        client.patch(
+            "/admin/providers/codex/models/codex-mini-latest",
+            json={"enabled": False},
+            headers={"x-admin-secret": "change-me"},
+        )
+        client.patch(
+            "/admin/providers/codex/models/gpt-5.4",
+            json={"exposed_model_id": "codex-mini-latest"},
+            headers={"x-admin-secret": "change-me"},
+        )
+
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "codex-mini-latest",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": False,
+            },
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["choices"][0]["message"]["content"] == "OK"
+    assert captured == {"provider_name": "codex", "provider_model": "gpt-5.4"}
 
 
 def test_chat_completions_uses_gemini_acp_when_enabled(tmp_path, monkeypatch) -> None:
