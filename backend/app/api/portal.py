@@ -133,7 +133,7 @@ async def dashboard(
             "local_account_id": str(account.id),
             "upstream_account_id": None,
             "upstream_workspace_id": None,
-            "local_mirror": {"status": "unified"},
+            "local_mirror": {"status": "unified", "api_keys": []},
             "sync_queue": {"pending": 0, "failed": 0},
         },
         "recent_usage": [

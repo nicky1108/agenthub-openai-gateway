@@ -89,4 +89,33 @@ describe("DashboardPage", () => {
     fireEvent.click(retryButtons[retryButtons.length - 1]);
     expect(called).toBe(1);
   });
+
+  it("does not crash when unified local mirror omits api key details", () => {
+    render(
+      <DashboardPage
+        apiKeyCount={2}
+        copy={messages.zh}
+        dashboard={{
+          account_sync: {
+            linked: true,
+            local_account_id: "1",
+            upstream_account_id: null,
+            upstream_workspace_id: null,
+            local_mirror: {
+              status: "unified",
+            },
+            sync_queue: {
+              pending: 0,
+              failed: 0,
+            },
+          },
+        }}
+        onRetrySync={async () => {}}
+        providerCount={0}
+        syncRetrying={false}
+      />,
+    );
+
+    expect(screen.getByText("2 key copies are active for managed model access.")).toBeTruthy();
+  });
 });

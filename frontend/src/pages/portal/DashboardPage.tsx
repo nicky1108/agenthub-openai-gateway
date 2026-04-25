@@ -25,6 +25,7 @@ export function DashboardPage({
   const customTraffic = dashboard?.custom_requests_24h ?? 0;
   const accountSync = dashboard?.account_sync;
   const localMirror = accountSync?.local_mirror;
+  const localMirrorApiKeyCount = Array.isArray(localMirror?.api_keys) ? localMirror.api_keys.length : apiKeyCount;
   const totalTraffic = platformTraffic + customTraffic;
   const platformShare = totalTraffic > 0 ? Math.round((platformTraffic / totalTraffic) * 100) : 0;
   const customShare = totalTraffic > 0 ? 100 - platformShare : 0;
@@ -133,7 +134,7 @@ export function DashboardPage({
               <span>{failedSync > 0 ? `${failedSync} update${failedSync > 1 ? "s" : ""} need${failedSync > 1 ? "" : "s"} manual review.` : "No failed updates detected."}</span>
               <span>
                 {localMirror
-                  ? `${localMirror.api_keys.length} key cop${localMirror.api_keys.length === 1 ? "y is" : "ies are"} active for managed model access.`
+                  ? `${localMirrorApiKeyCount} key cop${localMirrorApiKeyCount === 1 ? "y is" : "ies are"} active for managed model access.`
                   : "Managed model access is still being verified."}
               </span>
             </div>

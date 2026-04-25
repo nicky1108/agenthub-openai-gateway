@@ -73,12 +73,12 @@ export type DashboardSummary = {
     upstream_account_id: string | null;
     upstream_workspace_id: string | null;
     local_mirror?: {
-      public_account_id: string;
-      workspace_id: string;
-      local_account_id: string;
-      email: string | null;
+      public_account_id?: string;
+      workspace_id?: string;
+      local_account_id?: string;
+      email?: string | null;
       status: string;
-      api_keys: Array<{
+      api_keys?: Array<{
         public_api_key_id: string;
         local_api_key_id: string;
         name: string;
