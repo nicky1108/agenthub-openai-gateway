@@ -22,6 +22,12 @@ vi.mock("../../api", () => ({
     custom_requests_24h: 3,
     local_provider_count: 0,
   })),
+  getPortalUsageRecords: vi.fn(async () => ({
+    items: [],
+    total: 0,
+    limit: 25,
+    offset: 0,
+  })),
   getUserApiKeys: vi.fn(async () => []),
   getUserProviders: vi.fn(async () => []),
   logoutSession: vi.fn(async () => ({ status: "ok" })),
@@ -60,6 +66,12 @@ describe("PortalShell", () => {
       platform_providers: [],
       platform_models: [],
       custom_models: [],
+    });
+    vi.mocked(api.getPortalUsageRecords).mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 25,
+      offset: 0,
     });
   });
 
@@ -181,6 +193,68 @@ describe("PortalShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "重试加载" }));
 
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeTruthy();
+  });
+
+  it("renders user usage records with key, credit, and token details", async () => {
+    vi.mocked(api.getUserApiKeys).mockResolvedValue([
+      {
+        id: 1,
+        name: "primary",
+        key_prefix: "9ac99097",
+        created_at: "2026-04-25T00:00:00Z",
+        last_used_at: "2026-04-25T00:00:00Z",
+        per_minute: null,
+        per_hour: null,
+        per_day: null,
+        total_requests: 1,
+        limited_requests: 0,
+      },
+    ]);
+    vi.mocked(api.getPortalUsageRecords).mockResolvedValue({
+      items: [
+        {
+          id: 10,
+          api_key_id: 1,
+          api_key_name: "primary",
+          key_prefix: "9ac99097",
+          provider_name: "codex",
+          model_id: "codex:gpt-5.4",
+          outcome: "success",
+          input_tokens: 1200,
+          output_tokens: 240,
+          cached_input_tokens: 100,
+          usd_amount: 0.0123,
+          credits_charged: 1.23,
+          pricing_source: "official_snapshot",
+          token_source: "provider",
+          created_at: "2026-04-26T08:30:00Z",
+        },
+      ],
+      total: 1,
+      limit: 25,
+      offset: 0,
+    });
+
+    render(
+      <PortalShell
+        copy={messages.zh}
+        locale="zh"
+        onLogout={() => {}}
+        onNavigate={() => {}}
+        onToggleLocale={() => {}}
+        pathname="/portal/usage"
+        user={{ account_id: "acct_123", workspace_id: "ws_123", name: "Nicky", email: "nicky@example.com" }}
+      />,
+    );
+
+    await screen.findByRole("heading", { name: "流水记录" });
+
+    expect(screen.getByText("primary")).toBeTruthy();
+    expect(screen.getByText("9ac99097")).toBeTruthy();
+    expect(screen.getByText("codex:gpt-5.4")).toBeTruthy();
+    expect(screen.getByText("1,200 / 100 / 240")).toBeTruthy();
+    expect(screen.getByText("1.23")).toBeTruthy();
+    expect(screen.getByText("$0.0123")).toBeTruthy();
   });
 
   it("retries account sync from dashboard", async () => {

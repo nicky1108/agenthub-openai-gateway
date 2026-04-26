@@ -220,6 +220,31 @@ export type ApiKeyRecord = {
   limited_requests: number;
 };
 
+export type PortalUsageRecord = {
+  id: number;
+  api_key_id: number;
+  api_key_name?: string | null;
+  key_prefix?: string | null;
+  provider_name?: string | null;
+  model_id?: string | null;
+  outcome: string;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cached_input_tokens?: number | null;
+  usd_amount?: number | null;
+  credits_charged?: number | null;
+  pricing_source?: string | null;
+  token_source?: string | null;
+  created_at: string;
+};
+
+export type PortalUsageRecordsPage = {
+  items: PortalUsageRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 export type CreatedApiKey = ApiKeyRecord & {
   api_key: string;
 };
@@ -373,6 +398,21 @@ export async function getPortalDashboard(): Promise<DashboardSummary> {
 
 export async function getPortalCatalog(): Promise<PortalCatalog> {
   return request<PortalCatalog>("/portal/catalog");
+}
+
+export async function getPortalUsageRecords(
+  params: {
+    apiKeyId?: number | null;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<PortalUsageRecordsPage> {
+  const search = new URLSearchParams();
+  if (params.apiKeyId) search.set("api_key_id", String(params.apiKeyId));
+  if (params.limit) search.set("limit", String(params.limit));
+  if (params.offset) search.set("offset", String(params.offset));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return request<PortalUsageRecordsPage>(`/portal/usage/records${suffix}`);
 }
 
 export async function retryPortalSync(): Promise<RetrySyncResult> {

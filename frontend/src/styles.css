@@ -1317,6 +1317,63 @@ p {
   gap: 12px;
 }
 
+.usage-records__header {
+  align-items: flex-start;
+}
+
+.usage-records__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.usage-records__toolbar label,
+.usage-records__key,
+.usage-records__route {
+  display: grid;
+  gap: 6px;
+}
+
+.usage-records__toolbar label {
+  min-width: min(320px, 100%);
+}
+
+.usage-records__toolbar label span {
+  color: var(--portal-dim);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.usage-records__toolbar select {
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--portal-line);
+  border-radius: var(--radius);
+  background: #111318;
+  color: var(--portal-fg);
+}
+
+.usage-records__key code,
+.usage-records__route code {
+  color: var(--portal-muted);
+  overflow-wrap: anywhere;
+}
+
+.usage-records__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.usage-records__pagination span {
+  color: var(--portal-muted);
+  font-size: 0.86rem;
+}
+
 .api-key-form {
   grid-template-columns: minmax(180px, 1.4fr) repeat(3, minmax(120px, 1fr)) auto;
   align-items: end;
@@ -2101,7 +2158,7 @@ p {
   }
 
   .portal-nav {
-    grid-template-columns: repeat(5, minmax(130px, 1fr));
+    grid-template-columns: repeat(6, minmax(130px, 1fr));
     overflow-x: auto;
     padding-bottom: 4px;
   }

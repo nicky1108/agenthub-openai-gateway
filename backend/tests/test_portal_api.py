@@ -1,3 +1,5 @@
+import sqlite3
+
 import httpx
 from fastapi.testclient import TestClient
 
@@ -70,6 +72,87 @@ def test_portal_dashboard_requires_session_cookie(tmp_path, monkeypatch) -> None
 
     assert response.status_code == 401
     assert response.json() == {"detail": "missing session cookie"}
+
+
+def test_portal_usage_records_show_current_account_call_costs(tmp_path, monkeypatch) -> None:
+    database_path = tmp_path / "gateway.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")
+
+    with TestClient(create_app()) as client:
+        _register_and_login(client)
+        key_response = client.post("/portal/api-keys?name=primary")
+        assert key_response.status_code == 201
+        api_key_id = key_response.json()["id"]
+        api_key_prefix = key_response.json()["key_prefix"]
+
+        other_account_response = client.post(
+            "/admin/accounts",
+            json={"name": "other-account"},
+            headers={"x-admin-secret": "change-me"},
+        )
+        assert other_account_response.status_code == 201
+        other_key_response = client.post(
+            "/admin/api-keys",
+            json={"account_id": other_account_response.json()["id"], "name": "other-key"},
+            headers={"x-admin-secret": "change-me"},
+        )
+        assert other_key_response.status_code == 201
+
+        connection = sqlite3.connect(database_path)
+        try:
+            connection.execute(
+                """
+                INSERT INTO usage_records (
+                    account_id, api_key_id, provider_name, model_id, outcome,
+                    input_tokens, output_tokens, cached_input_tokens,
+                    usd_amount, credits_charged, pricing_source, token_source, created_at
+                )
+                VALUES (1, ?, 'codex', 'codex:gpt-5.4', 'success', 1200, 240, 100, 0.0123, 1.23,
+                    'official_snapshot', 'provider', '2026-04-26T08:30:00+00:00')
+                """,
+                (api_key_id,),
+            )
+            connection.execute(
+                """
+                INSERT INTO usage_records (
+                    account_id, api_key_id, provider_name, model_id, outcome,
+                    input_tokens, output_tokens, cached_input_tokens,
+                    usd_amount, credits_charged, pricing_source, token_source, created_at
+                )
+                VALUES (?, ?, 'gemini', 'gemini:gemini-2.5-pro', 'success', 999, 888, 0, 9.99, 999.0,
+                    'official_snapshot', 'provider', '2026-04-26T08:31:00+00:00')
+                """,
+                (other_account_response.json()["id"], other_key_response.json()["id"]),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        response = client.get("/portal/usage/records")
+        filtered_response = client.get(f"/portal/usage/records?api_key_id={api_key_id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["limit"] == 25
+    assert payload["offset"] == 0
+    assert len(payload["items"]) == 1
+    row = payload["items"][0]
+    assert row["api_key_id"] == api_key_id
+    assert row["api_key_name"] == "primary"
+    assert row["key_prefix"] == api_key_prefix
+    assert row["provider_name"] == "codex"
+    assert row["model_id"] == "codex:gpt-5.4"
+    assert row["outcome"] == "success"
+    assert row["input_tokens"] == 1200
+    assert row["output_tokens"] == 240
+    assert row["cached_input_tokens"] == 100
+    assert row["credits_charged"] == 1.23
+    assert row["usd_amount"] == 0.0123
+    assert row["pricing_source"] == "official_snapshot"
+    assert row["token_source"] == "provider"
+    assert filtered_response.status_code == 200
+    assert filtered_response.json()["items"][0]["id"] == row["id"]
 
 
 def test_portal_provider_presets_include_mainstream_and_other_fallback(tmp_path, monkeypatch) -> None:

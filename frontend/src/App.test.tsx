@@ -94,6 +94,25 @@ describe("public gateway frontend", () => {
             }),
           );
         }
+        if (path.endsWith("/portal/catalog")) {
+          return new Response(
+            JSON.stringify({
+              platform_providers: [],
+              platform_models: [],
+              custom_models: [],
+            }),
+          );
+        }
+        if (path.includes("/portal/usage/records")) {
+          return new Response(
+            JSON.stringify({
+              items: [],
+              total: 0,
+              limit: 25,
+              offset: 0,
+            }),
+          );
+        }
         if (path.endsWith("/user/api-keys")) {
           return new Response(
             JSON.stringify([

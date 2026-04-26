@@ -6,6 +6,7 @@ import {
   deleteUserProvider,
   getPortalCatalog,
   getPortalDashboard,
+  getPortalUsageRecords,
   getUserApiKeys,
   getUserProviders,
   logoutSession,
@@ -21,6 +22,7 @@ import {
   type CatalogModelRecord,
   type DashboardSummary,
   type PlatformProviderRecord,
+  type PortalUsageRecordsPage,
   type ProviderProbeResult,
   type UserProviderUpdatePayload,
   type UserProviderRecord,
@@ -32,6 +34,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ModelsPage } from "./ModelsPage";
 import { ProvidersPage } from "./ProvidersPage";
 import { providerPresets } from "./providerPresets";
+import { UsagePage } from "./UsagePage";
 
 type PortalShellProps = {
   copy: Copy;
@@ -43,7 +46,8 @@ type PortalShellProps = {
   user: AuthAccount | null;
 };
 
-type PortalView = "dashboard" | "api-keys" | "models" | "providers";
+type PortalView = "dashboard" | "api-keys" | "models" | "providers" | "usage";
+const PORTAL_USAGE_PAGE_SIZE = 25;
 type PendingConfirmation =
   | { kind: "api-key"; id: number; label: string }
   | { kind: "provider"; id: number; label: string }
@@ -59,11 +63,15 @@ function currentView(pathname: string): PortalView {
   if (pathname === "/portal/models") {
     return "models";
   }
+  if (pathname === "/portal/usage") {
+    return "usage";
+  }
   return "dashboard";
 }
 
 export function PortalShell({
   copy,
+  locale,
   onLogout,
   onNavigate,
   onToggleLocale,
@@ -76,6 +84,13 @@ export function PortalShell({
   const [platformProviders, setPlatformProviders] = useState<PlatformProviderRecord[]>([]);
   const [platformModels, setPlatformModels] = useState<CatalogModelRecord[]>([]);
   const [customModels, setCustomModels] = useState<CatalogModelRecord[]>([]);
+  const [usageRecords, setUsageRecords] = useState<PortalUsageRecordsPage>({
+    items: [],
+    total: 0,
+    limit: PORTAL_USAGE_PAGE_SIZE,
+    offset: 0,
+  });
+  const [usageKeyFilter, setUsageKeyFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -95,15 +110,20 @@ export function PortalShell({
   const [providerSecret, setProviderSecret] = useState("");
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation>(null);
 
-  async function loadPortalData() {
+  async function loadPortalData(nextUsageOffset = usageRecords.offset, nextUsageKeyFilter = usageKeyFilter) {
     setLoading(true);
     setError(null);
     try {
-      const [dashboardResult, apiKeysResult, providersResult, catalogResult] = await Promise.all([
+      const [dashboardResult, apiKeysResult, providersResult, catalogResult, usageResult] = await Promise.all([
         getPortalDashboard(),
         getUserApiKeys(),
         getUserProviders(),
         getPortalCatalog(),
+        getPortalUsageRecords({
+          apiKeyId: nextUsageKeyFilter ? Number(nextUsageKeyFilter) : null,
+          limit: PORTAL_USAGE_PAGE_SIZE,
+          offset: nextUsageOffset,
+        }),
       ]);
       setDashboard(dashboardResult);
       setApiKeys(apiKeysResult);
@@ -111,6 +131,12 @@ export function PortalShell({
       setPlatformProviders(catalogResult.platform_providers ?? []);
       setPlatformModels(catalogResult.platform_models ?? []);
       setCustomModels(catalogResult.custom_models ?? []);
+      setUsageRecords({
+        items: Array.isArray(usageResult.items) ? usageResult.items : [],
+        total: typeof usageResult.total === "number" ? usageResult.total : 0,
+        limit: typeof usageResult.limit === "number" ? usageResult.limit : PORTAL_USAGE_PAGE_SIZE,
+        offset: typeof usageResult.offset === "number" ? usageResult.offset : nextUsageOffset,
+      });
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "request failed");
     } finally {
@@ -231,6 +257,33 @@ export function PortalShell({
     }
   }
 
+  async function handleUsageKeyFilterChange(nextKeyId: string) {
+    setUsageKeyFilter(nextKeyId);
+    try {
+      const result = await getPortalUsageRecords({
+        apiKeyId: nextKeyId ? Number(nextKeyId) : null,
+        limit: PORTAL_USAGE_PAGE_SIZE,
+        offset: 0,
+      });
+      setUsageRecords(result);
+    } catch (usageError) {
+      setError(usageError instanceof Error ? usageError.message : "request failed");
+    }
+  }
+
+  async function handleUsagePageChange(nextOffset: number) {
+    try {
+      const result = await getPortalUsageRecords({
+        apiKeyId: usageKeyFilter ? Number(usageKeyFilter) : null,
+        limit: PORTAL_USAGE_PAGE_SIZE,
+        offset: nextOffset,
+      });
+      setUsageRecords(result);
+    } catch (usageError) {
+      setError(usageError instanceof Error ? usageError.message : "request failed");
+    }
+  }
+
   const view = currentView(pathname);
   const previewModelId = providerName.trim() ? `${providerName.trim().toLowerCase()}:default` : null;
   const pendingSyncEvents = dashboard?.account_sync?.sync_queue?.pending ?? 0;
@@ -319,6 +372,10 @@ export function PortalShell({
           <button className={view === "providers" ? "active" : ""} onClick={() => onNavigate("/portal/providers")}>
             <span>{copy.common.providers}</span>
             <small>{providers.length} connected</small>
+          </button>
+          <button className={view === "usage" ? "active" : ""} onClick={() => onNavigate("/portal/usage")}>
+            <span>流水记录</span>
+            <small>{usageRecords.total} records</small>
           </button>
           <button onClick={() => onNavigate("/docs")}>
             <span>{copy.portal.docsShortcut}</span>
@@ -442,6 +499,16 @@ export function PortalShell({
         ) : null}
         {!loading && !error && view === "models" ? (
           <ModelsPage copy={copy} customModels={customModels} platformModels={platformModels} providers={providers} />
+        ) : null}
+        {!loading && !error && view === "usage" ? (
+          <UsagePage
+            apiKeys={apiKeys}
+            locale={locale}
+            onKeyFilterChange={handleUsageKeyFilterChange}
+            onPageChange={handleUsagePageChange}
+            selectedKeyId={usageKeyFilter}
+            usageRecords={usageRecords}
+          />
         ) : null}
         <ConfirmDialog
           open={pendingConfirmation !== null}

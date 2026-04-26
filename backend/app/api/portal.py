@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,12 @@ from app.services.provider_presets import list_provider_presets, resolved_custom
 
 router = APIRouter(prefix="/portal", tags=["portal"])
 registry = ProviderRegistry()
+
+
+def isoformat_value(value: datetime | object) -> str:
+    if isinstance(value, datetime):
+        return normalize_timestamp(value).isoformat()
+    return str(value)
 
 
 async def require_portal_account(
@@ -213,6 +219,74 @@ async def catalog(
                 preferred_model=provider.last_probe_model,
             )
         ],
+    }
+
+
+@router.get("/usage/records")
+async def usage_records(
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    api_key_id: int | None = None,
+    account: AccountRecord = Depends(require_portal_account),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    conditions = [UsageRecord.account_id == account.id]
+    if api_key_id is not None:
+        conditions.append(UsageRecord.api_key_id == api_key_id)
+
+    total = await session.scalar(select(func.count(UsageRecord.id)).where(*conditions)) or 0
+    usage_rows = list(
+        await session.scalars(
+            select(UsageRecord)
+            .where(*conditions)
+            .order_by(UsageRecord.created_at.desc(), UsageRecord.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    )
+    api_key_ids = {row.api_key_id for row in usage_rows}
+    api_keys = (
+        list(
+            await session.scalars(
+                select(ApiKeyRecord).where(
+                    ApiKeyRecord.account_id == account.id,
+                    ApiKeyRecord.id.in_(api_key_ids),
+                )
+            )
+        )
+        if api_key_ids
+        else []
+    )
+    api_keys_by_id = {row.id: row for row in api_keys}
+
+    return {
+        "items": [
+            {
+                "id": row.id,
+                "api_key_id": row.api_key_id,
+                "api_key_name": api_keys_by_id.get(row.api_key_id).name
+                if row.api_key_id in api_keys_by_id
+                else None,
+                "key_prefix": api_keys_by_id.get(row.api_key_id).key_prefix
+                if row.api_key_id in api_keys_by_id
+                else None,
+                "provider_name": row.provider_name,
+                "model_id": row.model_id,
+                "outcome": row.outcome,
+                "input_tokens": row.input_tokens,
+                "output_tokens": row.output_tokens,
+                "cached_input_tokens": row.cached_input_tokens,
+                "usd_amount": row.usd_amount,
+                "credits_charged": row.credits_charged,
+                "pricing_source": row.pricing_source,
+                "token_source": row.token_source,
+                "created_at": isoformat_value(row.created_at),
+            }
+            for row in usage_rows
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
     }
 
 
