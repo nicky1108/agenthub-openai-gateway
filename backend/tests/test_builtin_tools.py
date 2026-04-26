@@ -43,6 +43,26 @@ async def test_web_fetch_extracts_text_from_html() -> None:
     assert result["truncated"] is False
 
 
+@pytest.mark.asyncio
+async def test_web_fetch_accepts_application_text_content_type() -> None:
+    async def _transport(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://example.com/weather"
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/text"},
+            text='{"current_condition":[{"temp_C":"17"}]}',
+        )
+
+    result = await builtin_tools.web_fetch(
+        {"url": "https://example.com/weather"},
+        transport=httpx.MockTransport(_transport),
+        resolver=lambda _host: ["93.184.216.34"],
+    )
+
+    assert result["ok"] is True
+    assert result["text"] == '{"current_condition":[{"temp_C":"17"}]}'
+
+
 def test_builtin_tool_request_requires_explicit_web_fetch_declaration() -> None:
     assert not builtin_tools.request_enables_web_fetch({"tools": []})
     assert not builtin_tools.request_enables_web_fetch(

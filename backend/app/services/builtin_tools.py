@@ -27,6 +27,7 @@ _TEXT_CONTENT_TYPES = {
     "application/xhtml+xml",
     "application/xml",
     "application/atom+xml",
+    "application/text",
 }
 
 
