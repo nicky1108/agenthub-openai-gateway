@@ -153,7 +153,7 @@ export function ProvidersPage({
   }
 
   return (
-    <section className="portal-section">
+    <section className="portal-section portal-section--providers">
       <div className="portal-section__header">
         <div>
           <div className="eyebrow">{copy.portal.providersTitle}</div>
@@ -277,7 +277,7 @@ export function ProvidersPage({
           ) : (
           <div className="provider-list">
             {platformProviders.map((provider) => (
-              <article className="provider-row" key={provider.name}>
+              <article className="provider-row provider-row--managed" key={provider.name}>
                 <div>
                   <strong>{provider.name}</strong>
                   <p>{platformProviderSummary(provider)}</p>
@@ -314,7 +314,7 @@ export function ProvidersPage({
                 const providerDiagnostic = summarizeProviderDetail(provider.last_probe_detail);
 
                 return (
-                  <article className="provider-row" key={provider.id}>
+                  <article className="provider-row provider-row--custom" key={provider.id}>
                     <div className="provider-row__body">
                       <strong>{provider.name}</strong>
                       <p>{provider.base_url}</p>

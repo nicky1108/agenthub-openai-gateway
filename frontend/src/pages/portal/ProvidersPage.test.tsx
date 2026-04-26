@@ -23,7 +23,7 @@ describe("ProvidersPage", () => {
   });
 
   it("copies per-model ids, non-stream curls, and stream curls for a saved provider", async () => {
-    render(
+    const { container } = render(
       <ProvidersPage
         copy={messages.zh}
         customModels={["minimax-cn:MiniMax-M2.7", "minimax-cn:MiniMax-M2.5"]}
@@ -67,6 +67,9 @@ describe("ProvidersPage", () => {
         onUrlChange={() => {}}
       />,
     );
+
+    expect(container.querySelector(".portal-section--providers")).toBeTruthy();
+    expect(container.querySelector(".provider-row--custom")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "复制 ID minimax-cn:MiniMax-M2.7" }));
     expect(writeText).toHaveBeenCalledWith("minimax-cn:MiniMax-M2.7");
