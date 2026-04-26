@@ -116,6 +116,7 @@ describe("DocsPage", () => {
     );
 
     await screen.findAllByText(/codex:gpt-5\.4-mini/);
+    fireEvent.change(screen.getByLabelText("示例模型"), { target: { value: "codex:gpt-5.4-mini" } });
     fireEvent.click(screen.getByRole("button", { name: "复制示例" }));
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('"model": "codex:gpt-5.4-mini"'));
