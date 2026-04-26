@@ -370,7 +370,10 @@ def test_chat_completions_synthesizes_web_fetch_when_provider_ignores_tool_choic
 
         async def run(self, payload, _session):
             run_payloads.append(payload)
-            if any(message.get("role") == "tool" for message in payload["messages"]):
+            if any(
+                message.get("role") == "user" and "Web fetch result" in str(message.get("content", ""))
+                for message in payload["messages"]
+            ):
                 return {
                     "id": "chatcmpl-final",
                     "object": "chat.completion",
@@ -426,8 +429,8 @@ def test_chat_completions_synthesizes_web_fetch_when_provider_ignores_tool_choic
     assert len(run_payloads) == 2
     assert run_payloads[0]["tool_choice"] == {"type": "function", "function": {"name": "web_fetch"}}
     assert run_payloads[1]["tool_choice"] == "none"
-    assert run_payloads[1]["messages"][-2]["role"] == "assistant"
-    assert run_payloads[1]["messages"][-1]["role"] == "tool"
+    assert run_payloads[1]["messages"][-1]["role"] == "user"
+    assert "Web fetch result" in run_payloads[1]["messages"][-1]["content"]
 
 
 def test_chat_completions_uses_gemini_acp_when_enabled(tmp_path, monkeypatch) -> None:

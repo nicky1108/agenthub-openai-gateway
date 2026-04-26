@@ -163,6 +163,7 @@ async def run_platform_completion_with_builtin_tools(
         if assistant_message is None:
             return result, tool_round_usages, list(current_payload["messages"])
         tool_messages = await builtin_tools.execute_builtin_tool_calls(assistant_message)
+        synthetic_context_message: dict[str, str] | None = None
         if not tool_messages:
             if not builtin_tools.tool_choice_forces_web_fetch(current_payload):
                 return result, tool_round_usages, list(current_payload["messages"])
@@ -173,17 +174,23 @@ async def run_platform_completion_with_builtin_tools(
             if not tool_messages:
                 return result, tool_round_usages, list(current_payload["messages"])
             assistant_message = synthetic_message
+            synthetic_context_message = builtin_tools.tool_messages_to_context_message(tool_messages)
         tool_round_usages.append(billing_service.usage_from_result(current_payload["messages"], result))
         next_payload = {**current_payload}
         if builtin_tools.tool_choice_forces_web_fetch(next_payload):
             next_payload["tool_choice"] = "none"
-        current_payload = {
-            **next_payload,
-            "messages": builtin_tools.append_tool_exchange(
+        next_messages = (
+            [*list(current_payload["messages"]), synthetic_context_message]
+            if synthetic_context_message is not None
+            else builtin_tools.append_tool_exchange(
                 list(current_payload["messages"]),
                 assistant_message,
                 tool_messages,
-            ),
+            )
+        )
+        current_payload = {
+            **next_payload,
+            "messages": next_messages,
         }
 
     result = await orchestrator.run({**current_payload, "tool_choice": "none"}, session)
@@ -205,6 +212,7 @@ async def prepare_stream_payload_with_builtin_tools(
     if assistant_message is None:
         return request_payload, [], result
     tool_messages = await builtin_tools.execute_builtin_tool_calls(assistant_message)
+    synthetic_context_message: dict[str, str] | None = None
     if not tool_messages:
         if not builtin_tools.tool_choice_forces_web_fetch(probe_payload):
             return request_payload, [], result
@@ -215,11 +223,16 @@ async def prepare_stream_payload_with_builtin_tools(
         if not tool_messages:
             return request_payload, [], result
         assistant_message = synthetic_message
+        synthetic_context_message = builtin_tools.tool_messages_to_context_message(tool_messages)
 
-    resolved_messages = builtin_tools.append_tool_exchange(
-        list(probe_payload["messages"]),
-        assistant_message,
-        tool_messages,
+    resolved_messages = (
+        [*list(probe_payload["messages"]), synthetic_context_message]
+        if synthetic_context_message is not None
+        else builtin_tools.append_tool_exchange(
+            list(probe_payload["messages"]),
+            assistant_message,
+            tool_messages,
+        )
     )
     resolved_payload = {
         **request_payload,

@@ -99,6 +99,24 @@ def test_builtin_tool_synthesizes_weather_fetch_from_user_request() -> None:
     }
 
 
+def test_builtin_tool_formats_synthetic_fetch_result_as_context() -> None:
+    message = builtin_tools.tool_messages_to_context_message(
+        [
+            {
+                "role": "tool",
+                "tool_call_id": builtin_tools.WEB_FETCH_FALLBACK_TOOL_CALL_ID,
+                "name": "web_fetch",
+                "content": json.dumps({"ok": True, "url": "https://example.com", "text": "Fetched body"}),
+            }
+        ]
+    )
+
+    assert message["role"] == "user"
+    assert "Web fetch result" in message["content"]
+    assert "Fetched body" in message["content"]
+    assert "Do not claim that browsing is unavailable" in message["content"]
+
+
 @pytest.mark.asyncio
 async def test_execute_builtin_tool_calls_returns_tool_messages(monkeypatch) -> None:
     async def _fake_web_fetch(arguments):

@@ -311,6 +311,31 @@ def synthesize_web_fetch_assistant_message(payload: dict[str, Any]) -> dict[str,
     }
 
 
+def tool_messages_to_context_message(tool_messages: list[dict[str, str]]) -> dict[str, str]:
+    sections = [
+        "Web fetch result from the gateway-executed web_fetch tool.",
+        "Use this fetched content to answer the user's previous request. Do not claim that browsing is unavailable.",
+    ]
+    for index, message in enumerate(tool_messages, start=1):
+        raw_content = message.get("content", "")
+        try:
+            payload = json.loads(raw_content)
+        except json.JSONDecodeError:
+            payload = {"ok": False, "error": "invalid_tool_result", "text": raw_content}
+        if not isinstance(payload, dict):
+            payload = {"ok": False, "error": "invalid_tool_result", "text": str(payload)}
+        url = payload.get("url") or ""
+        if payload.get("ok") is True:
+            text = str(payload.get("text") or "")
+            truncated = " truncated" if payload.get("truncated") else ""
+            sections.append(f"[{index}] URL: {url}\nStatus: fetched{truncated}\nContent:\n{text}")
+        else:
+            error = payload.get("error") or "unknown_error"
+            detail = payload.get("detail") or ""
+            sections.append(f"[{index}] URL: {url}\nStatus: failed\nError: {error}\nDetail: {detail}")
+    return {"role": "user", "content": "\n\n".join(sections)}
+
+
 def tool_choice_forces_web_fetch(payload: dict[str, Any]) -> bool:
     tool_choice = payload.get("tool_choice")
     if tool_choice == "required":
