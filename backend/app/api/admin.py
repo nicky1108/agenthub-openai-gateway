@@ -1152,6 +1152,18 @@ async def admin_test_chat(
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ):
+    provider_name, _, native_model = payload.model.partition(":")
+    provider = await session.scalar(select(ProviderRecord).where(ProviderRecord.name == provider_name))
+    if provider is not None:
+        model_row = await session.scalar(
+            select(ProviderModelRecord).where(
+                ProviderModelRecord.provider_id == provider.id,
+                ProviderModelRecord.native_model == native_model,
+            )
+        )
+        if model_row is not None and not model_row.enabled:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="model is disabled")
+
     request_payload = {
         "model": payload.model,
         "messages": payload.messages,

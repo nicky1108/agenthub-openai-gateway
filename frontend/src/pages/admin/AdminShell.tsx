@@ -1383,7 +1383,14 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
                         <td className="data-table__actions">
                           <button className="ghost-action ghost-action--bright" onClick={() => openModelEditModal(model)}>{actionCopy.edit}</button>
                           <button className="ghost-action ghost-action--bright" onClick={() => openModelPricingModal(model)}>{actionCopy.pricing}</button>
-                          <button className="ghost-action ghost-action--bright" onClick={() => openModelTestModal(model)}>{actionCopy.test}</button>
+                          <button
+                            className="ghost-action ghost-action--bright"
+                            disabled={!model.enabled}
+                            onClick={() => openModelTestModal(model)}
+                            title={!model.enabled ? (isZh ? "禁用模型不能测试" : "Disabled models cannot be tested") : undefined}
+                          >
+                            {actionCopy.test}
+                          </button>
                           <button className="ghost-action ghost-action--danger" onClick={() => openModal({ kind: "model-delete", model })}>{actionCopy.delete}</button>
                         </td>
                       </tr>
