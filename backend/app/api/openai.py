@@ -153,7 +153,9 @@ async def run_platform_completion_with_builtin_tools(
     if not builtin_tools.request_enables_web_fetch(request_payload):
         return await orchestrator.run(request_payload, session), [], list(request_payload["messages"])
 
-    current_payload = {**request_payload, "stream": False, "messages": list(request_payload["messages"])}
+    current_payload = builtin_tools.with_default_web_fetch_tool_choice(
+        {**request_payload, "stream": False, "messages": list(request_payload["messages"])}
+    )
     tool_round_usages: list[UsageSnapshot] = []
     for _ in range(MAX_BUILTIN_TOOL_ROUNDS):
         result = await orchestrator.run(current_payload, session)
@@ -187,7 +189,9 @@ async def prepare_stream_payload_with_builtin_tools(
     if not builtin_tools.request_enables_web_fetch(request_payload):
         return request_payload, [], None
 
-    probe_payload = {**request_payload, "stream": False, "messages": list(request_payload["messages"])}
+    probe_payload = builtin_tools.with_default_web_fetch_tool_choice(
+        {**request_payload, "stream": False, "messages": list(request_payload["messages"])}
+    )
     result = await orchestrator.run(probe_payload, session)
     assistant_message = builtin_tools.result_assistant_message(result)
     if assistant_message is None:

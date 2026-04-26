@@ -262,6 +262,96 @@ def test_chat_completions_executes_explicit_web_fetch_tool_call(tmp_path, monkey
     assert json.loads(second_messages[-1]["content"])["text"] == "Example body"
 
 
+def test_chat_completions_forces_declared_web_fetch_tool_by_default(tmp_path, monkeypatch) -> None:
+    run_payloads: list[dict[str, object]] = []
+
+    class FakeOrchestrator:
+        async def prepare(self, payload, _session):
+            return (
+                ChatRequest(
+                    provider_name="codex",
+                    provider_model="gpt-5.4-mini",
+                    messages=list(payload["messages"]),
+                    stream=bool(payload.get("stream", False)),
+                    max_tokens=payload.get("max_tokens"),
+                ),
+                SimpleNamespace(name="codex", route_policy="fixed-cli"),
+            )
+
+        async def run(self, payload, _session):
+            run_payloads.append(payload)
+            if payload.get("tool_choice") == {"type": "function", "function": {"name": "web_fetch"}}:
+                return {
+                    "id": "chatcmpl-tool",
+                    "object": "chat.completion",
+                    "model": payload["model"],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "",
+                                "tool_calls": [
+                                    {
+                                        "id": "call_fetch_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "web_fetch",
+                                            "arguments": json.dumps({"url": "https://example.com/weather"}),
+                                        },
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 7, "completion_tokens": 1},
+                }
+            return {
+                "id": "chatcmpl-final",
+                "object": "chat.completion",
+                "model": payload["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "Fetched default web content"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 4},
+            }
+
+    async def _fake_web_fetch(arguments):
+        assert arguments == {"url": "https://example.com/weather"}
+        return {"ok": True, "url": arguments["url"], "text": "Weather body"}
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setattr(openai_api, "orchestrator", FakeOrchestrator())
+    monkeypatch.setattr(openai_api.builtin_tools, "web_fetch", _fake_web_fetch)
+    monkeypatch.setattr(billing_service, "quote_request", _fake_quote_request)
+    monkeypatch.setattr(billing_service, "settle_inference", _fake_settle_inference)
+
+    with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "codex-mini-latest",
+                "messages": [{"role": "user", "content": "search the web for weather"}],
+                "tools": [{"type": "function", "function": {"name": "web_fetch"}}],
+                "stream": False,
+            },
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["choices"][0]["message"]["content"] == "Fetched default web content"
+    assert len(run_payloads) == 2
+    assert run_payloads[0]["tool_choice"] == {"type": "function", "function": {"name": "web_fetch"}}
+    assert run_payloads[1]["tool_choice"] == "none"
+    assert json.loads(run_payloads[1]["messages"][-1]["content"])["text"] == "Weather body"
+
+
 def test_chat_completions_uses_gemini_acp_when_enabled(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
     monkeypatch.setenv("GEMINI_ACP_ENABLED", "true")

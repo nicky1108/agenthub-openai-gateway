@@ -196,16 +196,29 @@ async def web_fetch(
 
 
 def request_enables_web_fetch(payload: dict[str, Any]) -> bool:
+    return web_fetch_tool_name(payload) is not None
+
+
+def web_fetch_tool_name(payload: dict[str, Any]) -> str | None:
     tools = payload.get("tools")
     if not isinstance(tools, list):
-        return False
+        return None
     for tool in tools:
         if not isinstance(tool, dict) or tool.get("type") != "function":
             continue
         function = tool.get("function")
         if isinstance(function, dict) and function.get("name") in WEB_FETCH_TOOL_NAMES:
-            return True
-    return False
+            return str(function["name"])
+    return None
+
+
+def with_default_web_fetch_tool_choice(payload: dict[str, Any]) -> dict[str, Any]:
+    if payload.get("tool_choice") is not None:
+        return payload
+    tool_name = web_fetch_tool_name(payload)
+    if tool_name is None:
+        return payload
+    return {**payload, "tool_choice": {"type": "function", "function": {"name": tool_name}}}
 
 
 def tool_choice_forces_web_fetch(payload: dict[str, Any]) -> bool:

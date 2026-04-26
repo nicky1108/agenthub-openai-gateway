@@ -69,6 +69,20 @@ def test_builtin_tool_detects_forced_web_fetch_choice() -> None:
     )
 
 
+def test_builtin_tool_defaults_declared_web_fetch_choice() -> None:
+    payload = {
+        "tools": [{"type": "function", "function": {"name": "web_fetch"}}],
+    }
+
+    assert builtin_tools.with_default_web_fetch_tool_choice(payload) == {
+        **payload,
+        "tool_choice": {"type": "function", "function": {"name": "web_fetch"}},
+    }
+    assert builtin_tools.with_default_web_fetch_tool_choice(
+        {**payload, "tool_choice": "auto"}
+    )["tool_choice"] == "auto"
+
+
 @pytest.mark.asyncio
 async def test_execute_builtin_tool_calls_returns_tool_messages(monkeypatch) -> None:
     async def _fake_web_fetch(arguments):
