@@ -103,7 +103,7 @@ describe("public gateway frontend", () => {
             }),
           );
         }
-        if (path.includes("/portal/usage/records")) {
+        if (path.includes("/user/usage/records")) {
           return new Response(
             JSON.stringify({
               items: [],

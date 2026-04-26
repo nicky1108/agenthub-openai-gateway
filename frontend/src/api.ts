@@ -412,7 +412,7 @@ export async function getPortalUsageRecords(
   if (params.limit) search.set("limit", String(params.limit));
   if (params.offset) search.set("offset", String(params.offset));
   const suffix = search.toString() ? `?${search.toString()}` : "";
-  return request<PortalUsageRecordsPage>(`/portal/usage/records${suffix}`);
+  return request<PortalUsageRecordsPage>(`/user/usage/records${suffix}`);
 }
 
 export async function retryPortalSync(): Promise<RetrySyncResult> {

@@ -129,6 +129,7 @@ def test_portal_usage_records_show_current_account_call_costs(tmp_path, monkeypa
             connection.close()
 
         response = client.get("/portal/usage/records")
+        user_alias_response = client.get("/user/usage/records")
         filtered_response = client.get(f"/portal/usage/records?api_key_id={api_key_id}")
 
     assert response.status_code == 200
@@ -151,6 +152,8 @@ def test_portal_usage_records_show_current_account_call_costs(tmp_path, monkeypa
     assert row["usd_amount"] == 0.0123
     assert row["pricing_source"] == "official_snapshot"
     assert row["token_source"] == "provider"
+    assert user_alias_response.status_code == 200
+    assert user_alias_response.json()["items"][0]["id"] == row["id"]
     assert filtered_response.status_code == 200
     assert filtered_response.json()["items"][0]["id"] == row["id"]
 

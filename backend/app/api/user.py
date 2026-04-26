@@ -5,12 +5,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.portal import require_portal_account
+from app.api.portal import require_portal_account, usage_records as portal_usage_records
 from app.adapters.base import ChatRequest
 from app.adapters.http.anthropic_messages import AnthropicMessagesAdapter
 from app.auth.service import generate_api_key, hash_api_key
@@ -267,6 +267,23 @@ async def list_api_keys(
     )
     usage_counts = await _usage_counts_by_key(session, [key.id for key in keys])
     return [_serialize_api_key(key, usage_counts.get(key.id)) for key in keys]
+
+
+@router.get("/usage/records")
+async def list_usage_records(
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    api_key_id: int | None = None,
+    session: AsyncSession = Depends(get_session),
+    account: AccountRecord = Depends(require_portal_account),
+) -> dict[str, Any]:
+    return await portal_usage_records(
+        limit=limit,
+        offset=offset,
+        api_key_id=api_key_id,
+        account=account,
+        session=session,
+    )
 
 
 @router.post("/api-keys", status_code=status.HTTP_201_CREATED)
