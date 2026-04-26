@@ -66,6 +66,22 @@ class ProviderCreate(BaseModel):
         return self
 
 
+class ProviderPatch(BaseModel):
+    exposed_model: str | None = None
+    http_enabled: bool | None = None
+    cli_enabled: bool | None = None
+    route_policy: str | None = None
+    chat_capable: bool | None = None
+    stream_capable: bool | None = None
+    http_base_url: str | None = None
+    http_api_key: str | None = None
+    http_headers_json: str | None = None
+    cli_command: str | None = None
+    cli_args_json: str | None = None
+    cli_env_json: str | None = None
+    cli_cwd: str | None = None
+
+
 class ProviderRead(BaseModel):
     id: int
     name: str
@@ -250,6 +266,24 @@ class ApiKeyCreate(BaseModel):
     per_day: int | None = None
 
 
+class ApiKeyUpdate(BaseModel):
+    name: str | None = None
+    status: str | None = None
+    per_minute: int | None = None
+    per_hour: int | None = None
+    per_day: int | None = None
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        status_value = value.strip().lower()
+        if status_value not in {"active", "revoked"}:
+            raise ValueError("must be active or revoked")
+        return status_value
+
+
 class ApiKeyRead(BaseModel):
     id: int
     account_id: int
@@ -403,6 +437,33 @@ def serialize_account(account: AccountRecord, settings: Settings) -> AccountRead
     )
 
 
+def serialize_api_key(row: ApiKeyRecord) -> ApiKeyRead:
+    return ApiKeyRead(
+        id=row.id,
+        account_id=row.account_id,
+        name=row.name,
+        key_prefix=row.key_prefix,
+        status=row.status,
+        per_minute=row.per_minute,
+        per_hour=row.per_hour,
+        per_day=row.per_day,
+        last_used_at=row.last_used_at.isoformat() if row.last_used_at else None,
+    )
+
+
+def validate_provider_transport(record: ProviderRecord) -> None:
+    if record.http_enabled and not record.http_base_url:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="http_base_url is required when http_enabled is true",
+        )
+    if record.cli_enabled and not record.cli_command:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="cli_command is required when cli_enabled is true",
+        )
+
+
 def build_timeseries_window(window: Literal["24h", "7d"]) -> tuple[list[datetime], list[str], timedelta]:
     now = datetime.now(timezone.utc)
     if window == "24h":
@@ -452,6 +513,77 @@ async def list_providers(
 ) -> list[ProviderRead]:
     rows = await session.scalars(select(ProviderRecord).order_by(ProviderRecord.id.asc()))
     return [ProviderRead.model_validate(row, from_attributes=True) for row in rows]
+
+
+@router.patch("/providers/{provider_name}", response_model=ProviderRead)
+async def update_provider(
+    provider_name: str,
+    payload: ProviderPatch,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ProviderRead:
+    record = await session.scalar(select(ProviderRecord).where(ProviderRecord.name == provider_name))
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider not found")
+
+    fields = payload.model_fields_set
+    if "exposed_model" in fields and payload.exposed_model is not None:
+        record.exposed_model = payload.exposed_model
+    if "http_enabled" in fields and payload.http_enabled is not None:
+        record.http_enabled = payload.http_enabled
+    if "cli_enabled" in fields and payload.cli_enabled is not None:
+        record.cli_enabled = payload.cli_enabled
+    if "route_policy" in fields and payload.route_policy is not None:
+        record.route_policy = payload.route_policy
+    if "chat_capable" in fields and payload.chat_capable is not None:
+        record.chat_capable = payload.chat_capable
+    if "stream_capable" in fields and payload.stream_capable is not None:
+        record.stream_capable = payload.stream_capable
+    if "http_base_url" in fields:
+        record.http_base_url = payload.http_base_url
+    if "http_api_key" in fields:
+        record.http_api_key = payload.http_api_key
+    if "http_headers_json" in fields and payload.http_headers_json is not None:
+        record.http_headers_json = payload.http_headers_json
+    if "cli_command" in fields:
+        record.cli_command = payload.cli_command
+    if "cli_args_json" in fields and payload.cli_args_json is not None:
+        record.cli_args_json = payload.cli_args_json
+    if "cli_env_json" in fields and payload.cli_env_json is not None:
+        record.cli_env_json = payload.cli_env_json
+    if "cli_cwd" in fields:
+        record.cli_cwd = payload.cli_cwd
+
+    validate_provider_transport(record)
+    await session.commit()
+    await session.refresh(record)
+    return ProviderRead.model_validate(record, from_attributes=True)
+
+
+@router.delete("/providers/{provider_name}", response_model=ProviderRead)
+async def delete_provider(
+    provider_name: str,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ProviderRead:
+    record = await session.scalar(select(ProviderRecord).where(ProviderRecord.name == provider_name))
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider not found")
+    payload = ProviderRead.model_validate(record, from_attributes=True)
+
+    model_rows = list(
+        await session.scalars(select(ProviderModelRecord).where(ProviderModelRecord.provider_id == record.id))
+    )
+    pricing_rows = list(
+        await session.scalars(select(ModelPricingRecord).where(ModelPricingRecord.provider_name == record.name))
+    )
+    for row in model_rows:
+        await session.delete(row)
+    for row in pricing_rows:
+        await session.delete(row)
+    await session.delete(record)
+    await session.commit()
+    return payload
 
 
 @router.get("/health", response_model=list[ProviderHealth])
@@ -545,6 +677,22 @@ async def update_account(
     except IntegrityError as exc:
         await session.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="account already exists") from exc
+    await session.refresh(account)
+    return serialize_account(account, settings)
+
+
+@router.delete("/accounts/{account_id}", response_model=AccountRead)
+async def delete_account(
+    account_id: int,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> AccountRead:
+    account = await session.scalar(select(AccountRecord).where(AccountRecord.id == account_id))
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+    account.status = "deleted"
+    await session.commit()
     await session.refresh(account)
     return serialize_account(account, settings)
 
@@ -668,20 +816,40 @@ async def list_api_keys(
     session: AsyncSession = Depends(get_session),
 ) -> list[ApiKeyRead]:
     rows = await session.scalars(select(ApiKeyRecord).order_by(ApiKeyRecord.id.asc()))
-    return [
-        ApiKeyRead(
-            id=row.id,
-            account_id=row.account_id,
-            name=row.name,
-            key_prefix=row.key_prefix,
-            status=row.status,
-            per_minute=row.per_minute,
-            per_hour=row.per_hour,
-            per_day=row.per_day,
-            last_used_at=row.last_used_at.isoformat() if row.last_used_at else None,
-        )
-        for row in rows
-    ]
+    return [serialize_api_key(row) for row in rows]
+
+
+@router.patch("/api-keys/{key_id}", response_model=ApiKeyRead)
+async def update_api_key(
+    key_id: int,
+    payload: ApiKeyUpdate,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ApiKeyRead:
+    row = await session.scalar(select(ApiKeyRecord).where(ApiKeyRecord.id == key_id))
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api key not found")
+    fields = payload.model_fields_set
+    if "name" in fields and payload.name is not None:
+        stripped_name = payload.name.strip()
+        if not stripped_name:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="api key name is required")
+        row.name = stripped_name
+    if "status" in fields and payload.status is not None:
+        row.status = payload.status
+        if payload.status == "revoked" and row.revoked_at is None:
+            row.revoked_at = datetime.now(timezone.utc)
+        if payload.status == "active":
+            row.revoked_at = None
+    if "per_minute" in fields:
+        row.per_minute = payload.per_minute
+    if "per_hour" in fields:
+        row.per_hour = payload.per_hour
+    if "per_day" in fields:
+        row.per_day = payload.per_day
+    await session.commit()
+    await session.refresh(row)
+    return serialize_api_key(row)
 
 
 @router.post("/api-keys/{key_id}/revoke", response_model=ApiKeyRead)
@@ -694,19 +862,19 @@ async def revoke_api_key(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api key not found")
     row.status = "revoked"
+    row.revoked_at = datetime.now(timezone.utc)
     await session.commit()
     await session.refresh(row)
-    return ApiKeyRead(
-        id=row.id,
-        account_id=row.account_id,
-        name=row.name,
-        key_prefix=row.key_prefix,
-        status=row.status,
-        per_minute=row.per_minute,
-        per_hour=row.per_hour,
-        per_day=row.per_day,
-        last_used_at=row.last_used_at.isoformat() if row.last_used_at else None,
-    )
+    return serialize_api_key(row)
+
+
+@router.delete("/api-keys/{key_id}", response_model=ApiKeyRead)
+async def delete_api_key(
+    key_id: int,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ApiKeyRead:
+    return await revoke_api_key(key_id, None, session)
 
 
 @router.get("/api-keys/{key_id}/usage", response_model=UsageSummary)
@@ -1070,6 +1238,44 @@ async def create_provider_model(
         manually_overridden=row.manually_overridden,
         pricing=serialize_pricing(pricing_row),
     )
+
+
+@router.delete("/providers/{provider_name}/models/{native_model}", response_model=ProviderModelRead)
+async def delete_provider_model(
+    provider_name: str,
+    native_model: str,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ProviderModelRead:
+    provider = await session.scalar(select(ProviderRecord).where(ProviderRecord.name == provider_name))
+    if provider is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider not found")
+    row = await session.scalar(
+        select(ProviderModelRecord).where(
+            ProviderModelRecord.provider_id == provider.id,
+            ProviderModelRecord.native_model == native_model,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider model not found")
+    pricing_row = await session.scalar(
+        select(ModelPricingRecord).where(
+            ModelPricingRecord.provider_name == provider_name,
+            ModelPricingRecord.native_model == row.native_model,
+        )
+    )
+    payload = ProviderModelRead(
+        id=row.id,
+        native_model=row.native_model,
+        exposed_model_id=row.exposed_model_id,
+        source=row.source,
+        enabled=row.enabled,
+        manually_overridden=row.manually_overridden,
+        pricing=serialize_pricing(pricing_row),
+    )
+    await session.delete(row)
+    await session.commit()
+    return payload
 
 
 def serialize_pricing(row: ModelPricingRecord | None) -> ModelPricingRead | None:

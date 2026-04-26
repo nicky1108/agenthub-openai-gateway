@@ -571,6 +571,23 @@ export async function createAdminProvider(
   });
 }
 
+export async function updateAdminProvider(
+  adminSecret: string,
+  providerName: string,
+  payload: Record<string, unknown>,
+): Promise<AdminProviderRecord> {
+  return requestAdmin<AdminProviderRecord>(`/admin/providers/${providerName}`, adminSecret, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAdminProvider(adminSecret: string, providerName: string): Promise<AdminProviderRecord> {
+  return requestAdmin<AdminProviderRecord>(`/admin/providers/${providerName}`, adminSecret, {
+    method: "DELETE",
+  });
+}
+
 export async function createAdminProviderModel(
   adminSecret: string,
   providerName: string,
@@ -579,6 +596,16 @@ export async function createAdminProviderModel(
   return requestAdmin<AdminProviderModelRecord>(`/admin/providers/${providerName}/models`, adminSecret, {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAdminProviderModel(
+  adminSecret: string,
+  providerName: string,
+  nativeModel: string,
+): Promise<AdminProviderModelRecord> {
+  return requestAdmin<AdminProviderModelRecord>(`/admin/providers/${providerName}/models/${nativeModel}`, adminSecret, {
+    method: "DELETE",
   });
 }
 
@@ -604,6 +631,12 @@ export async function updateAdminAccount(
   return requestAdmin<AdminAccountRecord>(`/admin/accounts/${accountId}`, adminSecret, {
     method: "PATCH",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAdminAccount(adminSecret: string, accountId: number): Promise<AdminAccountRecord> {
+  return requestAdmin<AdminAccountRecord>(`/admin/accounts/${accountId}`, adminSecret, {
+    method: "DELETE",
   });
 }
 
@@ -646,6 +679,23 @@ export async function createAdminApiKey(
 export async function revokeAdminApiKey(adminSecret: string, keyId: number): Promise<AdminApiKeyRecord> {
   return requestAdmin<AdminApiKeyRecord>(`/admin/api-keys/${keyId}/revoke`, adminSecret, {
     method: "POST",
+  });
+}
+
+export async function updateAdminApiKey(
+  adminSecret: string,
+  keyId: number,
+  payload: { name?: string; status?: string; per_minute?: number | null; per_hour?: number | null; per_day?: number | null },
+): Promise<AdminApiKeyRecord> {
+  return requestAdmin<AdminApiKeyRecord>(`/admin/api-keys/${keyId}`, adminSecret, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAdminApiKey(adminSecret: string, keyId: number): Promise<AdminApiKeyRecord> {
+  return requestAdmin<AdminApiKeyRecord>(`/admin/api-keys/${keyId}`, adminSecret, {
+    method: "DELETE",
   });
 }
 

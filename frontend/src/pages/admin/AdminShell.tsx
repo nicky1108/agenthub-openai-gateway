@@ -21,6 +21,10 @@ import {
   createAdminApiKey,
   createAdminProvider,
   createAdminProviderModel,
+  deleteAdminAccount,
+  deleteAdminApiKey,
+  deleteAdminProvider,
+  deleteAdminProviderModel,
   getAdminAccounts,
   getAdminAccountCreditLedger,
   getAdminApiKeys,
@@ -35,10 +39,11 @@ import {
   patchAdminProviderModel,
   rediscoverAdminProviderModels,
   refreshAdminProviderPricing,
-  revokeAdminApiKey,
   sendAdminTestChat,
   streamAdminTestChat,
+  updateAdminApiKey,
   updateAdminAccount,
+  updateAdminProvider,
 } from "../../api";
 import type { Locale } from "../../i18n";
 
@@ -49,6 +54,30 @@ type AdminShellProps = {
 };
 
 type AdminView = "overview" | "providers" | "models" | "accounts" | "api-keys" | "usage" | "permissions" | "settings";
+type AdminModal =
+  | { kind: "provider-create" }
+  | { kind: "provider-edit"; provider: AdminProviderRecord }
+  | { kind: "provider-delete"; provider: AdminProviderRecord }
+  | { kind: "model-create" }
+  | { kind: "model-edit"; model: AdminProviderModelRecord }
+  | { kind: "model-delete"; model: AdminProviderModelRecord }
+  | { kind: "model-pricing"; model: AdminProviderModelRecord }
+  | { kind: "model-test"; model: AdminProviderModelRecord }
+  | { kind: "account-create" }
+  | { kind: "account-edit"; account: AdminAccountRecord }
+  | { kind: "account-delete"; account: AdminAccountRecord }
+  | { kind: "credit-adjust"; account: AdminAccountRecord }
+  | { kind: "api-key-create" }
+  | { kind: "api-key-edit"; apiKey: AdminApiKeyRecord }
+  | { kind: "api-key-delete"; apiKey: AdminApiKeyRecord };
+
+function parseOptionalInt(value: string): number | null {
+  if (!value.trim()) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
 
 function buildTrafficPath(series: AdminDashboardTimeseries | null): { stroke: string; fill: string } {
   const buckets = series?.buckets ?? [];
@@ -71,6 +100,9 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [modal, setModal] = useState<AdminModal | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [modalBusy, setModalBusy] = useState(false);
   const [summary, setSummary] = useState<AdminDashboardSummary | null>(null);
   const [timeseries, setTimeseries] = useState<AdminDashboardTimeseries | null>(null);
   const [dashboardWindow, setDashboardWindow] = useState<"24h" | "7d">("24h");
@@ -89,6 +121,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   const [accountName, setAccountName] = useState("");
   const [accountEmail, setAccountEmail] = useState("");
   const [accountIsAdmin, setAccountIsAdmin] = useState(false);
+  const [accountStatus, setAccountStatus] = useState("active");
   const [accountNotes, setAccountNotes] = useState("");
   const [creditAdjustment, setCreditAdjustment] = useState("");
   const [creditAdjustmentReason, setCreditAdjustmentReason] = useState("");
@@ -97,6 +130,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   const [apiKeyMinute, setApiKeyMinute] = useState("");
   const [apiKeyHour, setApiKeyHour] = useState("");
   const [apiKeyDay, setApiKeyDay] = useState("");
+  const [apiKeyStatus, setApiKeyStatus] = useState("active");
   const [createdApiKey, setCreatedApiKey] = useState<string | null>(null);
 
   const [providerName, setProviderName] = useState("");
@@ -111,6 +145,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
 
   const [manualNativeModel, setManualNativeModel] = useState("");
   const [manualExposedModelId, setManualExposedModelId] = useState("");
+  const [manualModelEnabled, setManualModelEnabled] = useState(true);
   const [pricingInput, setPricingInput] = useState("");
   const [pricingCachedInput, setPricingCachedInput] = useState("");
   const [pricingOutput, setPricingOutput] = useState("");
@@ -388,6 +423,33 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           authProviders: "Auth providers",
         },
       };
+  const actionCopy = isZh
+    ? {
+        create: "新建",
+        edit: "编辑",
+        delete: "删除",
+        cancel: "取消",
+        save: "保存",
+        confirmDelete: "确认删除",
+        close: "关闭",
+        test: "测试",
+        pricing: "价格",
+        adjustCredits: "调整信用点",
+        rawKey: "明文 Key 只展示一次",
+      }
+    : {
+        create: "Create",
+        edit: "Edit",
+        delete: "Delete",
+        cancel: "Cancel",
+        save: "Save",
+        confirmDelete: "Confirm delete",
+        close: "Close",
+        test: "Test",
+        pricing: "Pricing",
+        adjustCredits: "Adjust credits",
+        rawKey: "Raw key is shown once",
+      };
 
   async function loadData() {
     setLoading(true);
@@ -429,6 +491,121 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   async function loadSelectedProviderModels(providerName: string) {
     const rows = await getAdminProviderModels(adminSecret, providerName);
     setProviderModels((current) => ({ ...current, [providerName]: Array.isArray(rows) ? rows : [] }));
+  }
+
+  function openModal(next: AdminModal) {
+    setModalError(null);
+    setModal(next);
+  }
+
+  function closeModal() {
+    if (modalBusy) return;
+    setModal(null);
+    setModalError(null);
+  }
+
+  function openProviderCreateModal() {
+    setProviderName("");
+    setProviderExposedModel("default");
+    setProviderRoutePolicy("http-first");
+    setProviderHttpEnabled(true);
+    setProviderCliEnabled(false);
+    setProviderChatCapable(true);
+    setProviderStreamCapable(true);
+    setProviderHttpBaseUrl("");
+    setProviderCliCommand("");
+    openModal({ kind: "provider-create" });
+  }
+
+  function openProviderEditModal(provider: AdminProviderRecord) {
+    setProviderName(provider.name);
+    setProviderExposedModel(provider.exposed_model);
+    setProviderRoutePolicy(provider.route_policy);
+    setProviderHttpEnabled(provider.http_enabled);
+    setProviderCliEnabled(provider.cli_enabled);
+    setProviderChatCapable(provider.chat_capable);
+    setProviderStreamCapable(provider.stream_capable);
+    setProviderHttpBaseUrl(provider.http_base_url ?? "");
+    setProviderCliCommand(provider.cli_command ?? "");
+    openModal({ kind: "provider-edit", provider });
+  }
+
+  function openModelCreateModal() {
+    setManualNativeModel("");
+    setManualExposedModelId("");
+    setManualModelEnabled(true);
+    openModal({ kind: "model-create" });
+  }
+
+  function openModelEditModal(model: AdminProviderModelRecord) {
+    setManualNativeModel(model.native_model);
+    setManualExposedModelId(model.exposed_model_id);
+    setManualModelEnabled(model.enabled);
+    setSelectedModelNativeModel(model.native_model);
+    openModal({ kind: "model-edit", model });
+  }
+
+  function openModelPricingModal(model: AdminProviderModelRecord) {
+    setSelectedModelNativeModel(model.native_model);
+    setPricingInput(model.pricing?.input_price?.toString() ?? "");
+    setPricingCachedInput(model.pricing?.cached_input_price?.toString() ?? "");
+    setPricingOutput(model.pricing?.output_price?.toString() ?? "");
+    setPricingNotes(model.pricing?.notes ?? "");
+    openModal({ kind: "model-pricing", model });
+  }
+
+  function openModelTestModal(model: AdminProviderModelRecord) {
+    setSelectedModelNativeModel(model.native_model);
+    setTestMessage("");
+    setTestChatError(null);
+    setTestChatStatus("idle");
+    setTestChatMessages([]);
+    openModal({ kind: "model-test", model });
+  }
+
+  function openAccountCreateModal() {
+    setAccountName("");
+    setAccountEmail("");
+    setAccountIsAdmin(false);
+    setAccountStatus("active");
+    setAccountNotes("");
+    openModal({ kind: "account-create" });
+  }
+
+  function openAccountEditModal(account: AdminAccountRecord) {
+    setAccountName(account.name);
+    setAccountEmail(account.email ?? "");
+    setAccountIsAdmin(account.is_admin);
+    setAccountStatus(account.status);
+    setAccountNotes(account.notes ?? "");
+    setSelectedAccountId(String(account.id));
+    openModal({ kind: "account-edit", account });
+  }
+
+  function openCreditAdjustmentModal(account: AdminAccountRecord) {
+    setSelectedAccountId(String(account.id));
+    setCreditAdjustment("");
+    setCreditAdjustmentReason("");
+    openModal({ kind: "credit-adjust", account });
+  }
+
+  function openApiKeyCreateModal() {
+    setApiKeyName("");
+    setApiKeyMinute("");
+    setApiKeyHour("");
+    setApiKeyDay("");
+    setApiKeyStatus("active");
+    openModal({ kind: "api-key-create" });
+  }
+
+  function openApiKeyEditModal(apiKey: AdminApiKeyRecord) {
+    setSelectedAccountId(String(apiKey.account_id));
+    setApiKeyName(apiKey.name);
+    setApiKeyMinute(apiKey.per_minute == null ? "" : String(apiKey.per_minute));
+    setApiKeyHour(apiKey.per_hour == null ? "" : String(apiKey.per_hour));
+    setApiKeyDay(apiKey.per_day == null ? "" : String(apiKey.per_day));
+    setApiKeyStatus(apiKey.status);
+    openModal({ kind: "api-key-edit", apiKey });
   }
 
   useEffect(() => {
@@ -473,21 +650,38 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     });
   }, [adminSecret, selectedAccountId]);
 
-  async function handleCreateAccount(event: FormEvent<HTMLFormElement>) {
+  async function handleSaveAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const created = await createAdminAccount(adminSecret, {
-      name: accountName,
-      email: accountEmail || null,
-      is_admin: accountIsAdmin,
-      notes: accountNotes || null,
-    });
-    setAccounts((current) => current.concat(created));
-    setSelectedAccountId(String(created.id));
-    setAccountName("");
-    setAccountEmail("");
-    setAccountIsAdmin(false);
-    setAccountNotes("");
-    setNotice(isZh ? "账户已创建。" : "Account created.");
+    setModalBusy(true);
+    setModalError(null);
+    try {
+      if (modal?.kind === "account-edit") {
+        const updated = await updateAdminAccount(adminSecret, modal.account.id, {
+          name: accountName,
+          email: accountEmail || null,
+          status: accountStatus,
+          is_admin: accountIsAdmin,
+          notes: accountNotes || null,
+        });
+        setAccounts((current) => current.map((row) => (row.id === updated.id ? updated : row)));
+        setNotice(isZh ? "账户已更新。" : "Account updated.");
+      } else {
+        const created = await createAdminAccount(adminSecret, {
+          name: accountName,
+          email: accountEmail || null,
+          is_admin: accountIsAdmin,
+          notes: accountNotes || null,
+        });
+        setAccounts((current) => current.concat(created));
+        setSelectedAccountId(String(created.id));
+        setNotice(isZh ? "账户已创建。" : "Account created.");
+      }
+      setModal(null);
+    } catch (saveError) {
+      setModalError(saveError instanceof Error ? saveError.message : "request failed");
+    } finally {
+      setModalBusy(false);
+    }
   }
 
   async function handleUpdateAccount(accountId: number, payload: Parameters<typeof updateAdminAccount>[2]) {
@@ -496,49 +690,96 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     setNotice(isZh ? "账户已更新。" : "Account updated.");
   }
 
+  async function handleDeleteAccount(account: AdminAccountRecord) {
+    setModalBusy(true);
+    setModalError(null);
+    try {
+      const updated = await deleteAdminAccount(adminSecret, account.id);
+      setAccounts((current) => current.map((row) => (row.id === updated.id ? updated : row)));
+      setNotice(isZh ? "账户已删除。" : "Account deleted.");
+      setModal(null);
+    } catch (deleteError) {
+      setModalError(deleteError instanceof Error ? deleteError.message : "request failed");
+    } finally {
+      setModalBusy(false);
+    }
+  }
+
   async function handleAdjustCredits(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedAccountId || !creditAdjustment.trim()) return;
-    const accountId = Number(selectedAccountId);
-    const adjusted = await adjustAdminAccountCredits(adminSecret, accountId, {
-      credits_delta: Number(creditAdjustment),
-      notes: creditAdjustmentReason || undefined,
-    });
-    setAccounts((current) => current.map((row) => (row.id === adjusted.id ? adjusted : row)));
-    const ledger = await getAdminAccountCreditLedger(adminSecret, accountId);
-    setCreditLedger((current) => ({ ...current, [accountId]: ledger }));
-    setCreditAdjustment("");
-    setCreditAdjustmentReason("");
-    setNotice(isZh ? "信用点已调整。" : "Credits adjusted.");
+    setModalBusy(true);
+    setModalError(null);
+    try {
+      const accountId = Number(selectedAccountId);
+      const adjusted = await adjustAdminAccountCredits(adminSecret, accountId, {
+        credits_delta: Number(creditAdjustment),
+        notes: creditAdjustmentReason || undefined,
+      });
+      setAccounts((current) => current.map((row) => (row.id === adjusted.id ? adjusted : row)));
+      const ledger = await getAdminAccountCreditLedger(adminSecret, accountId);
+      setCreditLedger((current) => ({ ...current, [accountId]: ledger }));
+      setNotice(isZh ? "信用点已调整。" : "Credits adjusted.");
+      setModal(null);
+    } catch (adjustError) {
+      setModalError(adjustError instanceof Error ? adjustError.message : "request failed");
+    } finally {
+      setModalBusy(false);
+    }
   }
 
-  async function handleCreateApiKey(event: FormEvent<HTMLFormElement>) {
+  async function handleSaveApiKey(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const created = await createAdminApiKey(adminSecret, {
-      account_id: Number(selectedAccountId),
-      name: apiKeyName,
-      per_minute: apiKeyMinute ? Number(apiKeyMinute) : null,
-      per_hour: apiKeyHour ? Number(apiKeyHour) : null,
-      per_day: apiKeyDay ? Number(apiKeyDay) : null,
-    });
-    setApiKeys((current) => current.concat(created));
-    setCreatedApiKey(created.api_key);
-    setApiKeyName("");
-    setApiKeyMinute("");
-    setApiKeyHour("");
-    setApiKeyDay("");
-    setNotice(isZh ? "API Key 已创建。" : "API key created.");
+    setModalBusy(true);
+    setModalError(null);
+    try {
+      if (modal?.kind === "api-key-edit") {
+        const updated = await updateAdminApiKey(adminSecret, modal.apiKey.id, {
+          name: apiKeyName,
+          status: apiKeyStatus,
+          per_minute: parseOptionalInt(apiKeyMinute),
+          per_hour: parseOptionalInt(apiKeyHour),
+          per_day: parseOptionalInt(apiKeyDay),
+        });
+        setApiKeys((current) => current.map((row) => (row.id === updated.id ? updated : row)));
+        setNotice(isZh ? "API Key 已更新。" : "API key updated.");
+      } else {
+        const created = await createAdminApiKey(adminSecret, {
+          account_id: Number(selectedAccountId),
+          name: apiKeyName,
+          per_minute: parseOptionalInt(apiKeyMinute),
+          per_hour: parseOptionalInt(apiKeyHour),
+          per_day: parseOptionalInt(apiKeyDay),
+        });
+        setApiKeys((current) => current.concat(created));
+        setCreatedApiKey(created.api_key);
+        setNotice(isZh ? "API Key 已创建。" : "API key created.");
+      }
+      setModal(null);
+    } catch (saveError) {
+      setModalError(saveError instanceof Error ? saveError.message : "request failed");
+    } finally {
+      setModalBusy(false);
+    }
   }
 
-  async function handleRevokeApiKey(keyId: number) {
-    const updated = await revokeAdminApiKey(adminSecret, keyId);
-    setApiKeys((current) => current.map((row) => (row.id === keyId ? updated : row)));
-    setNotice(isZh ? "API Key 已撤销。" : "API key revoked.");
+  async function handleDeleteApiKey(apiKey: AdminApiKeyRecord) {
+    setModalBusy(true);
+    setModalError(null);
+    try {
+      const updated = await deleteAdminApiKey(adminSecret, apiKey.id);
+      setApiKeys((current) => current.map((row) => (row.id === updated.id ? updated : row)));
+      setNotice(isZh ? "API Key 已撤销。" : "API key revoked.");
+      setModal(null);
+    } catch (deleteError) {
+      setModalError(deleteError instanceof Error ? deleteError.message : "request failed");
+    } finally {
+      setModalBusy(false);
+    }
   }
 
-  async function handleCreateProvider(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const created = await createAdminProvider(adminSecret, {
+  function buildProviderPayload() {
+    return {
       name: providerName,
       exposed_model: providerExposedModel,
       http_enabled: providerHttpEnabled,
@@ -553,20 +794,56 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       cli_args_json: "[]",
       cli_env_json: "{}",
       cli_cwd: null,
-    });
-    setProviders((current) => current.concat(created));
-    setSelectedProviderName(created.name);
-    setProviderName("");
-    setProviderExposedModel("default");
-    setProviderRoutePolicy("http-first");
-    setProviderHttpEnabled(true);
-    setProviderCliEnabled(false);
-    setProviderChatCapable(true);
-    setProviderStreamCapable(true);
-    setProviderHttpBaseUrl("");
-    setProviderCliCommand("");
-    setNotice(isZh ? "Provider 已创建。" : "Provider created.");
-    await loadData();
+    };
+  }
+
+  async function handleSaveProvider(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setModalBusy(true);
+    setModalError(null);
+    try {
+      if (modal?.kind === "provider-edit") {
+        const updated = await updateAdminProvider(adminSecret, modal.provider.name, buildProviderPayload());
+        setProviders((current) => current.map((row) => (row.id === updated.id ? updated : row)));
+        setSelectedProviderName(updated.name);
+        setNotice(isZh ? "Provider 已更新。" : "Provider updated.");
+      } else {
+        const created = await createAdminProvider(adminSecret, buildProviderPayload());
+        setProviders((current) => current.concat(created));
+        setSelectedProviderName(created.name);
+        setNotice(isZh ? "Provider 已创建。" : "Provider created.");
+      }
+      await loadData();
+      setModal(null);
+    } catch (saveError) {
+      setModalError(saveError instanceof Error ? saveError.message : "request failed");
+    } finally {
+      setModalBusy(false);
+    }
+  }
+
+  async function handleDeleteProvider(provider: AdminProviderRecord) {
+    setModalBusy(true);
+    setModalError(null);
+    try {
+      await deleteAdminProvider(adminSecret, provider.name);
+      setProviders((current) => current.filter((row) => row.id !== provider.id));
+      setHealth((current) => current.filter((row) => row.name !== provider.name));
+      setProviderModels((current) => {
+        const next = { ...current };
+        delete next[provider.name];
+        return next;
+      });
+      if (selectedProviderName === provider.name) {
+        setSelectedProviderName("");
+      }
+      setNotice(isZh ? "Provider 已删除。" : "Provider deleted.");
+      setModal(null);
+    } catch (deleteError) {
+      setModalError(deleteError instanceof Error ? deleteError.message : "request failed");
+    } finally {
+      setModalBusy(false);
+    }
   }
 
   async function handleRediscoverModels() {
@@ -583,54 +860,84 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     setNotice(isZh ? "价格快照已刷新。" : "Pricing snapshot refreshed.");
   }
 
-  async function handleToggleModel(nativeModel: string, enabled: boolean) {
-    if (!selectedProviderName) return;
-    const updated = await patchAdminProviderModel(adminSecret, selectedProviderName, nativeModel, { enabled: !enabled });
-    setProviderModels((current) => ({
-      ...current,
-      [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) => row.native_model === nativeModel ? updated : row),
-    }));
-  }
-
-  async function handleRenameModel(nativeModel: string, exposedModelId: string) {
-    if (!selectedProviderName) return;
-    const updated = await patchAdminProviderModel(adminSecret, selectedProviderName, nativeModel, { exposed_model_id: exposedModelId });
-    setProviderModels((current) => ({
-      ...current,
-      [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) => row.native_model === nativeModel ? updated : row),
-    }));
-  }
-
-  async function handleCreateManualModel(event: FormEvent<HTMLFormElement>) {
+  async function handleSaveModel(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedProviderName) return;
-    const created = await createAdminProviderModel(adminSecret, selectedProviderName, {
-      native_model: manualNativeModel,
-      exposed_model_id: manualExposedModelId,
-      enabled: true,
-    });
-    setProviderModels((current) => ({
-      ...current,
-      [selectedProviderName]: [...(Array.isArray(current[selectedProviderName]) ? current[selectedProviderName] : []), created],
-    }));
-    setManualNativeModel("");
-    setManualExposedModelId("");
+    setModalBusy(true);
+    setModalError(null);
+    try {
+      if (modal?.kind === "model-edit") {
+        const updated = await patchAdminProviderModel(adminSecret, selectedProviderName, modal.model.native_model, {
+          exposed_model_id: manualExposedModelId,
+          enabled: manualModelEnabled,
+        });
+        setProviderModels((current) => ({
+          ...current,
+          [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) => row.native_model === updated.native_model ? updated : row),
+        }));
+        setNotice(isZh ? "模型已更新。" : "Model updated.");
+      } else {
+        const created = await createAdminProviderModel(adminSecret, selectedProviderName, {
+          native_model: manualNativeModel,
+          exposed_model_id: manualExposedModelId,
+          enabled: manualModelEnabled,
+        });
+        setProviderModels((current) => ({
+          ...current,
+          [selectedProviderName]: [...(Array.isArray(current[selectedProviderName]) ? current[selectedProviderName] : []), created],
+        }));
+        setNotice(isZh ? "模型已添加。" : "Model added.");
+      }
+      setModal(null);
+    } catch (saveError) {
+      setModalError(saveError instanceof Error ? saveError.message : "request failed");
+    } finally {
+      setModalBusy(false);
+    }
+  }
+
+  async function handleDeleteModel(model: AdminProviderModelRecord) {
+    if (!selectedProviderName) return;
+    setModalBusy(true);
+    setModalError(null);
+    try {
+      await deleteAdminProviderModel(adminSecret, selectedProviderName, model.native_model);
+      setProviderModels((current) => ({
+        ...current,
+        [selectedProviderName]: (current[selectedProviderName] ?? []).filter((row) => row.native_model !== model.native_model),
+      }));
+      setNotice(isZh ? "模型已删除。" : "Model deleted.");
+      setModal(null);
+    } catch (deleteError) {
+      setModalError(deleteError instanceof Error ? deleteError.message : "request failed");
+    } finally {
+      setModalBusy(false);
+    }
   }
 
   async function handleSavePricing(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedProviderName || !selectedModelNativeModel) return;
-    const pricing = await patchAdminProviderModelPricing(adminSecret, selectedProviderName, selectedModelNativeModel, {
-      input_price: pricingInput ? Number(pricingInput) : null,
-      cached_input_price: pricingCachedInput ? Number(pricingCachedInput) : null,
-      output_price: pricingOutput ? Number(pricingOutput) : null,
-      notes: pricingNotes || null,
-    });
-    setProviderModels((current) => ({
-      ...current,
-      [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) => row.native_model === selectedModelNativeModel ? { ...row, pricing } : row),
-    }));
-    setNotice(isZh ? "价格覆盖已保存。" : "Pricing override saved.");
+    setModalBusy(true);
+    setModalError(null);
+    try {
+      const pricing = await patchAdminProviderModelPricing(adminSecret, selectedProviderName, selectedModelNativeModel, {
+        input_price: pricingInput ? Number(pricingInput) : null,
+        cached_input_price: pricingCachedInput ? Number(pricingCachedInput) : null,
+        output_price: pricingOutput ? Number(pricingOutput) : null,
+        notes: pricingNotes || null,
+      });
+      setProviderModels((current) => ({
+        ...current,
+        [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) => row.native_model === selectedModelNativeModel ? { ...row, pricing } : row),
+      }));
+      setNotice(isZh ? "价格覆盖已保存。" : "Pricing override saved.");
+      setModal(null);
+    } catch (saveError) {
+      setModalError(saveError instanceof Error ? saveError.message : "request failed");
+    } finally {
+      setModalBusy(false);
+    }
   }
 
   async function handleSendModelTest(event: FormEvent<HTMLFormElement>) {
@@ -704,12 +1011,191 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   }
 
   const selectedProviderModels = selectedProviderName && Array.isArray(providerModels[selectedProviderName]) ? providerModels[selectedProviderName] : [];
-  const selectedModel = selectedProviderModels.find((row) => row.native_model === selectedModelNativeModel) ?? null;
   const healthByProvider = new Map(health.map((item) => [item.name, item]));
   const chart = buildTrafficPath(timeseries);
   const totalSeriesRequests = (timeseries?.buckets ?? []).reduce((sum, bucket) => sum + bucket.total_requests, 0);
   const totalSeriesErrors = (timeseries?.buckets ?? []).reduce((sum, bucket) => sum + bucket.error_requests, 0);
   const totalSeriesLimited = (timeseries?.buckets ?? []).reduce((sum, bucket) => sum + bucket.limited_requests, 0);
+
+  function renderModal() {
+    if (!modal) return null;
+    const titleByKind: Record<AdminModal["kind"], string> = {
+      "provider-create": copy.providers.createTitle,
+      "provider-edit": `${actionCopy.edit} ${copy.providers.title}`,
+      "provider-delete": `${actionCopy.delete} ${copy.providers.title}`,
+      "model-create": copy.models.manualTitle,
+      "model-edit": `${actionCopy.edit} ${copy.models.title}`,
+      "model-delete": `${actionCopy.delete} ${copy.models.title}`,
+      "model-pricing": copy.models.pricingWorkspace,
+      "model-test": copy.models.testWorkspace,
+      "account-create": copy.accounts.addAccount,
+      "account-edit": `${actionCopy.edit} ${copy.accounts.title}`,
+      "account-delete": `${actionCopy.delete} ${copy.accounts.title}`,
+      "credit-adjust": copy.accounts.adjustCredits,
+      "api-key-create": copy.apiKeys.createKey,
+      "api-key-edit": `${actionCopy.edit} ${copy.apiKeys.title}`,
+      "api-key-delete": `${copy.apiKeys.revoke} ${copy.apiKeys.title}`,
+    };
+
+    return (
+      <div className="confirm-dialog-backdrop" role="presentation">
+        <div aria-modal="true" className="admin-modal" role="dialog" aria-label={titleByKind[modal.kind]}>
+          <div className="admin-modal__header">
+            <strong>{titleByKind[modal.kind]}</strong>
+            <button className="ghost-action" onClick={closeModal} type="button">{actionCopy.close}</button>
+          </div>
+          {modalError ? <div className="inline-error">{modalError}</div> : null}
+
+          {(modal.kind === "provider-create" || modal.kind === "provider-edit") ? (
+            <form className="provider-form admin-modal__body" onSubmit={handleSaveProvider}>
+              <label><span>{copy.providers.providerName}</span><input disabled={modal.kind === "provider-edit"} value={providerName} onChange={(event) => setProviderName(event.target.value)} /></label>
+              <label><span>{copy.providers.exposedModel}</span><input value={providerExposedModel} onChange={(event) => setProviderExposedModel(event.target.value)} /></label>
+              <label><span>{copy.providers.routePolicy}</span><select value={providerRoutePolicy} onChange={(event) => setProviderRoutePolicy(event.target.value)}><option value="http-first">http-first</option><option value="cli-first">cli-first</option><option value="fixed-http">fixed-http</option><option value="fixed-cli">fixed-cli</option></select></label>
+              <label><span>{copy.providers.httpBaseUrl}</span><input value={providerHttpBaseUrl} onChange={(event) => setProviderHttpBaseUrl(event.target.value)} /></label>
+              <label><span>{copy.providers.cliCommand}</span><input value={providerCliCommand} onChange={(event) => setProviderCliCommand(event.target.value)} /></label>
+              <div className="model-chip-group">
+                <label><input checked={providerHttpEnabled} onChange={(event) => setProviderHttpEnabled(event.target.checked)} type="checkbox" /> {copy.providers.httpEnabled}</label>
+                <label><input checked={providerCliEnabled} onChange={(event) => setProviderCliEnabled(event.target.checked)} type="checkbox" /> {copy.providers.cliEnabled}</label>
+                <label><input checked={providerChatCapable} onChange={(event) => setProviderChatCapable(event.target.checked)} type="checkbox" /> {copy.providers.chatCapable}</label>
+                <label><input checked={providerStreamCapable} onChange={(event) => setProviderStreamCapable(event.target.checked)} type="checkbox" /> {copy.providers.streamCapable}</label>
+              </div>
+              <div className="admin-modal__actions">
+                <button className="ghost-action" onClick={closeModal} type="button">{actionCopy.cancel}</button>
+                <button className="primary-action" disabled={modalBusy || !providerName.trim()} type="submit">{actionCopy.save}</button>
+              </div>
+            </form>
+          ) : null}
+
+          {modal.kind === "provider-delete" ? (
+            <div className="admin-modal__body">
+              <p>{isZh ? `删除 Provider ${modal.provider.name}，会同时移除它的模型目录。` : `Delete provider ${modal.provider.name}. Its model catalog will also be removed.`}</p>
+              <div className="admin-modal__actions">
+                <button className="ghost-action" onClick={closeModal} type="button">{actionCopy.cancel}</button>
+                <button className="ghost-action ghost-action--danger" disabled={modalBusy} onClick={() => void handleDeleteProvider(modal.provider)} type="button">{actionCopy.confirmDelete}</button>
+              </div>
+            </div>
+          ) : null}
+
+          {(modal.kind === "model-create" || modal.kind === "model-edit") ? (
+            <form className="inline-form admin-modal__body" onSubmit={handleSaveModel}>
+              <label><span>{copy.models.nativeModel}</span><input disabled={modal.kind === "model-edit"} value={manualNativeModel} onChange={(event) => setManualNativeModel(event.target.value)} /></label>
+              <label><span>{copy.models.exposedAs}</span><input value={manualExposedModelId} onChange={(event) => setManualExposedModelId(event.target.value)} /></label>
+              <label><input checked={manualModelEnabled} onChange={(event) => setManualModelEnabled(event.target.checked)} type="checkbox" /> {copy.models.enable}</label>
+              <div className="admin-modal__actions">
+                <button className="ghost-action" onClick={closeModal} type="button">{actionCopy.cancel}</button>
+                <button className="primary-action" disabled={modalBusy || !manualNativeModel.trim() || !manualExposedModelId.trim()} type="submit">{actionCopy.save}</button>
+              </div>
+            </form>
+          ) : null}
+
+          {modal.kind === "model-delete" ? (
+            <div className="admin-modal__body">
+              <p>{isZh ? `删除模型 ${modal.model.native_model}。` : `Delete model ${modal.model.native_model}.`}</p>
+              <div className="admin-modal__actions">
+                <button className="ghost-action" onClick={closeModal} type="button">{actionCopy.cancel}</button>
+                <button className="ghost-action ghost-action--danger" disabled={modalBusy} onClick={() => void handleDeleteModel(modal.model)} type="button">{actionCopy.confirmDelete}</button>
+              </div>
+            </div>
+          ) : null}
+
+          {modal.kind === "model-pricing" ? (
+            <form className="inline-form admin-modal__body" onSubmit={handleSavePricing}>
+              <label><span>{copy.models.inputPrice}</span><input value={pricingInput} onChange={(event) => setPricingInput(event.target.value)} /></label>
+              <label><span>{copy.models.cachedInputPrice}</span><input value={pricingCachedInput} onChange={(event) => setPricingCachedInput(event.target.value)} /></label>
+              <label><span>{copy.models.outputPrice}</span><input value={pricingOutput} onChange={(event) => setPricingOutput(event.target.value)} /></label>
+              <label><span>{copy.models.pricingNotes}</span><input value={pricingNotes} onChange={(event) => setPricingNotes(event.target.value)} /></label>
+              <div className="admin-modal__actions">
+                <button className="ghost-action" onClick={closeModal} type="button">{actionCopy.cancel}</button>
+                <button className="primary-action" disabled={modalBusy} type="submit">{copy.models.savePricing}</button>
+              </div>
+            </form>
+          ) : null}
+
+          {modal.kind === "model-test" ? (
+            <div className="admin-modal__body">
+              <form className="inline-form" onSubmit={handleSendModelTest}>
+                <label><span>{modal.model.native_model}</span><input value={testMessage} onChange={(event) => setTestMessage(event.target.value)} /></label>
+                <div className="data-table__actions">
+                  <button className="primary-action" disabled={!testMessage.trim() || testChatStatus === "loading"} type="submit">{copy.models.sendTest}</button>
+                  <button className="ghost-action ghost-action--bright" disabled={!testMessage.trim() || testChatStatus === "loading"} onClick={() => void handleStreamModelTest()} type="button">{copy.models.streamTest}</button>
+                  <button className="ghost-action" disabled={testChatStatus !== "loading"} onClick={handleCancelStream} type="button">{copy.models.cancelStream}</button>
+                </div>
+              </form>
+              {testChatError ? <div className="inline-error">{testChatError}</div> : null}
+              <div className="admin-modal__transcript">
+                {testChatMessages.length === 0 ? <div className="empty-state empty-state--compact">{copy.models.noTranscript}</div> : testChatMessages.map((message, index) => (
+                  <article className="provider-row" key={`${message.role}-${index}`}>
+                    <div className="provider-row__body"><strong>{message.role}</strong><p>{message.content || "..."}</p></div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {(modal.kind === "account-create" || modal.kind === "account-edit") ? (
+            <form className="inline-form admin-modal__body" onSubmit={handleSaveAccount}>
+              <label><span>{copy.accounts.accountName}</span><input value={accountName} onChange={(event) => setAccountName(event.target.value)} /></label>
+              <label><span>{copy.accounts.accountEmail}</span><input value={accountEmail} onChange={(event) => setAccountEmail(event.target.value)} /></label>
+              {modal.kind === "account-edit" ? <label><span>{copy.accounts.columnStatus}</span><select value={accountStatus} onChange={(event) => setAccountStatus(event.target.value)}><option value="active">active</option><option value="suspended">suspended</option><option value="deleted">deleted</option></select></label> : null}
+              <label><span>{copy.accounts.accountNotes}</span><input value={accountNotes} onChange={(event) => setAccountNotes(event.target.value)} /></label>
+              <label><input checked={accountIsAdmin} onChange={(event) => setAccountIsAdmin(event.target.checked)} type="checkbox" /> {copy.accounts.adminRole}</label>
+              <div className="admin-modal__actions">
+                <button className="ghost-action" onClick={closeModal} type="button">{actionCopy.cancel}</button>
+                <button className="primary-action" disabled={modalBusy || !accountName.trim()} type="submit">{actionCopy.save}</button>
+              </div>
+            </form>
+          ) : null}
+
+          {modal.kind === "account-delete" ? (
+            <div className="admin-modal__body">
+              <p>{isZh ? `删除账户 ${modal.account.name}。这会将状态设为 deleted，不会硬删除历史流水。` : `Delete account ${modal.account.name}. This sets status to deleted and keeps historical ledger rows.`}</p>
+              <div className="admin-modal__actions">
+                <button className="ghost-action" onClick={closeModal} type="button">{actionCopy.cancel}</button>
+                <button className="ghost-action ghost-action--danger" disabled={modalBusy} onClick={() => void handleDeleteAccount(modal.account)} type="button">{actionCopy.confirmDelete}</button>
+              </div>
+            </div>
+          ) : null}
+
+          {modal.kind === "credit-adjust" ? (
+            <form className="inline-form admin-modal__body" onSubmit={handleAdjustCredits}>
+              <label><span>{copy.apiKeys.account}</span><input disabled value={modal.account.name} /></label>
+              <label><span>{copy.accounts.adjustmentAmount}</span><input value={creditAdjustment} onChange={(event) => setCreditAdjustment(event.target.value)} /></label>
+              <label><span>{copy.accounts.adjustmentReason}</span><input value={creditAdjustmentReason} onChange={(event) => setCreditAdjustmentReason(event.target.value)} /></label>
+              <div className="admin-modal__actions">
+                <button className="ghost-action" onClick={closeModal} type="button">{actionCopy.cancel}</button>
+                <button className="primary-action" disabled={modalBusy || !creditAdjustment.trim()} type="submit">{copy.accounts.applyAdjustment}</button>
+              </div>
+            </form>
+          ) : null}
+
+          {(modal.kind === "api-key-create" || modal.kind === "api-key-edit") ? (
+            <form className="inline-form admin-modal__body" onSubmit={handleSaveApiKey}>
+              <label><span>{copy.apiKeys.account}</span><select disabled={modal.kind === "api-key-edit"} value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+              <label><span>{copy.apiKeys.keyName}</span><input value={apiKeyName} onChange={(event) => setApiKeyName(event.target.value)} /></label>
+              {modal.kind === "api-key-edit" ? <label><span>{copy.apiKeys.columnStatus}</span><select value={apiKeyStatus} onChange={(event) => setApiKeyStatus(event.target.value)}><option value="active">active</option><option value="revoked">revoked</option></select></label> : null}
+              <label><span>{copy.apiKeys.perMinute}</span><input value={apiKeyMinute} onChange={(event) => setApiKeyMinute(event.target.value)} /></label>
+              <label><span>{copy.apiKeys.perHour}</span><input value={apiKeyHour} onChange={(event) => setApiKeyHour(event.target.value)} /></label>
+              <label><span>{copy.apiKeys.perDay}</span><input value={apiKeyDay} onChange={(event) => setApiKeyDay(event.target.value)} /></label>
+              <div className="admin-modal__actions">
+                <button className="ghost-action" onClick={closeModal} type="button">{actionCopy.cancel}</button>
+                <button className="primary-action" disabled={modalBusy || !selectedAccountId || !apiKeyName.trim()} type="submit">{actionCopy.save}</button>
+              </div>
+            </form>
+          ) : null}
+
+          {modal.kind === "api-key-delete" ? (
+            <div className="admin-modal__body">
+              <p>{isZh ? `撤销 API Key ${modal.apiKey.name}。` : `Revoke API key ${modal.apiKey.name}.`}</p>
+              <div className="admin-modal__actions">
+                <button className="ghost-action" onClick={closeModal} type="button">{actionCopy.cancel}</button>
+                <button className="ghost-action ghost-action--danger" disabled={modalBusy} onClick={() => void handleDeleteApiKey(modal.apiKey)} type="button">{copy.apiKeys.revoke}</button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className="admin-shell">
@@ -789,43 +1275,35 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
 
       {!loading && !error && view === "providers" ? (
         <section className="detail-grid">
-          <article className="form-panel">
-            <div className="form-panel__header"><div><h3>{copy.providers.createTitle}</h3><p>{copy.providers.createLead}</p></div></div>
-            <form className="provider-form" onSubmit={handleCreateProvider}>
-              <label><span>{copy.providers.providerName}</span><input value={providerName} onChange={(event) => setProviderName(event.target.value)} /></label>
-              <label><span>{copy.providers.exposedModel}</span><input value={providerExposedModel} onChange={(event) => setProviderExposedModel(event.target.value)} /></label>
-              <label><span>{copy.providers.routePolicy}</span><select value={providerRoutePolicy} onChange={(event) => setProviderRoutePolicy(event.target.value)}><option value="http-first">http-first</option><option value="cli-first">cli-first</option><option value="fixed-http">fixed-http</option><option value="fixed-cli">fixed-cli</option></select></label>
-              <label><span>{copy.providers.httpBaseUrl}</span><input value={providerHttpBaseUrl} onChange={(event) => setProviderHttpBaseUrl(event.target.value)} /></label>
-              <label><span>{copy.providers.cliCommand}</span><input value={providerCliCommand} onChange={(event) => setProviderCliCommand(event.target.value)} /></label>
-              <div className="model-chip-group">
-                <label><input checked={providerHttpEnabled} onChange={(event) => setProviderHttpEnabled(event.target.checked)} type="checkbox" /> {copy.providers.httpEnabled}</label>
-                <label><input checked={providerCliEnabled} onChange={(event) => setProviderCliEnabled(event.target.checked)} type="checkbox" /> {copy.providers.cliEnabled}</label>
-                <label><input checked={providerChatCapable} onChange={(event) => setProviderChatCapable(event.target.checked)} type="checkbox" /> {copy.providers.chatCapable}</label>
-                <label><input checked={providerStreamCapable} onChange={(event) => setProviderStreamCapable(event.target.checked)} type="checkbox" /> {copy.providers.streamCapable}</label>
-              </div>
-              <button className="primary-action" disabled={!providerName.trim()} type="submit">{copy.providers.addProvider}</button>
-            </form>
-          </article>
           <article className="detail-panel detail-panel--wide">
-            <h3>{copy.providers.healthTitle}</h3>
-            <div className="provider-list">
-              {providers.map((provider) => {
-                const healthRow = healthByProvider.get(provider.name);
-                const isHealthy = healthRow ? healthRow.capabilities.http || healthRow.capabilities.cli : false;
-                return (
-                  <article className="provider-row" key={provider.id}>
-                    <div className="provider-row__body">
-                      <strong>{provider.name}</strong>
-                      <p>{provider.route_policy}</p>
-                      <small>{provider.http_base_url ?? provider.cli_command ?? "-"}</small>
-                    </div>
-                    <div className="provider-row__actions">
-                      <span className={`status-pill ${isHealthy ? "status-pill--ok" : "status-pill--warning"}`}>{isHealthy ? copy.providers.healthy : copy.providers.pending}</span>
-                      <button className="ghost-action ghost-action--bright" onClick={() => { setSelectedProviderName(provider.name); setView("models"); }}>{copy.providers.openModels}</button>
-                    </div>
-                  </article>
-                );
-              })}
+            <div className="detail-panel__title-row">
+              <div><h3>{copy.providers.title}</h3><p>{copy.providers.createLead}</p></div>
+              <button className="primary-action" onClick={openProviderCreateModal}>{actionCopy.create}</button>
+            </div>
+            <div className="table-shell">
+              <table className="data-table">
+                <thead><tr><th>{copy.providers.providerName}</th><th>{copy.providers.routePolicy}</th><th>{copy.providers.exposedModel}</th><th>Transport</th><th>{copy.models.state}</th><th>{copy.models.action}</th></tr></thead>
+                <tbody>
+                  {providers.map((provider) => {
+                    const healthRow = healthByProvider.get(provider.name);
+                    const isHealthy = healthRow ? healthRow.capabilities.http || healthRow.capabilities.cli : false;
+                    return (
+                      <tr key={provider.id}>
+                        <td>{provider.name}</td>
+                        <td>{provider.route_policy}</td>
+                        <td>{provider.exposed_model}</td>
+                        <td>{[provider.http_enabled ? "HTTP" : null, provider.cli_enabled ? "CLI" : null].filter(Boolean).join(" + ") || "-"}</td>
+                        <td><span className={`status-pill ${isHealthy ? "status-pill--ok" : "status-pill--warning"}`}>{isHealthy ? copy.providers.healthy : copy.providers.pending}</span></td>
+                        <td className="data-table__actions">
+                          <button className="ghost-action ghost-action--bright" onClick={() => { setSelectedProviderName(provider.name); setView("models"); }}>{copy.providers.openModels}</button>
+                          <button className="ghost-action ghost-action--bright" onClick={() => openProviderEditModal(provider)}>{actionCopy.edit}</button>
+                          <button className="ghost-action ghost-action--danger" onClick={() => openModal({ kind: "provider-delete", provider })}>{actionCopy.delete}</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </article>
         </section>
@@ -839,6 +1317,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
               <div className="model-chip-group">
                 <button className="ghost-action ghost-action--bright" disabled={!selectedProviderName} onClick={() => void handleRediscoverModels()}>{copy.models.refresh}</button>
                 <button className="ghost-action ghost-action--bright" disabled={!selectedProviderName} onClick={() => void handleRefreshPricing()}>{copy.models.refreshPricing}</button>
+                <button className="primary-action" disabled={!selectedProviderName} onClick={openModelCreateModal}>{actionCopy.create}</button>
               </div>
             </div>
             {selectedProviderName ? (
@@ -853,9 +1332,10 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
                         <td>{model.pricing?.input_price != null && model.pricing?.output_price != null ? `${model.source} · $${model.pricing.input_price}/$${model.pricing.output_price}` : model.source}</td>
                         <td>{model.enabled ? "enabled" : "disabled"}</td>
                         <td className="data-table__actions">
-                          <button className="ghost-action ghost-action--bright" onClick={() => void handleToggleModel(model.native_model, model.enabled)}>{model.enabled ? copy.models.disable : copy.models.enable}</button>
-                          <button className="ghost-action ghost-action--bright" onClick={() => { setSelectedModelNativeModel(model.native_model); const nextId = globalThis.prompt?.(copy.models.exposedAs, model.exposed_model_id); if (nextId && nextId !== model.exposed_model_id) void handleRenameModel(model.native_model, nextId); }}>{copy.models.rename}</button>
-                          <button className="ghost-action ghost-action--bright" onClick={() => setSelectedModelNativeModel(model.native_model)}>{copy.models.select}</button>
+                          <button className="ghost-action ghost-action--bright" onClick={() => openModelEditModal(model)}>{actionCopy.edit}</button>
+                          <button className="ghost-action ghost-action--bright" onClick={() => openModelPricingModal(model)}>{actionCopy.pricing}</button>
+                          <button className="ghost-action ghost-action--bright" onClick={() => openModelTestModal(model)}>{actionCopy.test}</button>
+                          <button className="ghost-action ghost-action--danger" onClick={() => openModal({ kind: "model-delete", model })}>{actionCopy.delete}</button>
                         </td>
                       </tr>
                     ))}
@@ -864,77 +1344,16 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
               </div>
             ) : null}
           </article>
-          {selectedProviderName ? (
-            <article className="form-panel">
-              <div className="form-panel__header"><div><h3>{copy.models.manualTitle}</h3></div></div>
-              <form className="inline-form" onSubmit={handleCreateManualModel}>
-                <label><span>{copy.models.nativeModel}</span><input value={manualNativeModel} onChange={(event) => setManualNativeModel(event.target.value)} /></label>
-                <label><span>{copy.models.exposedAs}</span><input value={manualExposedModelId} onChange={(event) => setManualExposedModelId(event.target.value)} /></label>
-                <button className="primary-action" disabled={!manualNativeModel.trim() || !manualExposedModelId.trim()} type="submit">{copy.models.addModel}</button>
-              </form>
-            </article>
-          ) : null}
-          {selectedModel ? (
-            <article className="detail-panel">
-              <h3>{copy.models.pricingWorkspace}</h3>
-              <p>{copy.models.pricingSummary}</p>
-              <form className="inline-form" onSubmit={handleSavePricing}>
-                <label><span>{copy.models.inputPrice}</span><input value={pricingInput} onChange={(event) => setPricingInput(event.target.value)} /></label>
-                <label><span>{copy.models.cachedInputPrice}</span><input value={pricingCachedInput} onChange={(event) => setPricingCachedInput(event.target.value)} /></label>
-                <label><span>{copy.models.outputPrice}</span><input value={pricingOutput} onChange={(event) => setPricingOutput(event.target.value)} /></label>
-                <label><span>{copy.models.pricingNotes}</span><input value={pricingNotes} onChange={(event) => setPricingNotes(event.target.value)} /></label>
-                <button className="primary-action" type="submit">{copy.models.savePricing}</button>
-              </form>
-            </article>
-          ) : null}
-          {selectedModel ? (
-            <article className="detail-panel">
-              <h3>{copy.models.testWorkspace}</h3>
-              <form className="inline-form" onSubmit={handleSendModelTest}>
-                <label><span>{selectedModel.native_model}</span><input value={testMessage} onChange={(event) => setTestMessage(event.target.value)} /></label>
-                <div className="data-table__actions">
-                  <button className="primary-action" disabled={!testMessage.trim() || testChatStatus === "loading"} type="submit">{copy.models.sendTest}</button>
-                  <button className="ghost-action ghost-action--bright" disabled={!testMessage.trim() || testChatStatus === "loading"} onClick={() => void handleStreamModelTest()} type="button">{copy.models.streamTest}</button>
-                  <button className="ghost-action" disabled={testChatStatus !== "loading"} onClick={handleCancelStream} type="button">{copy.models.cancelStream}</button>
-                </div>
-              </form>
-              {testChatError ? <div className="inline-error">{testChatError}</div> : null}
-              <div className="provider-list">
-                {testChatMessages.length === 0 ? (
-                  <div className="empty-state empty-state--compact">{copy.models.noTranscript}</div>
-                ) : testChatMessages.map((message, index) => (
-                  <article className="provider-row" key={`${message.role}-${index}`}>
-                    <div className="provider-row__body"><strong>{message.role}</strong><p>{message.content || "..."}</p></div>
-                  </article>
-                ))}
-              </div>
-            </article>
-          ) : null}
         </section>
       ) : null}
 
       {!loading && !error && view === "accounts" ? (
         <section className="detail-grid">
-          <article className="form-panel">
-            <div className="form-panel__header"><div><h3>{copy.accounts.title}</h3></div></div>
-            <form className="inline-form" onSubmit={handleCreateAccount}>
-              <label><span>{copy.accounts.accountName}</span><input value={accountName} onChange={(event) => setAccountName(event.target.value)} /></label>
-              <label><span>{copy.accounts.accountEmail}</span><input value={accountEmail} onChange={(event) => setAccountEmail(event.target.value)} /></label>
-              <label><span>{copy.accounts.accountNotes}</span><input value={accountNotes} onChange={(event) => setAccountNotes(event.target.value)} /></label>
-              <label><input checked={accountIsAdmin} onChange={(event) => setAccountIsAdmin(event.target.checked)} type="checkbox" /> {copy.accounts.adminRole}</label>
-              <button className="primary-action" disabled={!accountName.trim()} type="submit">{copy.accounts.addAccount}</button>
-            </form>
-          </article>
-          <article className="form-panel">
-            <div className="form-panel__header"><div><h3>{copy.accounts.adjustCredits}</h3></div></div>
-            <form className="inline-form" onSubmit={handleAdjustCredits}>
-              <label><span>{copy.apiKeys.account}</span><select value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
-              <label><span>{copy.accounts.adjustmentAmount}</span><input value={creditAdjustment} onChange={(event) => setCreditAdjustment(event.target.value)} /></label>
-              <label><span>{copy.accounts.adjustmentReason}</span><input value={creditAdjustmentReason} onChange={(event) => setCreditAdjustmentReason(event.target.value)} /></label>
-              <button className="primary-action" disabled={!selectedAccountId || !creditAdjustment.trim()} type="submit">{copy.accounts.applyAdjustment}</button>
-            </form>
-          </article>
           <article className="detail-panel detail-panel--wide">
+            <div className="detail-panel__title-row">
+              <div><h3>{copy.accounts.title}</h3><p>{copy.permissions.lead}</p></div>
+              <button className="primary-action" onClick={openAccountCreateModal}>{actionCopy.create}</button>
+            </div>
             <div className="table-shell">
               <table className="data-table">
                 <thead><tr><th>{copy.accounts.columnName}</th><th>{copy.accounts.columnEmail}</th><th>{copy.accounts.columnAdmin}</th><th>{copy.accounts.columnStatus}</th><th>{copy.accounts.balance}</th><th>{copy.accounts.columnMirror}</th><th>{copy.models.action}</th></tr></thead>
@@ -949,8 +1368,9 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
                       <td>{account.public_account_id ?? account.public_workspace_id ?? "-"}</td>
                       <td className="data-table__actions">
                         <button className="ghost-action ghost-action--bright" onClick={() => setSelectedAccountId(String(account.id))}>{copy.models.select}</button>
-                        <button className="ghost-action ghost-action--bright" onClick={() => void handleUpdateAccount(account.id, { is_admin: !account.is_admin })}>{account.is_admin ? copy.accounts.revokeAdmin : copy.accounts.grantAdmin}</button>
-                        <button className={account.status === "active" ? "ghost-action ghost-action--danger" : "ghost-action ghost-action--bright"} onClick={() => void handleUpdateAccount(account.id, { status: account.status === "active" ? "suspended" : "active" })}>{account.status === "active" ? copy.accounts.suspend : copy.accounts.activate}</button>
+                        <button className="ghost-action ghost-action--bright" onClick={() => openAccountEditModal(account)}>{actionCopy.edit}</button>
+                        <button className="ghost-action ghost-action--bright" onClick={() => openCreditAdjustmentModal(account)}>{actionCopy.adjustCredits}</button>
+                        <button className="ghost-action ghost-action--danger" onClick={() => openModal({ kind: "account-delete", account })}>{actionCopy.delete}</button>
                       </td>
                     </tr>
                   ))}
@@ -960,22 +1380,25 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           </article>
           <article className="detail-panel detail-panel--wide">
             <h3>{copy.accounts.ledger}</h3>
-            <div className="provider-list">
-              {(creditLedger[Number(selectedAccountId)] ?? []).length === 0 ? (
-                <div className="empty-state empty-state--compact">{copy.accounts.ledgerEmpty}</div>
-              ) : (
-                (creditLedger[Number(selectedAccountId)] ?? []).map((entry) => (
-                  <article className="provider-row" key={entry.id}>
-                    <div className="provider-row__body">
-                      <strong>{`${entry.credits_delta > 0 ? "+" : ""}${entry.credits_delta}`}</strong>
-                      <p>{`${entry.entry_type} · ${entry.provider_name ?? "-"} · ${entry.model_id ?? "-"}`}</p>
-                      {entry.notes ? <small>{entry.notes}</small> : null}
-                      <small>{copy.accounts.balanceAfter(String(entry.balance_after))}</small>
-                    </div>
-                    <div className="provider-row__actions"><small>{new Date(entry.created_at).toLocaleString(isZh ? "zh-CN" : "en-US")}</small></div>
-                  </article>
-                ))
-              )}
+            <div className="table-shell">
+              <table className="data-table">
+                <thead><tr><th>Delta</th><th>Type</th><th>Provider</th><th>Model</th><th>{copy.accounts.balance}</th><th>Notes</th><th>Time</th></tr></thead>
+                <tbody>
+                  {(creditLedger[Number(selectedAccountId)] ?? []).length === 0 ? (
+                    <tr><td colSpan={7}>{copy.accounts.ledgerEmpty}</td></tr>
+                  ) : (creditLedger[Number(selectedAccountId)] ?? []).map((entry) => (
+                    <tr key={entry.id}>
+                      <td>{`${entry.credits_delta > 0 ? "+" : ""}${entry.credits_delta}`}</td>
+                      <td>{entry.entry_type}</td>
+                      <td>{entry.provider_name ?? "-"}</td>
+                      <td>{entry.model_id ?? "-"}</td>
+                      <td>{entry.balance_after}</td>
+                      <td>{entry.notes ?? "-"}</td>
+                      <td>{new Date(entry.created_at).toLocaleString(isZh ? "zh-CN" : "en-US")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </article>
         </section>
@@ -983,30 +1406,29 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
 
       {!loading && !error && view === "api-keys" ? (
         <section className="detail-grid">
-          <article className="form-panel">
-            <div className="form-panel__header"><div><h3>{copy.apiKeys.title}</h3></div></div>
-            <form className="inline-form api-key-form" onSubmit={handleCreateApiKey}>
-              <label><span>{copy.apiKeys.account}</span><select value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
-              <label><span>{copy.apiKeys.keyName}</span><input value={apiKeyName} onChange={(event) => setApiKeyName(event.target.value)} /></label>
-              <label><span>{copy.apiKeys.perMinute}</span><input value={apiKeyMinute} onChange={(event) => setApiKeyMinute(event.target.value)} /></label>
-              <label><span>{copy.apiKeys.perHour}</span><input value={apiKeyHour} onChange={(event) => setApiKeyHour(event.target.value)} /></label>
-              <label><span>{copy.apiKeys.perDay}</span><input value={apiKeyDay} onChange={(event) => setApiKeyDay(event.target.value)} /></label>
-              <button className="primary-action" disabled={!selectedAccountId || !apiKeyName.trim()} type="submit">{copy.apiKeys.createKey}</button>
-            </form>
-            {createdApiKey ? <div className="secret-banner"><div><strong>{copy.apiKeys.createdKey}</strong><code>{createdApiKey}</code></div></div> : null}
-          </article>
           <article className="detail-panel detail-panel--wide">
+            <div className="detail-panel__title-row">
+              <div><h3>{copy.apiKeys.title}</h3><p>{actionCopy.rawKey}</p></div>
+              <button className="primary-action" onClick={openApiKeyCreateModal}>{actionCopy.create}</button>
+            </div>
+            {createdApiKey ? <div className="secret-banner"><div><strong>{copy.apiKeys.createdKey}</strong><code>{createdApiKey}</code></div></div> : null}
             <div className="table-shell">
               <table className="data-table">
-                <thead><tr><th>{copy.apiKeys.columnName}</th><th>{copy.apiKeys.columnAccountId}</th><th>{copy.apiKeys.columnPrefix}</th><th>{copy.apiKeys.columnStatus}</th><th>{copy.models.action}</th></tr></thead>
+                <thead><tr><th>{copy.apiKeys.columnName}</th><th>{copy.apiKeys.columnAccountId}</th><th>{copy.apiKeys.columnPrefix}</th><th>{copy.apiKeys.perMinute}</th><th>{copy.apiKeys.perHour}</th><th>{copy.apiKeys.perDay}</th><th>{copy.apiKeys.columnStatus}</th><th>{copy.models.action}</th></tr></thead>
                 <tbody>
                   {apiKeys.map((apiKey) => (
                     <tr key={apiKey.id}>
                       <td>{apiKey.name}</td>
                       <td>{apiKey.account_id}</td>
                       <td>{apiKey.key_prefix}</td>
+                      <td>{apiKey.per_minute ?? "-"}</td>
+                      <td>{apiKey.per_hour ?? "-"}</td>
+                      <td>{apiKey.per_day ?? "-"}</td>
                       <td>{apiKey.status}</td>
-                      <td>{apiKey.status === "active" ? <button className="ghost-action ghost-action--danger" onClick={() => void handleRevokeApiKey(apiKey.id)}>{copy.apiKeys.revoke}</button> : null}</td>
+                      <td className="data-table__actions">
+                        <button className="ghost-action ghost-action--bright" onClick={() => openApiKeyEditModal(apiKey)}>{actionCopy.edit}</button>
+                        <button className="ghost-action ghost-action--danger" onClick={() => openModal({ kind: "api-key-delete", apiKey })}>{copy.apiKeys.revoke}</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1067,8 +1489,8 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
                       <td><span className={`status-pill ${account.is_admin ? "status-pill--ok" : "status-pill--warning"}`}>{account.is_admin ? copy.permissions.admins : copy.permissions.members}</span></td>
                       <td>{account.status}</td>
                       <td className="data-table__actions">
-                        <button className="ghost-action ghost-action--bright" onClick={() => void handleUpdateAccount(account.id, { is_admin: !account.is_admin })}>{account.is_admin ? copy.accounts.revokeAdmin : copy.accounts.grantAdmin}</button>
-                        <button className={account.status === "active" ? "ghost-action ghost-action--danger" : "ghost-action ghost-action--bright"} onClick={() => void handleUpdateAccount(account.id, { status: account.status === "active" ? "suspended" : "active" })}>{account.status === "active" ? copy.accounts.suspend : copy.accounts.activate}</button>
+                        <button className="ghost-action ghost-action--bright" onClick={() => openAccountEditModal(account)}>{actionCopy.edit}</button>
+                        <button className="ghost-action ghost-action--danger" onClick={() => openModal({ kind: "account-delete", account })}>{actionCopy.delete}</button>
                       </td>
                     </tr>
                   ))}
@@ -1093,6 +1515,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           </article>
         </section>
       ) : null}
+      {renderModal()}
     </main>
   );
 }

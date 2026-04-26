@@ -44,6 +44,36 @@ def test_admin_can_create_and_list_accounts_and_keys(tmp_path, monkeypatch) -> N
     assert keys_response.json()[0]["key_prefix"]
 
 
+def test_admin_can_update_and_delete_api_key(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        _, _, key_id = _create_account_and_key(client)
+        update_response = client.patch(
+            f"/admin/api-keys/{key_id}",
+            json={
+                "name": "edited-key",
+                "per_minute": 3,
+                "per_hour": 30,
+                "per_day": 300,
+                "status": "active",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        delete_response = client.delete(
+            f"/admin/api-keys/{key_id}",
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["name"] == "edited-key"
+    assert update_response.json()["per_minute"] == 3
+    assert update_response.json()["per_hour"] == 30
+    assert update_response.json()["per_day"] == 300
+    assert delete_response.status_code == 200
+    assert delete_response.json()["status"] == "revoked"
+
+
 def test_revoked_api_key_cannot_access_openai_routes(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 

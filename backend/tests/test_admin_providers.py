@@ -53,6 +53,56 @@ def test_admin_can_create_and_list_provider(tmp_path, monkeypatch) -> None:
     assert payload[0]["stream_capable"] is True
 
 
+def test_admin_can_update_and_delete_provider(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        create_response = client.post(
+            "/admin/providers",
+            json={
+                "name": "custom-http",
+                "http_enabled": True,
+                "cli_enabled": False,
+                "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid/v1",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        patch_response = client.patch(
+            "/admin/providers/custom-http",
+            json={
+                "exposed_model": "custom-model",
+                "http_enabled": True,
+                "cli_enabled": True,
+                "route_policy": "http-first",
+                "chat_capable": False,
+                "stream_capable": False,
+                "http_base_url": "http://provider.invalid/v2",
+                "cli_command": "/bin/echo",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        delete_response = client.delete(
+            "/admin/providers/custom-http",
+            headers={"x-admin-secret": "change-me"},
+        )
+        list_response = client.get(
+            "/admin/providers",
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert create_response.status_code == 201
+    assert patch_response.status_code == 200
+    assert patch_response.json()["exposed_model"] == "custom-model"
+    assert patch_response.json()["route_policy"] == "http-first"
+    assert patch_response.json()["chat_capable"] is False
+    assert patch_response.json()["cli_enabled"] is True
+    assert delete_response.status_code == 200
+    assert delete_response.json()["name"] == "custom-http"
+    assert list_response.status_code == 200
+    assert list_response.json() == []
+
+
 def test_admin_provider_defaults_preserve_capability_flags(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 
@@ -390,3 +440,43 @@ def test_admin_can_add_manual_provider_model(tmp_path, monkeypatch) -> None:
     assert add_response.status_code == 201
     assert add_response.json()["source"] == "manual_override"
     assert "codex:gpt-5.4-experimental" in [item["id"] for item in models_response.json()["data"]]
+
+
+def test_admin_can_delete_provider_model(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        create_response = client.post(
+            "/admin/providers",
+            json={
+                "name": "codex",
+                "http_enabled": True,
+                "cli_enabled": False,
+                "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        assert create_response.status_code == 201
+        add_response = client.post(
+            "/admin/providers/codex/models",
+            json={
+                "native_model": "gpt-5.4-experimental",
+                "exposed_model_id": "codex:gpt-5.4-experimental",
+                "enabled": True,
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        delete_response = client.delete(
+            "/admin/providers/codex/models/gpt-5.4-experimental",
+            headers={"x-admin-secret": "change-me"},
+        )
+        models_response = client.get(
+            "/admin/providers/codex/models",
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert add_response.status_code == 201
+    assert delete_response.status_code == 200
+    assert delete_response.json()["native_model"] == "gpt-5.4-experimental"
+    assert "gpt-5.4-experimental" not in [item["native_model"] for item in models_response.json()]

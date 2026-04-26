@@ -1650,6 +1650,50 @@ p {
   flex-wrap: wrap;
 }
 
+.admin-modal {
+  width: min(760px, 100%);
+  max-height: min(86vh, 860px);
+  overflow: auto;
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--ink);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.38);
+}
+
+.admin-modal__header,
+.admin-modal__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-modal__header strong {
+  font-size: 1.15rem;
+}
+
+.admin-modal__body {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-modal__actions {
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+
+.admin-modal__transcript {
+  display: grid;
+  gap: 10px;
+  max-height: 280px;
+  overflow: auto;
+}
+
 .app-loading {
   display: grid;
   place-items: center;

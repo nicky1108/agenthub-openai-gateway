@@ -206,6 +206,39 @@ def test_admin_account_sync_summary_reports_mirror_state(tmp_path, monkeypatch) 
     }
 
 
+def test_admin_can_soft_delete_account(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'auth-admin-delete-account.db'}")
+    monkeypatch.setenv("ADMIN_EMAILS_CSV", "admin@example.com")
+
+    with TestClient(create_app()) as client:
+        client.post(
+            "/auth/register",
+            json={
+                "name": "admin",
+                "email": "admin@example.com",
+                "password": "CorrectHorseBatteryStaple1!",
+            },
+        )
+        client.post(
+            "/auth/login",
+            json={
+                "email": "admin@example.com",
+                "password": "CorrectHorseBatteryStaple1!",
+            },
+        )
+        created_response = client.post(
+            "/admin/accounts",
+            json={"name": "deleted-member", "email": "deleted@example.com"},
+        )
+        delete_response = client.delete(f"/admin/accounts/{created_response.json()['id']}")
+        list_response = client.get("/admin/accounts")
+
+    assert created_response.status_code == 201
+    assert delete_response.status_code == 200
+    assert delete_response.json()["status"] == "deleted"
+    assert any(row["email"] == "deleted@example.com" and row["status"] == "deleted" for row in list_response.json())
+
+
 def test_logout_revokes_session_cookie(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 

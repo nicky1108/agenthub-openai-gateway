@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import App from "./App";
 
@@ -318,5 +318,14 @@ describe("public gateway frontend", () => {
     expect(screen.getByRole("navigation", { name: "Admin navigation" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Providers" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Permissions" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Providers" }));
+    fireEvent.click(screen.getByRole("button", { name: "新建" }));
+    expect(screen.getByRole("dialog", { name: "注册 Provider" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Accounts" }));
+    fireEvent.click(screen.getByRole("button", { name: "新建" }));
+    expect(screen.getByRole("dialog", { name: "创建账户" })).toBeTruthy();
   });
 });
