@@ -320,6 +320,26 @@ class UsageActivityKey(BaseModel):
     limited_requests: int
 
 
+class UsageRecordRead(BaseModel):
+    id: int
+    account_id: int
+    account_name: str | None = None
+    api_key_id: int
+    api_key_name: str | None = None
+    key_prefix: str | None = None
+    provider_name: str | None = None
+    model_id: str | None = None
+    outcome: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cached_input_tokens: int | None = None
+    usd_amount: float | None = None
+    credits_charged: float | None = None
+    pricing_source: str | None = None
+    token_source: str | None = None
+    created_at: str
+
+
 class UsageOverview(BaseModel):
     key_activity: list[UsageActivityKey]
     by_provider: dict[str, int]
@@ -448,6 +468,34 @@ def serialize_api_key(row: ApiKeyRecord) -> ApiKeyRead:
         per_hour=row.per_hour,
         per_day=row.per_day,
         last_used_at=row.last_used_at.isoformat() if row.last_used_at else None,
+    )
+
+
+def serialize_usage_record(
+    row: UsageRecord,
+    accounts_by_id: dict[int, AccountRecord],
+    api_keys_by_id: dict[int, ApiKeyRecord],
+) -> UsageRecordRead:
+    account = accounts_by_id.get(row.account_id)
+    api_key = api_keys_by_id.get(row.api_key_id)
+    return UsageRecordRead(
+        id=row.id,
+        account_id=row.account_id,
+        account_name=account.name if account else None,
+        api_key_id=row.api_key_id,
+        api_key_name=api_key.name if api_key else None,
+        key_prefix=api_key.key_prefix if api_key else None,
+        provider_name=row.provider_name,
+        model_id=row.model_id,
+        outcome=row.outcome,
+        input_tokens=row.input_tokens,
+        output_tokens=row.output_tokens,
+        cached_input_tokens=row.cached_input_tokens,
+        usd_amount=row.usd_amount,
+        credits_charged=row.credits_charged,
+        pricing_source=row.pricing_source,
+        token_source=row.token_source,
+        created_at=normalize_timestamp(row.created_at).isoformat(),
     )
 
 
@@ -957,6 +1005,50 @@ async def get_usage_overview(
         by_provider={name: count for name, count in provider_rows if name},
         by_model={name: count for name, count in model_rows if name},
     )
+
+
+@router.get("/usage/records", response_model=list[UsageRecordRead])
+async def list_usage_records(
+    account_id: int | None = Query(default=None),
+    api_key_id: int | None = Query(default=None),
+    outcome: str | None = Query(default=None),
+    provider_name: str | None = Query(default=None),
+    model_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[UsageRecordRead]:
+    statement = select(UsageRecord)
+    if account_id is not None:
+        statement = statement.where(UsageRecord.account_id == account_id)
+    if api_key_id is not None:
+        statement = statement.where(UsageRecord.api_key_id == api_key_id)
+    if outcome:
+        statement = statement.where(UsageRecord.outcome == outcome)
+    if provider_name:
+        statement = statement.where(UsageRecord.provider_name == provider_name)
+    if model_id:
+        statement = statement.where(UsageRecord.model_id == model_id)
+    usage_rows = list(
+        await session.scalars(
+            statement.order_by(UsageRecord.created_at.desc(), UsageRecord.id.desc()).limit(limit)
+        )
+    )
+    account_ids = {row.account_id for row in usage_rows}
+    api_key_ids = {row.api_key_id for row in usage_rows}
+    accounts = (
+        list(await session.scalars(select(AccountRecord).where(AccountRecord.id.in_(account_ids))))
+        if account_ids
+        else []
+    )
+    api_keys = (
+        list(await session.scalars(select(ApiKeyRecord).where(ApiKeyRecord.id.in_(api_key_ids))))
+        if api_key_ids
+        else []
+    )
+    accounts_by_id = {row.id: row for row in accounts}
+    api_keys_by_id = {row.id: row for row in api_keys}
+    return [serialize_usage_record(row, accounts_by_id, api_keys_by_id) for row in usage_rows]
 
 
 @router.get("/dashboard/summary", response_model=DashboardSummary)

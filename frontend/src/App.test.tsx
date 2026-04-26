@@ -299,10 +299,46 @@ describe("public gateway frontend", () => {
         if (path.endsWith("/admin/usage/overview")) {
           return new Response(
             JSON.stringify({
-              key_activity: [],
-              by_provider: {},
-              by_model: {},
+              key_activity: [
+                {
+                  api_key_id: 1,
+                  account_id: 1,
+                  name: "primary",
+                  key_prefix: "9ac99097",
+                  status: "active",
+                  last_used_at: "2026-04-25T00:00:00Z",
+                  total_requests: 3,
+                  limited_requests: 1,
+                },
+              ],
+              by_provider: { codex: 3 },
+              by_model: { "codex:gpt-5.4": 3 },
             }),
+          );
+        }
+        if (path.endsWith("/admin/usage/records")) {
+          return new Response(
+            JSON.stringify([
+              {
+                id: 1,
+                account_id: 1,
+                account_name: "Nicky",
+                api_key_id: 1,
+                api_key_name: "primary",
+                key_prefix: "9ac99097",
+                provider_name: "codex",
+                model_id: "codex:gpt-5.4",
+                outcome: "success",
+                input_tokens: 10,
+                output_tokens: 2,
+                cached_input_tokens: 0,
+                usd_amount: 0.001,
+                credits_charged: 0.1,
+                pricing_source: "official",
+                token_source: "provider_usage",
+                created_at: "2026-04-25T00:00:00Z",
+              },
+            ]),
           );
         }
         if (path.includes("/admin/providers/codex/models")) {
@@ -327,5 +363,11 @@ describe("public gateway frontend", () => {
     fireEvent.click(screen.getByRole("button", { name: "Accounts" }));
     fireEvent.click(screen.getByRole("button", { name: "新建" }));
     expect(screen.getByRole("dialog", { name: "创建账户" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Usage" }));
+    expect(screen.getByRole("heading", { name: "Usage 明细" })).toBeTruthy();
+    expect(screen.getAllByRole("columnheader", { name: "Provider" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("codex").length).toBeGreaterThan(0);
   });
 });

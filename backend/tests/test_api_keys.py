@@ -192,3 +192,42 @@ def test_admin_usage_overview_batches_key_activity(tmp_path, monkeypatch) -> Non
     assert payload["by_provider"] == {"missing": 1}
     assert payload["by_model"] == {"missing:default": 1}
     assert payload["key_activity"][0]["total_requests"] == 1
+
+
+def test_admin_can_list_usage_records_as_table_rows(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        account_id, api_key, key_id = _create_account_and_key(client)
+        completion_response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "missing:default",
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+        assert completion_response.status_code == 404
+
+        response = client.get(
+            "/admin/usage/records",
+            headers={"x-admin-secret": "change-me"},
+        )
+        filtered_response = client.get(
+            f"/admin/usage/records?account_id={account_id}&api_key_id={key_id}&provider_name=missing",
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert response.status_code == 200
+    rows = response.json()
+    assert len(rows) == 1
+    assert rows[0]["account_id"] == account_id
+    assert rows[0]["account_name"] == "account-one"
+    assert rows[0]["api_key_id"] == key_id
+    assert rows[0]["api_key_name"] == "key-one"
+    assert rows[0]["key_prefix"]
+    assert rows[0]["provider_name"] == "missing"
+    assert rows[0]["model_id"] == "missing:default"
+    assert rows[0]["outcome"] == "error"
+    assert filtered_response.status_code == 200
+    assert filtered_response.json()[0]["id"] == rows[0]["id"]

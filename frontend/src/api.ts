@@ -155,6 +155,26 @@ export type AdminUsageOverview = {
   by_model: Record<string, number>;
 };
 
+export type AdminUsageRecord = {
+  id: number;
+  account_id: number;
+  account_name?: string | null;
+  api_key_id: number;
+  api_key_name?: string | null;
+  key_prefix?: string | null;
+  provider_name?: string | null;
+  model_id?: string | null;
+  outcome: string;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cached_input_tokens?: number | null;
+  usd_amount?: number | null;
+  credits_charged?: number | null;
+  pricing_source?: string | null;
+  token_source?: string | null;
+  created_at: string;
+};
+
 export type AdminAccountSyncSummary = {
   total_accounts: number;
   mirrored_accounts: number;
@@ -701,6 +721,10 @@ export async function deleteAdminApiKey(adminSecret: string, keyId: number): Pro
 
 export async function getAdminUsageOverview(adminSecret: string): Promise<AdminUsageOverview> {
   return requestAdmin<AdminUsageOverview>("/admin/usage/overview", adminSecret);
+}
+
+export async function getAdminUsageRecords(adminSecret: string): Promise<AdminUsageRecord[]> {
+  return requestAdmin<AdminUsageRecord[]>("/admin/usage/records", adminSecret);
 }
 
 export async function sendAdminTestChat(

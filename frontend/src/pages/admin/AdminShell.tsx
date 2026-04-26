@@ -13,6 +13,7 @@ import type {
   AdminProviderRecord,
   AdminSettingsOverview,
   AdminUsageOverview,
+  AdminUsageRecord,
 } from "../../api";
 import {
   adjustAdminAccountCredits,
@@ -35,6 +36,7 @@ import {
   getAdminProviders,
   getAdminSettingsOverview,
   getAdminUsageOverview,
+  getAdminUsageRecords,
   patchAdminProviderModelPricing,
   patchAdminProviderModel,
   rediscoverAdminProviderModels,
@@ -79,6 +81,13 @@ function parseOptionalInt(value: string): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+function formatUsageTokens(row: AdminUsageRecord): string {
+  if (row.input_tokens == null && row.output_tokens == null && row.cached_input_tokens == null) {
+    return "-";
+  }
+  return `${row.input_tokens ?? 0} / ${row.cached_input_tokens ?? 0} / ${row.output_tokens ?? 0}`;
+}
+
 function buildTrafficPath(series: AdminDashboardTimeseries | null): { stroke: string; fill: string } {
   const buckets = series?.buckets ?? [];
   if (buckets.length === 0) {
@@ -114,6 +123,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   const [creditLedger, setCreditLedger] = useState<Record<number, AdminCreditLedgerEntry[]>>({});
   const [apiKeys, setApiKeys] = useState<AdminApiKeyRecord[]>([]);
   const [usage, setUsage] = useState<AdminUsageOverview | null>(null);
+  const [usageRecords, setUsageRecords] = useState<AdminUsageRecord[]>([]);
   const [selectedProviderName, setSelectedProviderName] = useState("");
   const [providerModels, setProviderModels] = useState<Record<string, AdminProviderModelRecord[]>>({});
   const [selectedModelNativeModel, setSelectedModelNativeModel] = useState("");
@@ -272,9 +282,22 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         },
         usage: {
           title: "Usage",
+          records: "Usage 明细",
           keyActivity: "Key 活动",
           providers: "按 Provider",
           models: "按模型",
+          time: "时间",
+          account: "账户",
+          apiKey: "API Key",
+          provider: "Provider",
+          model: "模型",
+          outcome: "结果",
+          tokens: "Tokens",
+          credits: "信用点",
+          usd: "USD",
+          source: "来源",
+          count: "次数",
+          empty: "还没有 Usage 流水。",
           requestsLimited: (requests: number, limited: number) => `${requests} 请求 · ${limited} 限流`,
           lastUsed: (value: string | null) => value ?? "暂无使用",
         },
@@ -405,9 +428,22 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         },
         usage: {
           title: "Usage",
+          records: "Usage records",
           keyActivity: "Key activity",
           providers: "By provider",
           models: "By model",
+          time: "Time",
+          account: "Account",
+          apiKey: "API Key",
+          provider: "Provider",
+          model: "Model",
+          outcome: "Outcome",
+          tokens: "Tokens",
+          credits: "Credits",
+          usd: "USD",
+          source: "Source",
+          count: "Count",
+          empty: "No usage records yet.",
           requestsLimited: (requests: number, limited: number) => `${requests} requests · ${limited} limited`,
           lastUsed: (value: string | null) => value ?? "No activity yet",
         },
@@ -455,7 +491,18 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     setLoading(true);
     setError(null);
     try {
-      const [summaryRow, timeseriesRow, syncSummaryRow, settingsRow, providerRows, healthRows, accountRows, apiKeyRows, usageRow] = await Promise.all([
+      const [
+        summaryRow,
+        timeseriesRow,
+        syncSummaryRow,
+        settingsRow,
+        providerRows,
+        healthRows,
+        accountRows,
+        apiKeyRows,
+        usageRow,
+        usageRecordRows,
+      ] = await Promise.all([
         getAdminDashboardSummary(adminSecret),
         getAdminDashboardTimeseries(adminSecret, dashboardWindow),
         getAdminAccountSyncSummary(adminSecret),
@@ -465,6 +512,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         getAdminAccounts(adminSecret),
         getAdminApiKeys(adminSecret),
         getAdminUsageOverview(adminSecret),
+        getAdminUsageRecords(adminSecret),
       ]);
       setSummary(summaryRow);
       setTimeseries(timeseriesRow);
@@ -475,6 +523,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       setAccounts(Array.isArray(accountRows) ? accountRows : []);
       setApiKeys(Array.isArray(apiKeyRows) ? apiKeyRows : []);
       setUsage(usageRow);
+      setUsageRecords(Array.isArray(usageRecordRows) ? usageRecordRows : []);
       if (Array.isArray(accountRows) && accountRows.length > 0 && !selectedAccountId) {
         setSelectedAccountId(String(accountRows[0].id));
       }
@@ -1440,27 +1489,96 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
 
       {!loading && !error && view === "usage" ? (
         <section className="detail-grid">
-          <article className="detail-panel">
-            <h3>{copy.usage.keyActivity}</h3>
-            <div className="provider-list">
-              {(usage?.key_activity ?? []).map((item) => (
-                <article className="provider-row" key={item.api_key_id}>
-                  <div className="provider-row__body">
-                    <strong>{item.name}</strong>
-                    <p>{copy.usage.requestsLimited(item.total_requests, item.limited_requests)}</p>
-                    <small>{copy.usage.lastUsed(item.last_used_at)}</small>
-                  </div>
-                </article>
-              ))}
+          <article className="detail-panel detail-panel--wide">
+            <h3>{copy.usage.records}</h3>
+            <div className="table-shell">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{copy.usage.time}</th>
+                    <th>{copy.usage.account}</th>
+                    <th>{copy.usage.apiKey}</th>
+                    <th>{copy.usage.provider}</th>
+                    <th>{copy.usage.model}</th>
+                    <th>{copy.usage.outcome}</th>
+                    <th>{`${copy.usage.tokens} in/cache/out`}</th>
+                    <th>{copy.usage.credits}</th>
+                    <th>{copy.usage.usd}</th>
+                    <th>{copy.usage.source}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {usageRecords.length === 0 ? (
+                    <tr><td colSpan={10}>{copy.usage.empty}</td></tr>
+                  ) : usageRecords.map((row) => (
+                    <tr key={row.id}>
+                      <td>{new Date(row.created_at).toLocaleString(isZh ? "zh-CN" : "en-US")}</td>
+                      <td>{row.account_name ? `${row.account_name} #${row.account_id}` : row.account_id}</td>
+                      <td>{row.api_key_name ? `${row.api_key_name} ${row.key_prefix ?? ""}` : row.api_key_id}</td>
+                      <td>{row.provider_name ?? "-"}</td>
+                      <td>{row.model_id ?? "-"}</td>
+                      <td>{row.outcome}</td>
+                      <td>{formatUsageTokens(row)}</td>
+                      <td>{row.credits_charged ?? "-"}</td>
+                      <td>{row.usd_amount ?? "-"}</td>
+                      <td>{row.pricing_source ?? row.token_source ?? "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </article>
-          <article className="detail-panel">
-            <h3>{copy.usage.providers}</h3>
-            <div className="detail-panel__meta">{Object.entries(usage?.by_provider ?? {}).map(([name, count]) => <span key={name}>{`${name}: ${count}`}</span>)}</div>
+          <article className="detail-panel detail-panel--wide">
+            <h3>{copy.usage.keyActivity}</h3>
+            <div className="table-shell">
+              <table className="data-table">
+                <thead><tr><th>{copy.usage.apiKey}</th><th>{copy.usage.account}</th><th>{copy.apiKeys.columnStatus}</th><th>{copy.usage.count}</th><th>{copy.overview.rateLimitHits}</th><th>{copy.usage.time}</th></tr></thead>
+                <tbody>
+                  {(usage?.key_activity ?? []).length === 0 ? (
+                    <tr><td colSpan={6}>{copy.usage.empty}</td></tr>
+                  ) : (usage?.key_activity ?? []).map((item) => (
+                    <tr key={item.api_key_id}>
+                      <td>{`${item.name} ${item.key_prefix}`}</td>
+                      <td>{item.account_id}</td>
+                      <td>{item.status}</td>
+                      <td>{item.total_requests}</td>
+                      <td>{item.limited_requests}</td>
+                      <td>{copy.usage.lastUsed(item.last_used_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </article>
-          <article className="detail-panel">
+          <article className="detail-panel detail-panel--wide">
+            <h3>{copy.usage.providers}</h3>
+            <div className="table-shell">
+              <table className="data-table">
+                <thead><tr><th>{copy.usage.provider}</th><th>{copy.usage.count}</th></tr></thead>
+                <tbody>
+                  {Object.entries(usage?.by_provider ?? {}).length === 0 ? (
+                    <tr><td colSpan={2}>{copy.usage.empty}</td></tr>
+                  ) : Object.entries(usage?.by_provider ?? {})
+                    .sort(([, left], [, right]) => right - left)
+                    .map(([name, count]) => <tr key={name}><td>{name}</td><td>{count}</td></tr>)}
+                </tbody>
+              </table>
+            </div>
+          </article>
+          <article className="detail-panel detail-panel--wide">
             <h3>{copy.usage.models}</h3>
-            <div className="detail-panel__meta">{Object.entries(usage?.by_model ?? {}).map(([name, count]) => <span key={name}>{`${name}: ${count}`}</span>)}</div>
+            <div className="table-shell">
+              <table className="data-table">
+                <thead><tr><th>{copy.usage.model}</th><th>{copy.usage.count}</th></tr></thead>
+                <tbody>
+                  {Object.entries(usage?.by_model ?? {}).length === 0 ? (
+                    <tr><td colSpan={2}>{copy.usage.empty}</td></tr>
+                  ) : Object.entries(usage?.by_model ?? {})
+                    .sort(([, left], [, right]) => right - left)
+                    .map(([name, count]) => <tr key={name}><td>{name}</td><td>{count}</td></tr>)}
+                </tbody>
+              </table>
+            </div>
           </article>
         </section>
       ) : null}
