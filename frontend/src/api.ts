@@ -83,7 +83,13 @@ export type AdminProviderRecord = {
   chat_capable: boolean;
   stream_capable: boolean;
   http_base_url?: string | null;
+  http_api_key?: string | null;
+  http_api_key_configured?: boolean;
+  http_headers_json?: string | null;
+  http_headers_configured?: boolean;
   cli_command?: string | null;
+  cli_env_json?: string | null;
+  cli_env_configured?: boolean;
 };
 
 export type AdminProviderModelRecord = {

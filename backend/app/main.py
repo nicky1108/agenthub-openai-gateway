@@ -13,7 +13,7 @@ from app.api.portal import router as portal_router
 from app.api.user import router as user_router
 from app.core.db import get_engine, get_session_factory
 from app.core.models import Base, ProviderRecord
-from app.core.settings import Settings
+from app.core.settings import Settings, validate_secure_runtime_config
 from app.discovery.service import ProviderDiscoveryService
 from app.pricing.service import OfficialPricingService
 from app.runtime.logging import log_gateway_event
@@ -206,6 +206,7 @@ def backfill_sqlite_model_pricing_columns(connection: Connection) -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = Settings()
+    validate_secure_runtime_config(settings)
     engine = get_engine(settings.database_url)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)

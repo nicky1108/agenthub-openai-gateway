@@ -140,4 +140,22 @@ describe("DocsPage", () => {
     expect(screen.getByRole("heading", { name: "常见错误" })).toBeTruthy();
     expect(screen.getByText(/429/)).toBeTruthy();
   });
+
+  it("documents a platform-model tools call for web_fetch", () => {
+    render(
+      <DocsPage
+        authUser={null}
+        copy={messages.zh}
+        locale="zh"
+        onNavigate={() => {}}
+        onToggleLocale={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Tools 调用：web_fetch" })).toBeTruthy();
+    expect(screen.getAllByText(/"model": "codex:gpt-5\.4"/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/"name": "web_fetch"/)).toBeTruthy();
+    expect(screen.getByText(/"tool_choice"/)).toBeTruthy();
+    expect(screen.getByText(/"url":/)).toBeTruthy();
+  });
 });

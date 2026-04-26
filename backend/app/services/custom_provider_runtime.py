@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import AsyncIterator
 from typing import Any, Mapping
@@ -10,6 +9,9 @@ import httpx
 from app.adapters.base import ChatRequest
 from app.adapters.http.anthropic_messages import AnthropicMessagesAdapter
 from app.adapters.http.openai_compatible import OpenAICompatibleHttpAdapter
+from app.core.secrets import reveal_secret
+from app.core.settings import Settings
+from app.services.provider_guardrails import ensure_safe_provider_url
 
 
 class CustomProviderRuntimeError(RuntimeError):
@@ -99,8 +101,14 @@ def _custom_http_adapter(
     *,
     transport: httpx.AsyncBaseTransport | httpx.BaseTransport | None = None,
 ):
-    provider_base_url = _provider_value(provider, "base_url").rstrip("/")
-    provider_secret = _provider_value(provider, "secret_value")
+    settings = Settings()
+    provider_base_url = ensure_safe_provider_url(
+        _provider_value(provider, "base_url"),
+        strict_dns=settings.require_provider_dns_resolution,
+    )
+    provider_secret = reveal_secret(_provider_value(provider, "secret_value"))
+    if not provider_secret:
+        raise ValueError("provider is missing required field 'secret_value'")
     protocol = _provider_protocol(provider)
     if protocol == "anthropic":
         return AnthropicMessagesAdapter(
@@ -174,9 +182,11 @@ async def execute_custom_completion(
     *,
     provider_transport: httpx.AsyncBaseTransport | httpx.BaseTransport | None = None,
 ) -> dict[str, Any]:
-    adapter = _custom_http_adapter(provider, transport=provider_transport)
     try:
+        adapter = _custom_http_adapter(provider, transport=provider_transport)
         payload = await adapter.chat(_custom_chat_request(request_payload, _provider_slug(provider)))
+    except ValueError as exc:
+        raise CustomProviderRequestError(str(exc)) from exc
     except httpx.HTTPStatusError as exc:
         raise CustomProviderRequestError(
             "custom provider request failed",
@@ -194,10 +204,12 @@ async def stream_custom_completion(
     *,
     provider_transport: httpx.AsyncBaseTransport | httpx.BaseTransport | None = None,
 ) -> AsyncIterator[str]:
-    adapter = _custom_http_adapter(provider, transport=provider_transport)
     try:
+        adapter = _custom_http_adapter(provider, transport=provider_transport)
         async for chunk in adapter.stream_chat(_custom_chat_request(request_payload, _provider_slug(provider))):
             yield chunk
+    except ValueError as exc:
+        raise CustomProviderRequestError(str(exc)) from exc
     except httpx.HTTPStatusError as exc:
         raise CustomProviderRequestError(
             "custom provider request failed",
@@ -206,4 +218,3 @@ async def stream_custom_completion(
         ) from exc
     except httpx.HTTPError as exc:
         raise CustomProviderRequestError("custom provider request failed") from exc
-

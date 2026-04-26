@@ -194,6 +194,12 @@ Default local ports:
 At minimum, set:
 
 - `ADMIN_SECRET`
+- `SECRET_ENCRYPTION_KEY`
+
+For production, also set:
+
+- `APP_ENVIRONMENT=production`
+- `PUBLIC_GATEWAY_SERVICE_TOKEN` to a random value, even when the public gateway tunnel is not used
 
 For public-gateway integration, also set:
 
@@ -206,6 +212,7 @@ Example local `.env` values for reverse-tunnel development:
 
 ```env
 ADMIN_SECRET=change-me
+SECRET_ENCRYPTION_KEY=local-dev-secret-encryption-key-change-before-production
 PUBLIC_GATEWAY_SERVICE_TOKEN=public-gateway-dev-token-20260421
 PUBLIC_GATEWAY_TUNNEL_URL=ws://127.0.0.1:8788/internal/tunnel
 PUBLIC_GATEWAY_TUNNEL_DEVICE_ID=local-mac-dev
@@ -283,6 +290,7 @@ curl -sN http://127.0.0.1:8787/v1/chat/completions \
 ### Managed Model Web Fetch
 
 `web_fetch` is an opt-in gateway-side tool for managed models. It only runs when the request declares the tool, and it blocks localhost, private/reserved IPs, unsupported schemes, and non-text responses.
+Use a managed platform model such as `codex:gpt-5.4`; custom provider requests do not execute built-in tools.
 
 ```bash
 curl -s http://127.0.0.1:8787/v1/chat/completions \
@@ -293,6 +301,7 @@ curl -s http://127.0.0.1:8787/v1/chat/completions \
     "messages": [
       { "role": "user", "content": "Fetch https://example.com and summarize it in one sentence." }
     ],
+    "stream": false,
     "tools": [
       {
         "type": "function",
@@ -308,7 +317,8 @@ curl -s http://127.0.0.1:8787/v1/chat/completions \
           }
         }
       }
-    ]
+    ],
+    "tool_choice": { "type": "function", "function": { "name": "web_fetch" } }
   }'
 ```
 

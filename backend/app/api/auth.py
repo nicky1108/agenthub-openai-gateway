@@ -1,5 +1,6 @@
 import secrets
 from datetime import datetime, timedelta, timezone
+from time import monotonic
 from urllib.parse import urlencode
 
 import httpx
@@ -21,6 +22,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 SESSION_COOKIE_NAME = "agh_session"
 OAUTH_STATE_COOKIE_NAME = "agh_oauth_state"
 OAUTH_PROVIDER_COOKIE_NAME = "agh_oauth_provider"
+SESSION_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+_RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
 
 
 def validate_email_address(value: str) -> str:
@@ -83,16 +86,49 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def _client_host(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_limit_key(kind: str, request: Request, subject: str) -> str:
+    return f"{kind}:{_client_host(request)}:{subject.strip().lower()}"
+
+
+def _enforce_rate_limit(key: str, *, max_attempts: int, window_seconds: int, detail: str) -> None:
+    now = monotonic()
+    window_start = now - max(window_seconds, 1)
+    attempts = [timestamp for timestamp in _RATE_LIMIT_BUCKETS.get(key, []) if timestamp >= window_start]
+    if len(attempts) >= max(max_attempts, 1):
+        _RATE_LIMIT_BUCKETS[key] = attempts
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=detail)
+    attempts.append(now)
+    _RATE_LIMIT_BUCKETS[key] = attempts
+
+
+def _clear_rate_limit(key: str) -> None:
+    _RATE_LIMIT_BUCKETS.pop(key, None)
+
+
 async def create_auth_session(response: Response, session: AsyncSession, account: AccountRecord) -> None:
     raw_token = secrets.token_urlsafe(32)
+    settings = Settings()
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=SESSION_COOKIE_MAX_AGE_SECONDS)
     session_record = AuthSessionRecord(
         account_id=account.id,
         session_token_hash=hash_api_key(raw_token),
-        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        expires_at=expires_at,
     )
     session.add(session_record)
     await session.commit()
-    response.set_cookie(SESSION_COOKIE_NAME, raw_token, httponly=True, samesite="lax")
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        raw_token,
+        httponly=True,
+        samesite="lax",
+        secure=settings.session_cookie_secure,
+        max_age=SESSION_COOKIE_MAX_AGE_SECONDS,
+        path="/",
+    )
 
 
 def normalize_frontend_redirect(frontend_base_url: str) -> str:
@@ -100,9 +136,26 @@ def normalize_frontend_redirect(frontend_base_url: str) -> str:
 
 
 def build_oauth_redirect_response(url: str, provider: str, state: str) -> RedirectResponse:
+    settings = Settings()
     response = RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
-    response.set_cookie(OAUTH_STATE_COOKIE_NAME, state, httponly=True, samesite="lax", max_age=600)
-    response.set_cookie(OAUTH_PROVIDER_COOKIE_NAME, provider, httponly=True, samesite="lax", max_age=600)
+    response.set_cookie(
+        OAUTH_STATE_COOKIE_NAME,
+        state,
+        httponly=True,
+        samesite="lax",
+        secure=settings.session_cookie_secure,
+        max_age=600,
+        path="/",
+    )
+    response.set_cookie(
+        OAUTH_PROVIDER_COOKIE_NAME,
+        provider,
+        httponly=True,
+        samesite="lax",
+        secure=settings.session_cookie_secure,
+        max_age=600,
+        path="/",
+    )
     return response
 
 
@@ -239,10 +292,17 @@ async def upsert_oauth_account(
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(
     payload: RegisterPayload,
+    request: Request,
     response: Response,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
+    _enforce_rate_limit(
+        _rate_limit_key("register", request, payload.email),
+        max_attempts=settings.auth_register_rate_limit_max_attempts,
+        window_seconds=settings.auth_register_rate_limit_window_seconds,
+        detail="too many registration attempts",
+    )
     existing_email = await session.scalar(select(AccountRecord).where(AccountRecord.email == payload.email))
     if existing_email is not None:
         raise HTTPException(status_code=409, detail="email already exists")
@@ -269,16 +329,25 @@ async def register(
 @router.post("/login")
 async def login(
     payload: LoginPayload,
+    request: Request,
     response: Response,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
+    login_limit_key = _rate_limit_key("login", request, payload.email)
+    _enforce_rate_limit(
+        login_limit_key,
+        max_attempts=settings.auth_login_rate_limit_max_attempts,
+        window_seconds=settings.auth_login_rate_limit_window_seconds,
+        detail="too many login attempts",
+    )
     account = await session.scalar(select(AccountRecord).where(AccountRecord.email == payload.email))
     if account is None or not account.password_hash or not verify_password(
         payload.password, account.password_hash
     ):
         raise HTTPException(status_code=401, detail="invalid credentials")
 
+    _clear_rate_limit(login_limit_key)
     await create_auth_session(response, session, account)
     return serialize_account(account, settings)
 
@@ -296,7 +365,7 @@ async def logout(
         if session_record is not None:
             session_record.status = "revoked"
             await session.commit()
-    response.delete_cookie(SESSION_COOKIE_NAME)
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
     return {"status": "logged_out"}
 
 

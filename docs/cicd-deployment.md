@@ -51,14 +51,20 @@ sudo ln -sfn /etc/nginx/sites-available/agenthub-openai-gateway /etc/nginx/sites
 Create `/etc/agenthub-openai-gateway.env`:
 
 ```env
+APP_ENVIRONMENT=production
 ADMIN_SECRET=replace-with-a-long-random-secret
+SECRET_ENCRYPTION_KEY=replace-with-a-different-32-plus-character-secret
+PUBLIC_GATEWAY_SERVICE_TOKEN=replace-with-a-long-random-service-token
 DATABASE_URL=sqlite+aiosqlite:///./data/gateway.db
 OPENAI_GATEWAY_HOST=127.0.0.1
 OPENAI_GATEWAY_PORT=8787
 FRONTEND_BASE_URL=https://your-domain.example
 CODEX_NATIVE_ENABLED=true
 GEMINI_NATIVE_ENABLED=true
+PROVIDER_URL_STRICT_DNS=true
 ```
+
+Leave `ADMIN_CLI_PROVIDER_MANAGEMENT_ENABLED` unset in production unless operators must create or edit CLI-backed providers through the admin API. If it is enabled, also set `ADMIN_CLI_PROVIDER_COMMAND_ALLOWLIST_CSV` to exact command names or paths, for example `codex,gemini`.
 
 Enable services:
 
@@ -121,4 +127,3 @@ https://your-domain.example/portal    customer portal
 https://your-domain.example/admin     operator admin console
 https://your-domain.example/v1        OpenAI-compatible API base
 ```
-

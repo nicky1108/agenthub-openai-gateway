@@ -36,9 +36,9 @@ export function DocsPage({ authUser, copy, locale, onNavigate, onToggleLocale }:
         stream: "流式",
         copyExample: "复制示例",
         currentExample: "当前示例",
-        webFetchTitle: "内置 web_fetch 工具",
+        webFetchTitle: "Tools 调用：web_fetch",
         webFetchBody:
-          "平台模型可选择启用网关侧 web_fetch。只有在 tools 里显式声明 web_fetch 时才会抓取网页；网关会阻止 localhost、内网、保留地址和非文本响应。",
+          "平台模型可选择启用网关侧 web_fetch。只有在 tools 里显式声明 web_fetch 时才会抓取网页；自定义 Provider 请求不会执行内置工具。网关会阻止 localhost、内网、保留地址和非文本响应。",
         platformModels: "平台模型",
         platformBody:
           "平台模型由 AgentHub 提供，模型 ID 使用平台 provider 前缀，例如 codex:gpt-5.4。它们和自定义模型共用上面的示例生成器。",
@@ -71,9 +71,9 @@ export function DocsPage({ authUser, copy, locale, onNavigate, onToggleLocale }:
         stream: "Streaming",
         copyExample: "Copy example",
         currentExample: "Current example",
-        webFetchTitle: "Built-in web_fetch tool",
+        webFetchTitle: "Tools call: web_fetch",
         webFetchBody:
-          "Managed models can opt into gateway-side web_fetch. Fetching only runs when the request explicitly declares web_fetch in tools; the gateway blocks localhost, private/reserved addresses, and non-text responses.",
+          "Managed models can opt into gateway-side web_fetch. Fetching only runs when the request explicitly declares web_fetch in tools; custom provider requests do not execute built-in tools. The gateway blocks localhost, private/reserved addresses, and non-text responses.",
         platformModels: "Managed models",
         platformBody:
           "Managed models are provided by AgentHub and use provider-prefixed model IDs such as codex:gpt-5.4. They share the same example generator as custom models.",
@@ -161,6 +161,7 @@ export function DocsPage({ authUser, copy, locale, onNavigate, onToggleLocale }:
     modelOptions.find((model) => model.id === selectedExampleModelId) ?? modelOptions[0];
   const selectedModelKind =
     selectedExampleModel?.source === "custom" ? docsCopy.selectedCustom : docsCopy.selectedPlatform;
+  const webFetchModelId = pickDefaultPlatformModelId(platformModels);
   const exampleCurl = buildChatCurlExample({
     apiBaseUrl: apiBase,
     modelId: selectedExampleModelId,
@@ -171,10 +172,11 @@ export function DocsPage({ authUser, copy, locale, onNavigate, onToggleLocale }:
   -H "Authorization: Bearer YOUR_GATEWAY_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "${selectedExampleModelId}",
+    "model": "${webFetchModelId}",
     "messages": [
       {"role": "user", "content": "Fetch https://example.com and summarize it in one sentence."}
     ],
+    "stream": false,
     "tools": [
       {
         "type": "function",
@@ -190,7 +192,8 @@ export function DocsPage({ authUser, copy, locale, onNavigate, onToggleLocale }:
           }
         }
       }
-    ]
+    ],
+    "tool_choice": {"type": "function", "function": {"name": "web_fetch"}}
   }'`;
   const platformModelList =
     platformModels.length > 0 ? platformModels.map((model) => model.id).join("\n") : fallbackPlatformModelId;
@@ -288,6 +291,9 @@ export function DocsPage({ authUser, copy, locale, onNavigate, onToggleLocale }:
           <article className="docs-cardless docs-cardless--wide">
             <h3>{docsCopy.webFetchTitle}</h3>
             <p>{docsCopy.webFetchBody}</p>
+            <small>
+              {docsCopy.currentExample}: {docsCopy.selectedPlatform} · <code>{webFetchModelId}</code>
+            </small>
             <pre>
               <code>{webFetchCurl}</code>
             </pre>

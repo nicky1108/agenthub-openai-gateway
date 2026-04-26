@@ -16,6 +16,7 @@ from app.adapters.http.anthropic_messages import AnthropicMessagesAdapter
 from app.auth.service import generate_api_key, hash_api_key
 from app.core.db import get_session
 from app.core.models import AccountRecord, ApiKeyRecord, UsageRecord, UserProviderRecord
+from app.core.secrets import reveal_secret, seal_secret
 from app.core.settings import Settings
 from app.services.provider_guardrails import (
     ensure_safe_provider_protocol,
@@ -109,7 +110,7 @@ async def run_provider_probe(
             base_url=base_url,
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=25.0,
-            follow_redirects=True,
+            follow_redirects=False,
         ) as client:
             try:
                 models_response = await client.get("/models")
@@ -406,9 +407,10 @@ async def add_user_provider(
     account: AccountRecord = Depends(require_portal_account),
 ) -> dict[str, Any]:
     try:
-        safe_slug = ensure_safe_provider_slug(name, Settings().reserved_provider_slugs)
+        settings = Settings()
+        safe_slug = ensure_safe_provider_slug(name, settings.reserved_provider_slugs)
         safe_protocol = ensure_safe_provider_protocol(protocol)
-        safe_base_url = ensure_safe_provider_url(base_url)
+        safe_base_url = ensure_safe_provider_url(base_url, strict_dns=settings.require_provider_dns_resolution)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -428,7 +430,7 @@ async def add_user_provider(
         name=name,
         protocol=safe_protocol,
         base_url=safe_base_url,
-        secret_ref=api_key,
+        secret_ref=seal_secret(api_key) or "",
         description=description,
     )
     session.add(provider)
@@ -471,14 +473,17 @@ async def update_user_provider(
             probe_invalidated = True
     if "base_url" in fields_set and payload.base_url is not None:
         try:
-            base_url = ensure_safe_provider_url(payload.base_url)
+            base_url = ensure_safe_provider_url(
+                payload.base_url,
+                strict_dns=Settings().require_provider_dns_resolution,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         if base_url != provider.base_url:
             provider.base_url = base_url
             probe_invalidated = True
     if "api_key" in fields_set and payload.api_key is not None and payload.api_key.strip():
-        provider.secret_ref = payload.api_key
+        provider.secret_ref = seal_secret(payload.api_key) or ""
         probe_invalidated = True
     if "description" in fields_set:
         provider.description = payload.description
@@ -520,7 +525,10 @@ async def probe_user_provider(
     _: AccountRecord = Depends(require_portal_account),
 ) -> dict[str, Any]:
     try:
-        base_url = ensure_safe_provider_url(payload.base_url)
+        base_url = ensure_safe_provider_url(
+            payload.base_url,
+            strict_dns=Settings().require_provider_dns_resolution,
+        )
         protocol = ensure_safe_provider_protocol(payload.protocol)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -554,7 +562,7 @@ async def probe_existing_user_provider(
     result = await run_provider_probe(
         protocol=provider.protocol,
         base_url=provider.base_url,
-        api_key=provider.secret_ref,
+        api_key=reveal_secret(provider.secret_ref) or "",
         candidate_models=recommended_upstream_models(provider.slug, provider.base_url, provider.protocol),
     )
     apply_probe_result(provider, result)

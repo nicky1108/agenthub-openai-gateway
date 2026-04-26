@@ -14,6 +14,7 @@ from app.adapters.http.openai_compatible import OpenAICompatibleHttpAdapter
 from app.adapters.native.codex import CodexNativeAdapter
 from app.adapters.native.gemini import GeminiNativeAdapter
 from app.core.models import ProviderModelRecord, ProviderRecord
+from app.core.secrets import reveal_secret
 from app.core.settings import Settings
 from app.registry.service import ProviderNotFoundError, ProviderRegistry
 from app.runtime.gemini_acp_client import GeminiAcpClient
@@ -60,13 +61,15 @@ class ChatOrchestrator:
 
     def _http_adapter(self, provider: ProviderRecord) -> OpenAICompatibleHttpAdapter:
         key = f"http:{provider.name}:{provider.http_base_url}:{provider.http_api_key}:{provider.http_headers_json}"
+        http_api_key = reveal_secret(provider.http_api_key)
+        http_headers_json = reveal_secret(provider.http_headers_json) or "{}"
         handle = provider_process_pool.get_or_create(
             key=key,
             factory=lambda: {
                 "adapter": OpenAICompatibleHttpAdapter(
                     base_url=provider.http_base_url or "",
-                    api_key=provider.http_api_key,
-                    headers=json.loads(provider.http_headers_json),
+                    api_key=http_api_key,
+                    headers=json.loads(http_headers_json),
                 )
             },
         )
@@ -89,13 +92,17 @@ class ChatOrchestrator:
         return provider_cli_cwd(provider.name, provider.cli_cwd)
 
     @staticmethod
+    def _provider_cli_env(provider: ProviderRecord) -> dict[str, str]:
+        return json.loads(reveal_secret(provider.cli_env_json) or "{}")
+
+    @staticmethod
     def _new_gemini_acp_slot(provider: ProviderRecord) -> dict[str, object]:
         cwd = ChatOrchestrator._provider_cli_cwd(provider)
         return {
             "client": GeminiAcpClient(
                 command=provider.cli_command or "",
                 args=[*json.loads(provider.cli_args_json), "--acp"],
-                env=json.loads(provider.cli_env_json),
+                env=ChatOrchestrator._provider_cli_env(provider),
                 cwd=cwd,
                 read_timeout_seconds=30,
             ),
@@ -416,7 +423,7 @@ class ChatOrchestrator:
                     "adapter": CodexCliAdapter(
                         command=provider.cli_command or "",
                         args=json.loads(provider.cli_args_json),
-                        env=json.loads(provider.cli_env_json),
+                        env=self._provider_cli_env(provider),
                         cwd=cwd,
                         read_timeout_seconds=30,
                     )
@@ -431,7 +438,7 @@ class ChatOrchestrator:
                     "adapter": GeminiCliAdapter(
                         command=provider.cli_command or "",
                         args=json.loads(provider.cli_args_json),
-                        env=json.loads(provider.cli_env_json),
+                        env=self._provider_cli_env(provider),
                         cwd=cwd,
                         read_timeout_seconds=30,
                     )
@@ -445,7 +452,7 @@ class ChatOrchestrator:
                 "adapter": ProcessCliAdapter(
                     command=provider.cli_command or "",
                     args=json.loads(provider.cli_args_json),
-                    env=json.loads(provider.cli_env_json),
+                    env=self._provider_cli_env(provider),
                     cwd=cwd,
                     read_timeout_seconds=30,
                 )

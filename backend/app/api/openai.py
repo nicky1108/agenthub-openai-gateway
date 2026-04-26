@@ -12,6 +12,7 @@ from app.auth.service import AuthContext, auth_service, require_api_key
 from app.billing.service import UsageSnapshot, billing_service
 from app.core.db import get_session
 from app.core.models import UserProviderRecord
+from app.core.secrets import reveal_secret
 from app.orchestration.chat import ChatOrchestrator
 from app.registry.service import ProviderNotFoundError, ProviderRegistry
 from app.runtime.logging import elapsed_ms, log_gateway_event, new_request_id
@@ -101,7 +102,7 @@ async def resolve_user_provider(
 def custom_provider_descriptor(provider: UserProviderRecord) -> dict[str, object]:
     return {
         "base_url": provider.base_url,
-        "secret_value": provider.secret_ref,
+        "secret_value": reveal_secret(provider.secret_ref) or "",
         "slug": provider.slug,
         "protocol": provider.protocol,
     }

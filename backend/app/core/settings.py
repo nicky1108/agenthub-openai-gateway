@@ -2,8 +2,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    app_environment: str = "development"
     admin_secret: str = "change-me"
     admin_emails_csv: str = ""
+    secret_encryption_key: str | None = None
+    cookie_secure: bool | None = None
+    provider_url_strict_dns: bool | None = None
+    auth_login_rate_limit_max_attempts: int = 5
+    auth_login_rate_limit_window_seconds: int = 300
+    auth_register_rate_limit_max_attempts: int = 100
+    auth_register_rate_limit_window_seconds: int = 3600
+    admin_cli_provider_management_enabled: bool = False
+    admin_cli_provider_command_allowlist_csv: str = ""
     codex_native_enabled: bool = True
     codex_native_auth_file: str = "~/.codex/auth.json"
     codex_native_base_url: str = "https://chatgpt.com/backend-api/codex"
@@ -65,3 +75,45 @@ class Settings(BaseSettings):
     @property
     def google_oauth_enabled(self) -> bool:
         return bool(self.google_oauth_client_id and self.google_oauth_client_secret)
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_environment.strip().lower() in {"prod", "production"}
+
+    @property
+    def session_cookie_secure(self) -> bool:
+        if self.cookie_secure is not None:
+            return self.cookie_secure
+        return self.is_production or self.frontend_base_url.strip().lower().startswith("https://")
+
+    @property
+    def require_provider_dns_resolution(self) -> bool:
+        if self.provider_url_strict_dns is not None:
+            return self.provider_url_strict_dns
+        return self.is_production
+
+    @property
+    def admin_cli_provider_command_allowlist(self) -> set[str]:
+        return {
+            item.strip()
+            for item in self.admin_cli_provider_command_allowlist_csv.split(",")
+            if item.strip()
+        }
+
+
+def validate_secure_runtime_config(settings: Settings) -> None:
+    if not settings.is_production:
+        return
+    if settings.admin_secret == "change-me":
+        raise RuntimeError("ADMIN_SECRET must be configured for production")
+    if settings.public_gateway_service_token == "public-gateway-token":
+        raise RuntimeError("PUBLIC_GATEWAY_SERVICE_TOKEN must be configured for production")
+    if not settings.secret_encryption_key or len(settings.secret_encryption_key) < 32:
+        raise RuntimeError("SECRET_ENCRYPTION_KEY must be at least 32 characters for production")
+    if (
+        settings.admin_cli_provider_management_enabled
+        and not settings.admin_cli_provider_command_allowlist
+    ):
+        raise RuntimeError(
+            "ADMIN_CLI_PROVIDER_COMMAND_ALLOWLIST_CSV must be configured when CLI provider management is enabled"
+        )

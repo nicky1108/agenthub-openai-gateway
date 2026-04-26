@@ -46,6 +46,19 @@ Default backend API:
 http://127.0.0.1:8787
 ```
 
+Production env files should set explicit non-default security values:
+
+```env
+APP_ENVIRONMENT=production
+ADMIN_SECRET=replace-with-a-long-random-secret
+SECRET_ENCRYPTION_KEY=replace-with-a-different-32-plus-character-secret
+PUBLIC_GATEWAY_SERVICE_TOKEN=replace-with-a-long-random-service-token
+FRONTEND_BASE_URL=https://your-domain.example
+PROVIDER_URL_STRICT_DNS=true
+```
+
+Keep admin CLI provider management disabled in production unless it is operationally required. If enabled, set `ADMIN_CLI_PROVIDER_COMMAND_ALLOWLIST_CSV` to the allowed commands, for example `codex,gemini`.
+
 Important routes:
 
 ```text

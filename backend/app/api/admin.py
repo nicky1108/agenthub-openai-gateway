@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Literal
 
 import httpx
@@ -24,6 +25,7 @@ from app.core.models import (
     ProviderRecord,
     UsageRecord,
 )
+from app.core.secrets import seal_secret
 from app.pricing.service import OfficialPricingService
 from app.orchestration.chat import ChatOrchestrator
 from app.core.settings import Settings
@@ -95,10 +97,13 @@ class ProviderRead(BaseModel):
     stream_capable: bool = True
     http_base_url: str | None = None
     http_api_key: str | None = None
+    http_api_key_configured: bool = False
     http_headers_json: str = "{}"
+    http_headers_configured: bool = False
     cli_command: str | None = None
     cli_args_json: str = "[]"
     cli_env_json: str = "{}"
+    cli_env_configured: bool = False
     cli_cwd: str | None = None
 
 
@@ -547,6 +552,75 @@ def validate_provider_transport(record: ProviderRecord) -> None:
         )
 
 
+def _secret_configured(value: str | None, *, empty_value: str | None = None) -> bool:
+    if not value:
+        return False
+    if empty_value is not None and value == empty_value:
+        return False
+    return True
+
+
+def _seal_optional_secret(value: str | None) -> str | None:
+    if value is None or not value.strip():
+        return None
+    return seal_secret(value)
+
+
+def _seal_config_json(value: str | None, *, empty_value: str) -> str:
+    if value is None or not value.strip():
+        return empty_value
+    return seal_secret(value) if value != empty_value else empty_value
+
+
+def serialize_provider(record: ProviderRecord) -> ProviderRead:
+    return ProviderRead(
+        id=record.id,
+        name=record.name,
+        exposed_model=record.exposed_model,
+        http_enabled=record.http_enabled,
+        cli_enabled=record.cli_enabled,
+        route_policy=record.route_policy,
+        chat_capable=record.chat_capable,
+        stream_capable=record.stream_capable,
+        http_base_url=record.http_base_url,
+        http_api_key=None,
+        http_api_key_configured=_secret_configured(record.http_api_key),
+        http_headers_json="{}",
+        http_headers_configured=_secret_configured(record.http_headers_json, empty_value="{}"),
+        cli_command=record.cli_command,
+        cli_args_json=record.cli_args_json,
+        cli_env_json="{}",
+        cli_env_configured=_secret_configured(record.cli_env_json, empty_value="{}"),
+        cli_cwd=record.cli_cwd,
+    )
+
+
+def _cli_command_allowed(command: str, allowlist: set[str]) -> bool:
+    if not allowlist:
+        return True
+    command_name = Path(command).name
+    return command in allowlist or command_name in allowlist
+
+
+def validate_admin_cli_management(record: ProviderRecord, settings: Settings) -> None:
+    if not record.cli_enabled and not record.cli_command:
+        return
+    if settings.is_production and not settings.admin_cli_provider_management_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="CLI provider management is disabled",
+        )
+    if (
+        settings.is_production
+        and record.cli_command
+        and not _cli_command_allowed(record.cli_command, settings.admin_cli_provider_command_allowlist)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="cli_command is not allowlisted",
+        )
+
+
 def build_timeseries_window(window: Literal["24h", "7d"]) -> tuple[list[datetime], list[str], timedelta]:
     now = datetime.now(timezone.utc)
     if window == "24h":
@@ -566,6 +640,7 @@ async def create_provider(
     payload: ProviderCreate,
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> ProviderRead:
     record_payload = payload.model_dump()
     if record_payload["exposed_model"] == "default":
@@ -573,7 +648,11 @@ async def create_provider(
             record_payload["exposed_model"] = "gpt-5.4"
         elif record_payload["name"] == "gemini":
             record_payload["exposed_model"] = "gemini-2.5-pro"
+    record_payload["http_api_key"] = _seal_optional_secret(record_payload["http_api_key"])
+    record_payload["http_headers_json"] = _seal_config_json(record_payload["http_headers_json"], empty_value="{}")
+    record_payload["cli_env_json"] = _seal_config_json(record_payload["cli_env_json"], empty_value="{}")
     record = ProviderRecord(**record_payload)
+    validate_admin_cli_management(record, settings)
     session.add(record)
     try:
         await session.commit()
@@ -586,7 +665,7 @@ async def create_provider(
     await session.refresh(record)
     await discovery.sync_provider_models(session, record)
     await pricing.sync_provider_pricing(session, record.name)
-    return ProviderRead.model_validate(record, from_attributes=True)
+    return serialize_provider(record)
 
 
 @router.get("/providers", response_model=list[ProviderRead])
@@ -595,7 +674,7 @@ async def list_providers(
     session: AsyncSession = Depends(get_session),
 ) -> list[ProviderRead]:
     rows = await session.scalars(select(ProviderRecord).order_by(ProviderRecord.id.asc()))
-    return [ProviderRead.model_validate(row, from_attributes=True) for row in rows]
+    return [serialize_provider(row) for row in rows]
 
 
 @router.patch("/providers/{provider_name}", response_model=ProviderRead)
@@ -604,6 +683,7 @@ async def update_provider(
     payload: ProviderPatch,
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> ProviderRead:
     record = await session.scalar(select(ProviderRecord).where(ProviderRecord.name == provider_name))
     if record is None:
@@ -625,22 +705,23 @@ async def update_provider(
     if "http_base_url" in fields:
         record.http_base_url = payload.http_base_url
     if "http_api_key" in fields:
-        record.http_api_key = payload.http_api_key
+        record.http_api_key = _seal_optional_secret(payload.http_api_key)
     if "http_headers_json" in fields and payload.http_headers_json is not None:
-        record.http_headers_json = payload.http_headers_json
+        record.http_headers_json = _seal_config_json(payload.http_headers_json, empty_value="{}")
     if "cli_command" in fields:
         record.cli_command = payload.cli_command
     if "cli_args_json" in fields and payload.cli_args_json is not None:
         record.cli_args_json = payload.cli_args_json
     if "cli_env_json" in fields and payload.cli_env_json is not None:
-        record.cli_env_json = payload.cli_env_json
+        record.cli_env_json = _seal_config_json(payload.cli_env_json, empty_value="{}")
     if "cli_cwd" in fields:
         record.cli_cwd = payload.cli_cwd
 
     validate_provider_transport(record)
+    validate_admin_cli_management(record, settings)
     await session.commit()
     await session.refresh(record)
-    return ProviderRead.model_validate(record, from_attributes=True)
+    return serialize_provider(record)
 
 
 @router.delete("/providers/{provider_name}", response_model=ProviderRead)
@@ -652,7 +733,7 @@ async def delete_provider(
     record = await session.scalar(select(ProviderRecord).where(ProviderRecord.name == provider_name))
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider not found")
-    payload = ProviderRead.model_validate(record, from_attributes=True)
+    payload = serialize_provider(record)
 
     model_rows = list(
         await session.scalars(select(ProviderModelRecord).where(ProviderModelRecord.provider_id == record.id))

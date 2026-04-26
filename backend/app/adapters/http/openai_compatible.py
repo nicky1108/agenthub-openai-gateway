@@ -7,6 +7,8 @@ import httpx
 
 from app.adapters.base import ChatRequest
 
+DEFAULT_HTTP_TIMEOUT = httpx.Timeout(60.0, connect=10.0, write=30.0, pool=10.0)
+
 
 class OpenAICompatibleHttpAdapter:
     def __init__(
@@ -15,6 +17,7 @@ class OpenAICompatibleHttpAdapter:
         api_key: str | None,
         headers: dict[str, str],
         transport: httpx.AsyncBaseTransport | httpx.BaseTransport | None = None,
+        timeout: httpx.Timeout | None = None,
     ) -> None:
         merged_headers = dict(headers)
         if api_key:
@@ -24,6 +27,7 @@ class OpenAICompatibleHttpAdapter:
         self._chat_completions_path = "/chat/completions" if normalized_path.endswith("/v1") else "/v1/chat/completions"
         self._headers = merged_headers
         self._transport = transport
+        self._timeout = timeout or DEFAULT_HTTP_TIMEOUT
 
     @asynccontextmanager
     async def _client(self) -> AsyncIterator[httpx.AsyncClient]:
@@ -31,6 +35,7 @@ class OpenAICompatibleHttpAdapter:
             base_url=self._base_url,
             headers=self._headers,
             transport=self._transport,
+            timeout=self._timeout,
         ) as client:
             yield client
 

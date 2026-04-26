@@ -10,6 +10,8 @@ import httpx
 
 from app.adapters.base import ChatRequest
 
+DEFAULT_HTTP_TIMEOUT = httpx.Timeout(60.0, connect=10.0, write=30.0, pool=10.0)
+
 
 def _normalized_anthropic_base_url(base_url: str) -> str:
     parsed = urlparse(base_url.rstrip("/"))
@@ -107,6 +109,7 @@ class AnthropicMessagesAdapter:
         api_key: str,
         headers: dict[str, str],
         transport: httpx.AsyncBaseTransport | httpx.BaseTransport | None = None,
+        timeout: httpx.Timeout | None = None,
     ) -> None:
         merged_headers = dict(headers)
         merged_headers["Authorization"] = f"Bearer {api_key}"
@@ -118,6 +121,7 @@ class AnthropicMessagesAdapter:
         self._models_path = _models_path_for_base_url(self._base_url)
         self._headers = merged_headers
         self._transport = transport
+        self._timeout = timeout or DEFAULT_HTTP_TIMEOUT
 
     @asynccontextmanager
     async def _client(self) -> AsyncIterator[httpx.AsyncClient]:
@@ -125,6 +129,7 @@ class AnthropicMessagesAdapter:
             base_url=self._base_url,
             headers=self._headers,
             transport=self._transport,
+            timeout=self._timeout,
         ) as client:
             yield client
 
@@ -283,4 +288,3 @@ class AnthropicMessagesAdapter:
                         yield f"data: {json.dumps(final_chunk, separators=(',', ':'))}\n\n"
                         yield "data: [DONE]\n\n"
                         return
-
