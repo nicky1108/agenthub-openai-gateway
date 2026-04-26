@@ -119,6 +119,18 @@ def test_builtin_tool_synthesizes_weather_fetch_from_user_request() -> None:
     }
 
 
+def test_builtin_tool_prefers_synthetic_fetch_for_weather_or_explicit_url() -> None:
+    assert builtin_tools.should_prefer_synthetic_web_fetch(
+        {"messages": [{"role": "user", "content": "联网搜索一下杭州今天的天气和日期"}]}
+    )
+    assert builtin_tools.should_prefer_synthetic_web_fetch(
+        {"messages": [{"role": "user", "content": "fetch https://example.com/page"}]}
+    )
+    assert not builtin_tools.should_prefer_synthetic_web_fetch(
+        {"messages": [{"role": "user", "content": "search the web for weather"}]}
+    )
+
+
 def test_builtin_tool_formats_synthetic_fetch_result_as_context() -> None:
     message = builtin_tools.tool_messages_to_context_message(
         [

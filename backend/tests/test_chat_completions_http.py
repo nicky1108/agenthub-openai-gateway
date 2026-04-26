@@ -530,8 +530,23 @@ def test_chat_completions_fills_weather_date_when_model_omits_it(tmp_path, monke
                 for message in payload["messages"]
             ):
                 content = "杭州今天晴，约 20°C，但当前提供的信息里没有包含具体日期。"
+                message = {"role": "assistant", "content": content}
             else:
                 content = "I cannot browse."
+                message = {
+                    "role": "assistant",
+                    "content": content,
+                    "tool_calls": [
+                        {
+                            "id": "call_search_1",
+                            "type": "function",
+                            "function": {
+                                "name": "web_fetch",
+                                "arguments": json.dumps({"url": "https://www.bing.com/search?q=hangzhou+weather"}),
+                            },
+                        }
+                    ],
+                }
             return {
                 "id": "chatcmpl-weather-date",
                 "object": "chat.completion",
@@ -539,8 +554,8 @@ def test_chat_completions_fills_weather_date_when_model_omits_it(tmp_path, monke
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": content},
-                        "finish_reason": "stop",
+                        "message": message,
+                        "finish_reason": "tool_calls" if "tool_calls" in message else "stop",
                     }
                 ],
                 "usage": {"prompt_tokens": 11, "completion_tokens": 4},

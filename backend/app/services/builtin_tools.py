@@ -214,6 +214,13 @@ def _fallback_web_fetch_url(payload: dict[str, Any]) -> str | None:
     return f"https://www.bing.com/search?format=rss&q={quote_plus(text[:200])}"
 
 
+def should_prefer_synthetic_web_fetch(payload: dict[str, Any]) -> bool:
+    text = _latest_user_text(payload.get("messages"))
+    if not text:
+        return False
+    return _first_public_url(text) is not None or _weather_url(text) is not None
+
+
 async def web_fetch(
     arguments: dict[str, Any],
     *,

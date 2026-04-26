@@ -181,7 +181,15 @@ async def run_platform_completion_with_builtin_tools(
         assistant_message = builtin_tools.result_assistant_message(result)
         if assistant_message is None:
             return result, tool_round_usages, list(current_payload["messages"])
-        tool_messages = await builtin_tools.execute_builtin_tool_calls(assistant_message)
+        tool_messages: list[dict[str, str]] = []
+        if builtin_tools.tool_choice_forces_web_fetch(
+            current_payload
+        ) and builtin_tools.should_prefer_synthetic_web_fetch(current_payload):
+            synthetic_message = builtin_tools.synthesize_web_fetch_assistant_message(current_payload)
+            if synthetic_message is not None:
+                tool_messages = await builtin_tools.execute_builtin_tool_calls(synthetic_message)
+        if not tool_messages:
+            tool_messages = await builtin_tools.execute_builtin_tool_calls(assistant_message)
         if not tool_messages:
             if not builtin_tools.tool_choice_forces_web_fetch(current_payload):
                 return (
