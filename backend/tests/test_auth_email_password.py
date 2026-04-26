@@ -31,6 +31,28 @@ def test_email_registration_and_login_sets_session_cookie(tmp_path, monkeypatch)
     assert me_response.json()["email"] == "alice@example.com"
 
 
+def test_email_registration_starts_session_for_portal_access(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        register_response = client.post(
+            "/auth/register",
+            json={
+                "name": "portal-user",
+                "email": "portal-user@example.com",
+                "password": "CorrectHorseBatteryStaple1!",
+            },
+        )
+        me_response = client.get("/auth/me")
+        portal_response = client.get("/portal/dashboard")
+
+    assert register_response.status_code == 201
+    assert register_response.cookies.get("agh_session") is not None
+    assert me_response.status_code == 200
+    assert me_response.json()["email"] == "portal-user@example.com"
+    assert portal_response.status_code == 200
+
+
 def test_admin_email_session_can_access_admin_routes(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'auth-admin.db'}")
     monkeypatch.setenv("ADMIN_EMAILS_CSV", "admin@example.com")

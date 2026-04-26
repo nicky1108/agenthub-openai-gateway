@@ -239,6 +239,7 @@ async def upsert_oauth_account(
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(
     payload: RegisterPayload,
+    response: Response,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
@@ -261,6 +262,7 @@ async def register(
         await session.rollback()
         raise HTTPException(status_code=409, detail="account already exists") from exc
     await session.refresh(account)
+    await create_auth_session(response, session, account)
     return serialize_account(account, settings)
 
 
