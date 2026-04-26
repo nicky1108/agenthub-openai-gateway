@@ -104,6 +104,7 @@ def test_user_api_key_lifecycle_is_local_to_account(tmp_path, monkeypatch) -> No
             json={"name": "renamed", "per_minute": 3},
         )
         delete_response = client.post(f"/portal/api-keys/{created['id']}/revoke")
+        final_list_response = client.get("/portal/api-keys")
         models_response = client.get(
             "/v1/models",
             headers={"authorization": f"Bearer {created['api_key']}"},
@@ -117,8 +118,31 @@ def test_user_api_key_lifecycle_is_local_to_account(tmp_path, monkeypatch) -> No
     assert patch_response.json()["per_minute"] == 3
     assert delete_response.status_code == 200
     assert delete_response.json() == {"status": "revoked"}
+    assert final_list_response.status_code == 200
+    assert final_list_response.json() == []
     assert models_response.status_code == 401
     assert models_response.json() == {"detail": "api key is not active"}
+
+
+def test_portal_hides_admin_deleted_api_keys(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        _register_and_login(client)
+        create_response = client.post("/portal/api-keys?name=primary")
+        assert create_response.status_code == 201
+        key_id = create_response.json()["id"]
+
+        delete_response = client.delete(
+            f"/admin/api-keys/{key_id}",
+            headers={"x-admin-secret": "change-me"},
+        )
+        list_response = client.get("/portal/api-keys")
+
+    assert delete_response.status_code == 200
+    assert delete_response.json()["status"] == "deleted"
+    assert list_response.status_code == 200
+    assert list_response.json() == []
 
 
 def test_legacy_user_self_service_routes_remain_available(tmp_path, monkeypatch) -> None:

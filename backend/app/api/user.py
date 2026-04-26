@@ -258,7 +258,10 @@ async def list_api_keys(
     keys = list(
         await session.scalars(
             select(ApiKeyRecord)
-            .where(ApiKeyRecord.account_id == account.id)
+            .where(
+                ApiKeyRecord.account_id == account.id,
+                ApiKeyRecord.status == "active",
+            )
             .order_by(ApiKeyRecord.id.asc())
         )
     )
