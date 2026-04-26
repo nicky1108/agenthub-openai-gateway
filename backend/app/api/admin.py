@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
+import httpx
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, model_validator, field_validator
@@ -27,6 +28,7 @@ from app.pricing.service import OfficialPricingService
 from app.orchestration.chat import ChatOrchestrator
 from app.core.settings import Settings
 from app.registry.service import ProviderNotFoundError
+from app.services.custom_provider_runtime import summarize_provider_error_response
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 discovery = ProviderDiscoveryService()
@@ -400,6 +402,32 @@ class AdminTestChatCreate(BaseModel):
         if not separator or not provider_name or not provider_model:
             raise ValueError("must be in '<provider>:<model>' format")
         return value
+
+
+def compact_error_detail(value: str | None) -> str | None:
+    if not value:
+        return None
+    compacted = " ".join(value.split())
+    return compacted[:240] if compacted else None
+
+
+def admin_test_chat_provider_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, httpx.HTTPStatusError):
+        detail = f"provider returned {exc.response.status_code}"
+        provider_detail = summarize_provider_error_response(exc.response)
+        if provider_detail:
+            detail = f"{detail}: {provider_detail}"
+        return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+    if isinstance(exc, httpx.HTTPError):
+        return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="provider request failed")
+    if isinstance(exc, TimeoutError):
+        return HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="provider request timed out")
+
+    detail = compact_error_detail(str(exc))
+    message = "provider runtime failed"
+    if detail:
+        message = f"{message}: {detail}"
+    return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message)
 
 
 def get_settings() -> Settings:
@@ -1210,9 +1238,16 @@ async def admin_test_chat(
     try:
         if payload.stream:
             request, provider = await chat_orchestrator.prepare(request_payload, session)
+            stream = chat_orchestrator.stream_prepared(request, provider)
+            try:
+                first_chunk = await anext(stream)
+            except StopAsyncIteration:
+                first_chunk = None
 
             async def stream_response():
-                async for chunk in chat_orchestrator.stream_prepared(request, provider):
+                if first_chunk is not None:
+                    yield first_chunk
+                async for chunk in stream:
                     yield chunk
 
             return StreamingResponse(stream_response(), media_type="text/event-stream")
@@ -1223,6 +1258,8 @@ async def admin_test_chat(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"provider '{exc.provider_name}' not found",
         ) from exc
+    except (httpx.HTTPError, TimeoutError, RuntimeError, OSError, ValueError) as exc:
+        raise admin_test_chat_provider_exception(exc) from exc
 
 
 @router.get("/providers/{provider_name}/models", response_model=list[ProviderModelRead])
