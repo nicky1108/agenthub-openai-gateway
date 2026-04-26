@@ -9,6 +9,38 @@ from app.adapters.base import ChatRequest
 from app.runtime.logging import elapsed_ms, log_gateway_event
 
 
+def _compact_message(value: object) -> str:
+    text = str(value or "")
+    return " ".join(text.split())[:240]
+
+
+def _event_error_message(events: list[dict[str, Any]]) -> str:
+    for event in reversed(events):
+        for key in ("message", "detail"):
+            message = event.get(key)
+            if isinstance(message, str) and message.strip():
+                return _compact_message(message)
+        error = event.get("error")
+        if isinstance(error, str) and error.strip():
+            return _compact_message(error)
+        if isinstance(error, dict):
+            message = error.get("message") or error.get("detail")
+            if isinstance(message, str) and message.strip():
+                return _compact_message(message)
+        event_type = event.get("type")
+        if isinstance(event_type, str) and "error" in event_type.lower():
+            return _compact_message(json.dumps(event, ensure_ascii=False))
+    return ""
+
+
+def _codex_cli_failure_message(return_code: int | None, stderr: str, events: list[dict[str, Any]]) -> str:
+    reason = _compact_message(stderr) or _event_error_message(events)
+    message = f"codex cli failed with exit code {return_code}"
+    if reason:
+        message = f"{message}: {reason}"
+    return message
+
+
 class CodexCliAdapter:
     def __init__(
         self,
@@ -115,7 +147,7 @@ class CodexCliAdapter:
         stderr = (await stderr_task).decode()
         return_code = await process.wait()
         if return_code != 0:
-            raise RuntimeError(stderr or "codex cli failed")
+            raise RuntimeError(_codex_cli_failure_message(return_code, stderr, events))
         self._log_cli_event("gateway.cli.complete", request, mode="chat", elapsed_since=started_at)
         return events
 
@@ -155,6 +187,7 @@ class CodexCliAdapter:
         emitted = False
         usage_payload: dict[str, Any] | None = None
         first_output_logged = False
+        events: list[dict[str, Any]] = []
         try:
             while True:
                 assert process.stdout is not None
@@ -168,6 +201,7 @@ class CodexCliAdapter:
                 if not text or not text.lstrip().startswith("{"):
                     continue
                 event = json.loads(text)
+                events.append(event)
                 if event.get("type") == "item.completed":
                     item = event.get("item", {})
                     if item.get("type") == "agent_message":
@@ -198,7 +232,7 @@ class CodexCliAdapter:
         stderr = (await stderr_task).decode()
         return_code = await process.wait()
         if return_code != 0:
-            raise RuntimeError(stderr or "codex cli failed")
+            raise RuntimeError(_codex_cli_failure_message(return_code, stderr, events))
         self._log_cli_event("gateway.cli.complete", request, mode="stream", elapsed_since=started_at)
         if emitted:
             chunk = {

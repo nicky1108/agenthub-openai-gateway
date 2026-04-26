@@ -238,3 +238,34 @@ async def test_orchestrator_prefers_codex_native_then_falls_back_to_cli(monkeypa
     result = await orchestrator.run({"model": "codex:gpt-5.4-mini", "messages": []}, SimpleNamespace())
 
     assert result["choices"][0]["message"]["content"] == "cli fallback"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_reports_codex_native_and_cli_failure(monkeypatch) -> None:
+    orchestrator = ChatOrchestrator()
+    provider = ProviderRecord(name="codex", cli_enabled=True, route_policy="fixed-cli", cli_command="codex")
+    request = _request()
+
+    async def fake_prepare(payload, session):
+        return request, provider
+
+    class FailingNative:
+        async def chat(self, request):
+            raise RuntimeError("Codex OAuth auth file is missing")
+
+    class FailingCli:
+        async def chat(self, request):
+            raise RuntimeError("codex cli failed with exit code 1: not authenticated")
+
+    monkeypatch.setattr(orchestrator, "prepare", fake_prepare)
+    monkeypatch.setattr(orchestrator, "_codex_native_adapter", lambda: FailingNative())
+    monkeypatch.setattr(orchestrator, "_cli_adapter", lambda provider: FailingCli())
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "codex native failed: Codex OAuth auth file is missing; "
+            "codex cli fallback failed: codex cli failed with exit code 1: not authenticated"
+        ),
+    ):
+        await orchestrator.run({"model": "codex:gpt-5.4-mini", "messages": []}, SimpleNamespace())

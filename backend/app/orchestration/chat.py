@@ -22,6 +22,17 @@ from app.runtime.provider_process_pool import provider_process_pool
 from app.runtime.provider_cli_workspace import provider_cli_cwd
 
 
+def _runtime_error_detail(exc: Exception) -> str:
+    return " ".join(str(exc).split())[:240] or exc.__class__.__name__
+
+
+def _combined_fallback_error(primary_label: str, primary_exc: Exception, fallback_label: str, fallback_exc: Exception) -> RuntimeError:
+    return RuntimeError(
+        f"{primary_label} failed: {_runtime_error_detail(primary_exc)}; "
+        f"{fallback_label} fallback failed: {_runtime_error_detail(fallback_exc)}"
+    )
+
+
 class ChatOrchestrator:
     def __init__(self) -> None:
         self.registry = ProviderRegistry()
@@ -637,10 +648,12 @@ class ChatOrchestrator:
     async def run(self, payload: dict[str, object], session: AsyncSession) -> dict[str, object]:
         request, provider = await self.prepare(payload, session)
         if provider.route_policy in {"cli-first", "fixed-cli"}:
+            codex_native_exc: Exception | None = None
             if provider.name == "codex" and Settings().codex_native_enabled:
                 try:
                     return await self._codex_native_adapter().chat(request)
                 except Exception as exc:
+                    codex_native_exc = exc
                     log_gateway_event(
                         "gateway.codex_native.fallback",
                         request_id=request.request_id,
@@ -681,7 +694,12 @@ class ChatOrchestrator:
                             model=f"{request.provider_name}:{request.provider_model}",
                             reason=str(exc),
                         )
-            return await self._cli_adapter(provider).chat(request)
+            try:
+                return await self._cli_adapter(provider).chat(request)
+            except Exception as exc:
+                if codex_native_exc is not None:
+                    raise _combined_fallback_error("codex native", codex_native_exc, "codex cli", exc) from exc
+                raise
         return await self._http_adapter(provider).chat(request)
 
     async def stream_prepared(
@@ -690,6 +708,7 @@ class ChatOrchestrator:
         provider: ProviderRecord,
     ) -> AsyncIterator[str]:
         if provider.route_policy in {"cli-first", "fixed-cli"}:
+            codex_native_exc: Exception | None = None
             if provider.name == "codex" and Settings().codex_native_enabled:
                 emitted = False
                 try:
@@ -707,6 +726,7 @@ class ChatOrchestrator:
                     )
                     if emitted:
                         raise
+                    codex_native_exc = exc
             if provider.name == "gemini" and Settings().gemini_native_enabled:
                 emitted = False
                 try:
@@ -760,8 +780,13 @@ class ChatOrchestrator:
                             reason=str(exc),
                         )
                         break
-            async for chunk in self._cli_adapter(provider).stream_chat(request):
-                yield chunk
+            try:
+                async for chunk in self._cli_adapter(provider).stream_chat(request):
+                    yield chunk
+            except Exception as exc:
+                if codex_native_exc is not None:
+                    raise _combined_fallback_error("codex native", codex_native_exc, "codex cli", exc) from exc
+                raise
             return
         async for chunk in self._http_adapter(provider).stream_chat(request):
             yield chunk

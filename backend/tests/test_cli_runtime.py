@@ -149,3 +149,31 @@ async def test_codex_cli_adapter_logs_spawn_first_output_and_complete(caplog) ->
     assert "gateway.cli.complete" in caplog.text
     assert "request_id='req-codex-log'" in caplog.text
     assert "mode='chat'" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_codex_cli_adapter_reports_stdout_error_when_stderr_is_empty(tmp_path) -> None:
+    fixture = tmp_path / "codex_error.py"
+    fixture.write_text(
+        "import json, sys\n"
+        "print(json.dumps({'type': 'error', 'message': 'not authenticated'}))\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    command = str(pathlib.Path(__file__).resolve().parents[1] / ".venv" / "bin" / "python")
+    adapter = CodexCliAdapter(
+        command=command,
+        args=[str(fixture)],
+        env={},
+        cwd=str(pathlib.Path(__file__).resolve().parents[1].parent),
+        read_timeout_seconds=5,
+    )
+    request = ChatRequest(
+        provider_name="codex",
+        provider_model="gpt-5.4",
+        messages=[{"role": "user", "content": "hello"}],
+        stream=False,
+    )
+
+    with pytest.raises(RuntimeError, match="codex cli failed with exit code 1: not authenticated"):
+        await adapter.chat(request)
