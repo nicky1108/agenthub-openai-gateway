@@ -19,6 +19,21 @@ WEB_FETCH_MAX_REDIRECTS = 3
 WEB_FETCH_TIMEOUT_SECONDS = 10.0
 WEB_FETCH_FALLBACK_TOOL_CALL_ID = "call_web_fetch_gateway_1"
 _URL_PATTERN = re.compile(r"https?://[^\s<>'\"）)\]}]+")
+_WEB_FETCH_UNAVAILABLE_PATTERNS = (
+    "无法联网",
+    "不能联网",
+    "无法直接联网",
+    "无法实时联网",
+    "无法获取实时",
+    "无法查询实时",
+    "没法实时联网",
+    "can't browse",
+    "cannot browse",
+    "unable to browse",
+    "can't access the internet",
+    "cannot access the internet",
+    "unable to access the internet",
+)
 
 _TEXT_CONTENT_TYPES = {
     "application/json",
@@ -335,6 +350,130 @@ def tool_messages_to_context_message(tool_messages: list[dict[str, str]]) -> dic
             detail = payload.get("detail") or ""
             sections.append(f"[{index}] URL: {url}\nStatus: failed\nError: {error}\nDetail: {detail}")
     return {"role": "user", "content": "\n\n".join(sections)}
+
+
+def _tool_message_payloads(tool_messages: list[dict[str, str]]) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for message in tool_messages:
+        raw_content = message.get("content", "")
+        try:
+            payload = json.loads(raw_content)
+        except json.JSONDecodeError:
+            payload = {"ok": False, "error": "invalid_tool_result", "text": raw_content}
+        if isinstance(payload, dict):
+            payloads.append(payload)
+        else:
+            payloads.append({"ok": False, "error": "invalid_tool_result", "text": str(payload)})
+    return payloads
+
+
+def _nested_value(value: Any, *path: str) -> str:
+    current = value
+    for key in path:
+        if isinstance(current, list):
+            current = current[0] if current else None
+        if not isinstance(current, dict):
+            return ""
+        current = current.get(key)
+    if isinstance(current, list):
+        current = current[0] if current else None
+    if isinstance(current, dict):
+        nested = current.get("value")
+        return str(nested) if nested is not None else ""
+    return str(current) if current is not None else ""
+
+
+def _wttr_answer(payload: dict[str, Any]) -> str | None:
+    text = str(payload.get("text") or "")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    current = data.get("current_condition")
+    current_condition = current[0] if isinstance(current, list) and current and isinstance(current[0], dict) else {}
+    nearest = data.get("nearest_area")
+    nearest_area = nearest[0] if isinstance(nearest, list) and nearest and isinstance(nearest[0], dict) else {}
+    if not current_condition:
+        return None
+
+    location = _nested_value(nearest_area, "areaName") or "查询地点"
+    observation_time = str(current_condition.get("localObsDateTime") or "").strip()
+    date = observation_time.split(" ", 1)[0] if observation_time else ""
+    weather = _nested_value(current_condition, "weatherDesc") or "未知"
+    temp_c = str(current_condition.get("temp_C") or "")
+    feels_like_c = str(current_condition.get("FeelsLikeC") or "")
+    humidity = str(current_condition.get("humidity") or "")
+    wind_kmph = str(current_condition.get("windspeedKmph") or "")
+
+    details: list[str] = []
+    if date:
+        details.append(f"日期：{date}")
+    details.append(f"地点：{location}")
+    details.append(f"天气：{weather}")
+    if temp_c:
+        details.append(f"气温：{temp_c}°C")
+    if feels_like_c:
+        details.append(f"体感：{feels_like_c}°C")
+    if humidity:
+        details.append(f"湿度：{humidity}%")
+    if wind_kmph:
+        details.append(f"风速：{wind_kmph} km/h")
+    if observation_time:
+        details.append(f"观测时间：{observation_time}")
+    return "根据 web_fetch 获取到的实时天气数据：\n" + "\n".join(f"- {detail}" for detail in details)
+
+
+def direct_answer_from_tool_messages(tool_messages: list[dict[str, str]]) -> str | None:
+    payloads = _tool_message_payloads(tool_messages)
+    for payload in payloads:
+        if payload.get("ok") is not True:
+            continue
+        wttr_answer = _wttr_answer(payload)
+        if wttr_answer is not None:
+            return wttr_answer
+        url = str(payload.get("url") or "")
+        text = str(payload.get("text") or "").strip()
+        if text:
+            excerpt = text[:4000]
+            suffix = "\n\n（内容较长，已截断。）" if len(text) > len(excerpt) else ""
+            return f"web_fetch 已成功获取 {url} 的内容：\n\n{excerpt}{suffix}"
+    errors = [
+        f"{payload.get('url') or ''}: {payload.get('error') or 'unknown_error'}"
+        for payload in payloads
+        if payload.get("ok") is not True
+    ]
+    if errors:
+        return "web_fetch 执行失败：\n" + "\n".join(f"- {error}" for error in errors)
+    return None
+
+
+def result_claims_web_fetch_unavailable(result: dict[str, Any]) -> bool:
+    message = result_assistant_message(result)
+    if message is None:
+        return False
+    content = str(message.get("content") or "").lower()
+    return any(pattern in content for pattern in _WEB_FETCH_UNAVAILABLE_PATTERNS)
+
+
+def replace_result_content(result: dict[str, Any], content: str) -> dict[str, Any]:
+    choices = result.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return result
+    first_choice = choices[0]
+    if not isinstance(first_choice, dict):
+        return result
+    message = first_choice.get("message")
+    if not isinstance(message, dict):
+        return result
+    patched_message = {**message, "content": content}
+    patched_choice = {
+        **first_choice,
+        "message": patched_message,
+        "finish_reason": first_choice.get("finish_reason") or "stop",
+    }
+    return {**result, "choices": [patched_choice, *choices[1:]]}
 
 
 def tool_choice_forces_web_fetch(payload: dict[str, Any]) -> bool:

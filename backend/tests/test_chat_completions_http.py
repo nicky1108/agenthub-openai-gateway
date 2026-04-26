@@ -433,6 +433,83 @@ def test_chat_completions_synthesizes_web_fetch_when_provider_ignores_tool_choic
     assert "Web fetch result" in run_payloads[1]["messages"][-1]["content"]
 
 
+def test_chat_completions_uses_direct_fetch_answer_when_model_still_refuses(tmp_path, monkeypatch) -> None:
+    class FakeOrchestrator:
+        async def prepare(self, payload, _session):
+            return (
+                ChatRequest(
+                    provider_name="codex",
+                    provider_model="gpt-5.4-mini",
+                    messages=list(payload["messages"]),
+                    stream=bool(payload.get("stream", False)),
+                    max_tokens=payload.get("max_tokens"),
+                ),
+                SimpleNamespace(name="codex", route_policy="fixed-cli"),
+            )
+
+        async def run(self, payload, _session):
+            return {
+                "id": "chatcmpl-refusal",
+                "object": "chat.completion",
+                "model": payload["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "我现在无法直接联网获取实时天气。"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 4},
+            }
+
+    async def _fake_web_fetch(arguments):
+        assert arguments["url"] == "https://wttr.in/%E6%9D%AD%E5%B7%9E?format=j1"
+        return {
+            "ok": True,
+            "url": arguments["url"],
+            "text": json.dumps(
+                {
+                    "current_condition": [
+                        {
+                            "localObsDateTime": "2026-04-26 09:30 AM",
+                            "weatherDesc": [{"value": "Sunny"}],
+                            "temp_C": "20",
+                            "FeelsLikeC": "20",
+                            "humidity": "64",
+                            "windspeedKmph": "6",
+                        }
+                    ],
+                    "nearest_area": [{"areaName": [{"value": "Hangzhou"}]}],
+                }
+            ),
+        }
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setattr(openai_api, "orchestrator", FakeOrchestrator())
+    monkeypatch.setattr(openai_api.builtin_tools, "web_fetch", _fake_web_fetch)
+    monkeypatch.setattr(billing_service, "quote_request", _fake_quote_request)
+    monkeypatch.setattr(billing_service, "settle_inference", _fake_settle_inference)
+
+    with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "codex-mini-latest",
+                "messages": [{"role": "user", "content": "联网搜索一下杭州今天的天气和日期"}],
+                "tools": [{"type": "function", "function": {"name": "web_fetch"}}],
+                "stream": False,
+            },
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+    assert response.status_code == 200
+    content = response.json()["choices"][0]["message"]["content"]
+    assert "根据 web_fetch 获取到的实时天气数据" in content
+    assert "日期：2026-04-26" in content
+    assert "天气：Sunny" in content
+
+
 def test_chat_completions_uses_gemini_acp_when_enabled(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
     monkeypatch.setenv("GEMINI_ACP_ENABLED", "true")

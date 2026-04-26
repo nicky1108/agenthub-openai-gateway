@@ -146,6 +146,15 @@ def combine_usage_snapshots(usages: list[UsageSnapshot]) -> UsageSnapshot:
     )
 
 
+def apply_direct_web_fetch_fallback(result: dict[str, Any], tool_messages: list[dict[str, str]]) -> dict[str, Any]:
+    if not tool_messages or not builtin_tools.result_claims_web_fetch_unavailable(result):
+        return result
+    direct_answer = builtin_tools.direct_answer_from_tool_messages(tool_messages)
+    if direct_answer is None:
+        return result
+    return builtin_tools.replace_result_content(result, direct_answer)
+
+
 async def run_platform_completion_with_builtin_tools(
     request_payload: dict[str, Any],
     session: AsyncSession,
@@ -157,6 +166,7 @@ async def run_platform_completion_with_builtin_tools(
         {**request_payload, "stream": False, "messages": list(request_payload["messages"])}
     )
     tool_round_usages: list[UsageSnapshot] = []
+    last_tool_messages: list[dict[str, str]] = []
     for _ in range(MAX_BUILTIN_TOOL_ROUNDS):
         result = await orchestrator.run(current_payload, session)
         assistant_message = builtin_tools.result_assistant_message(result)
@@ -165,13 +175,18 @@ async def run_platform_completion_with_builtin_tools(
         tool_messages = await builtin_tools.execute_builtin_tool_calls(assistant_message)
         if not tool_messages:
             if not builtin_tools.tool_choice_forces_web_fetch(current_payload):
-                return result, tool_round_usages, list(current_payload["messages"])
+                return (
+                    apply_direct_web_fetch_fallback(result, last_tool_messages),
+                    tool_round_usages,
+                    list(current_payload["messages"]),
+                )
             synthetic_message = builtin_tools.synthesize_web_fetch_assistant_message(current_payload)
             if synthetic_message is None:
                 return result, tool_round_usages, list(current_payload["messages"])
             tool_messages = await builtin_tools.execute_builtin_tool_calls(synthetic_message)
             if not tool_messages:
                 return result, tool_round_usages, list(current_payload["messages"])
+        last_tool_messages = tool_messages
         context_message = builtin_tools.tool_messages_to_context_message(tool_messages)
         tool_round_usages.append(billing_service.usage_from_result(current_payload["messages"], result))
         next_payload = {**current_payload}
@@ -183,6 +198,7 @@ async def run_platform_completion_with_builtin_tools(
         }
 
     result = await orchestrator.run({**current_payload, "tool_choice": "none"}, session)
+    result = apply_direct_web_fetch_fallback(result, last_tool_messages)
     return result, tool_round_usages, list(current_payload["messages"])
 
 
