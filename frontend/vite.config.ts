@@ -13,6 +13,8 @@ export default defineConfig({
       },
       "/portal/dashboard": "http://127.0.0.1:8788",
       "/portal/catalog": "http://127.0.0.1:8788",
+      "/portal/sync/retry": "http://127.0.0.1:8788",
+      "/portal/usage/records": "http://127.0.0.1:8788",
       "/user": "http://127.0.0.1:8788",
       "/v1": "http://127.0.0.1:8788",
       "/healthz": "http://127.0.0.1:8788",
