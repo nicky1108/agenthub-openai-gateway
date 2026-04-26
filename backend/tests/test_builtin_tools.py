@@ -83,6 +83,22 @@ def test_builtin_tool_defaults_declared_web_fetch_choice() -> None:
     )["tool_choice"] == "auto"
 
 
+def test_builtin_tool_synthesizes_weather_fetch_from_user_request() -> None:
+    message = builtin_tools.synthesize_web_fetch_assistant_message(
+        {
+            "messages": [{"role": "user", "content": "联网搜索一下杭州今天的天气和日期"}],
+            "tools": [{"type": "function", "function": {"name": "web_fetch"}}],
+        }
+    )
+
+    assert message is not None
+    tool_call = message["tool_calls"][0]
+    assert tool_call["id"] == builtin_tools.WEB_FETCH_FALLBACK_TOOL_CALL_ID
+    assert json.loads(tool_call["function"]["arguments"]) == {
+        "url": "https://wttr.in/%E6%9D%AD%E5%B7%9E?format=j1"
+    }
+
+
 @pytest.mark.asyncio
 async def test_execute_builtin_tool_calls_returns_tool_messages(monkeypatch) -> None:
     async def _fake_web_fetch(arguments):

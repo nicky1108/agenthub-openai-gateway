@@ -164,7 +164,15 @@ async def run_platform_completion_with_builtin_tools(
             return result, tool_round_usages, list(current_payload["messages"])
         tool_messages = await builtin_tools.execute_builtin_tool_calls(assistant_message)
         if not tool_messages:
-            return result, tool_round_usages, list(current_payload["messages"])
+            if not builtin_tools.tool_choice_forces_web_fetch(current_payload):
+                return result, tool_round_usages, list(current_payload["messages"])
+            synthetic_message = builtin_tools.synthesize_web_fetch_assistant_message(current_payload)
+            if synthetic_message is None:
+                return result, tool_round_usages, list(current_payload["messages"])
+            tool_messages = await builtin_tools.execute_builtin_tool_calls(synthetic_message)
+            if not tool_messages:
+                return result, tool_round_usages, list(current_payload["messages"])
+            assistant_message = synthetic_message
         tool_round_usages.append(billing_service.usage_from_result(current_payload["messages"], result))
         next_payload = {**current_payload}
         if builtin_tools.tool_choice_forces_web_fetch(next_payload):
@@ -198,7 +206,15 @@ async def prepare_stream_payload_with_builtin_tools(
         return request_payload, [], result
     tool_messages = await builtin_tools.execute_builtin_tool_calls(assistant_message)
     if not tool_messages:
-        return request_payload, [], result
+        if not builtin_tools.tool_choice_forces_web_fetch(probe_payload):
+            return request_payload, [], result
+        synthetic_message = builtin_tools.synthesize_web_fetch_assistant_message(probe_payload)
+        if synthetic_message is None:
+            return request_payload, [], result
+        tool_messages = await builtin_tools.execute_builtin_tool_calls(synthetic_message)
+        if not tool_messages:
+            return request_payload, [], result
+        assistant_message = synthetic_message
 
     resolved_messages = builtin_tools.append_tool_exchange(
         list(probe_payload["messages"]),

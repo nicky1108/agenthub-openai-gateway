@@ -8,7 +8,7 @@ import socket
 from collections.abc import Callable, Sequence
 from html import unescape
 from typing import Any
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import quote, quote_plus, urljoin, urlsplit, urlunsplit
 
 import httpx
 
@@ -17,6 +17,8 @@ WEB_FETCH_MAX_BYTES = 1_000_000
 WEB_FETCH_MAX_CHARS = 20_000
 WEB_FETCH_MAX_REDIRECTS = 3
 WEB_FETCH_TIMEOUT_SECONDS = 10.0
+WEB_FETCH_FALLBACK_TOOL_CALL_ID = "call_web_fetch_gateway_1"
+_URL_PATTERN = re.compile(r"https?://[^\s<>'\"）)\]}]+")
 
 _TEXT_CONTENT_TYPES = {
     "application/json",
@@ -130,6 +132,71 @@ def _extract_text(body: str, content_type: str) -> str:
     return re.sub(r"\s+", " ", unescape(body)).strip()
 
 
+def _content_to_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for part in content:
+        if isinstance(part, dict):
+            value = part.get("text") or part.get("content")
+            if isinstance(value, str):
+                parts.append(value)
+        elif isinstance(part, str):
+            parts.append(part)
+    return " ".join(parts)
+
+
+def _latest_user_text(messages: object) -> str:
+    if not isinstance(messages, list):
+        return ""
+    for message in reversed(messages):
+        if isinstance(message, dict) and message.get("role") == "user":
+            return _content_to_text(message.get("content")).strip()
+    return ""
+
+
+def _first_public_url(text: str) -> str | None:
+    match = _URL_PATTERN.search(text)
+    if not match:
+        return None
+    return match.group(0).rstrip(".,，。?？!！")
+
+
+def _weather_url(text: str) -> str | None:
+    lower_text = text.lower()
+    if "天气" not in text and "weather" not in lower_text and "forecast" not in lower_text:
+        return None
+    location = ""
+    if "天气" in text:
+        before_weather = text.split("天气", 1)[0]
+        for marker in ("搜索一下", "搜一下", "查询一下", "查一下", "搜索", "查询", "查看", "看一下", "帮我", "请", "联网"):
+            if marker in before_weather:
+                before_weather = before_weather.rsplit(marker, 1)[-1]
+        location = re.sub(r"(今天|今日|现在|实时|当地|日期|和|的|一下)", "", before_weather).strip(" \t\r\n，,。?？")
+    if not location:
+        match = re.search(r"(?:weather|forecast)(?:\s+(?:in|for))?\s+([A-Za-z][A-Za-z\s.\-]{1,60})", text, re.I)
+        if match:
+            location = match.group(1).strip(" .,-")
+    if not location:
+        return None
+    return f"https://wttr.in/{quote(location, safe='')}?format=j1"
+
+
+def _fallback_web_fetch_url(payload: dict[str, Any]) -> str | None:
+    text = _latest_user_text(payload.get("messages"))
+    if not text:
+        return None
+    explicit_url = _first_public_url(text)
+    if explicit_url is not None:
+        return explicit_url
+    weather_url = _weather_url(text)
+    if weather_url is not None:
+        return weather_url
+    return f"https://www.bing.com/search?format=rss&q={quote_plus(text[:200])}"
+
+
 async def web_fetch(
     arguments: dict[str, Any],
     *,
@@ -219,6 +286,29 @@ def with_default_web_fetch_tool_choice(payload: dict[str, Any]) -> dict[str, Any
     if tool_name is None:
         return payload
     return {**payload, "tool_choice": {"type": "function", "function": {"name": tool_name}}}
+
+
+def synthesize_web_fetch_assistant_message(payload: dict[str, Any]) -> dict[str, Any] | None:
+    tool_name = web_fetch_tool_name(payload)
+    if tool_name is None:
+        return None
+    url = _fallback_web_fetch_url(payload)
+    if url is None:
+        return None
+    return {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": WEB_FETCH_FALLBACK_TOOL_CALL_ID,
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "arguments": json.dumps({"url": url}, ensure_ascii=False),
+                },
+            }
+        ],
+    }
 
 
 def tool_choice_forces_web_fetch(payload: dict[str, Any]) -> bool:

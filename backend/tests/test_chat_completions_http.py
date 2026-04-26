@@ -352,6 +352,84 @@ def test_chat_completions_forces_declared_web_fetch_tool_by_default(tmp_path, mo
     assert json.loads(run_payloads[1]["messages"][-1]["content"])["text"] == "Weather body"
 
 
+def test_chat_completions_synthesizes_web_fetch_when_provider_ignores_tool_choice(tmp_path, monkeypatch) -> None:
+    run_payloads: list[dict[str, object]] = []
+
+    class FakeOrchestrator:
+        async def prepare(self, payload, _session):
+            return (
+                ChatRequest(
+                    provider_name="codex",
+                    provider_model="gpt-5.4-mini",
+                    messages=list(payload["messages"]),
+                    stream=bool(payload.get("stream", False)),
+                    max_tokens=payload.get("max_tokens"),
+                ),
+                SimpleNamespace(name="codex", route_policy="fixed-cli"),
+            )
+
+        async def run(self, payload, _session):
+            run_payloads.append(payload)
+            if any(message.get("role") == "tool" for message in payload["messages"]):
+                return {
+                    "id": "chatcmpl-final",
+                    "object": "chat.completion",
+                    "model": payload["model"],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "杭州今天晴，日期是 2026-04-26。"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 11, "completion_tokens": 4},
+                }
+            return {
+                "id": "chatcmpl-ignored-tool-choice",
+                "object": "chat.completion",
+                "model": payload["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "I cannot browse."},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 7, "completion_tokens": 1},
+            }
+
+    async def _fake_web_fetch(arguments):
+        assert arguments["url"] == "https://wttr.in/%E6%9D%AD%E5%B7%9E?format=j1"
+        return {"ok": True, "url": arguments["url"], "text": "Hangzhou Sunny date 2026-04-26"}
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setattr(openai_api, "orchestrator", FakeOrchestrator())
+    monkeypatch.setattr(openai_api.builtin_tools, "web_fetch", _fake_web_fetch)
+    monkeypatch.setattr(billing_service, "quote_request", _fake_quote_request)
+    monkeypatch.setattr(billing_service, "settle_inference", _fake_settle_inference)
+
+    with TestClient(create_app()) as client:
+        api_key = _create_api_key(client)
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "codex-mini-latest",
+                "messages": [{"role": "user", "content": "联网搜索一下杭州今天的天气和日期"}],
+                "tools": [{"type": "function", "function": {"name": "web_fetch"}}],
+                "stream": False,
+            },
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["choices"][0]["message"]["content"] == "杭州今天晴，日期是 2026-04-26。"
+    assert len(run_payloads) == 2
+    assert run_payloads[0]["tool_choice"] == {"type": "function", "function": {"name": "web_fetch"}}
+    assert run_payloads[1]["tool_choice"] == "none"
+    assert run_payloads[1]["messages"][-2]["role"] == "assistant"
+    assert run_payloads[1]["messages"][-1]["role"] == "tool"
+
+
 def test_chat_completions_uses_gemini_acp_when_enabled(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
     monkeypatch.setenv("GEMINI_ACP_ENABLED", "true")
