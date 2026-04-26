@@ -1845,6 +1845,26 @@ p {
   gap: 12px;
 }
 
+.admin-shell .panel-heading-row,
+.admin-shell .pagination-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-shell .usage-filter-form {
+  margin: 14px 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-shell .muted-meta,
+.admin-shell .pagination-row span {
+  color: var(--ink-muted);
+  font-size: 0.86rem;
+}
+
 .admin-shell .provider-form label,
 .admin-shell .inline-form label,
 .admin-shell .api-key-form label {

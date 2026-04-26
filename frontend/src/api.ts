@@ -175,6 +175,13 @@ export type AdminUsageRecord = {
   created_at: string;
 };
 
+export type AdminUsageRecordsPage = {
+  items: AdminUsageRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 export type AdminAccountSyncSummary = {
   total_accounts: number;
   mirrored_accounts: number;
@@ -723,8 +730,22 @@ export async function getAdminUsageOverview(adminSecret: string): Promise<AdminU
   return requestAdmin<AdminUsageOverview>("/admin/usage/overview", adminSecret);
 }
 
-export async function getAdminUsageRecords(adminSecret: string): Promise<AdminUsageRecord[]> {
-  return requestAdmin<AdminUsageRecord[]>("/admin/usage/records", adminSecret);
+export async function getAdminUsageRecords(
+  adminSecret: string,
+  params: {
+    accountId?: number | null;
+    apiKeyId?: number | null;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<AdminUsageRecordsPage> {
+  const search = new URLSearchParams();
+  if (params.accountId) search.set("account_id", String(params.accountId));
+  if (params.apiKeyId) search.set("api_key_id", String(params.apiKeyId));
+  if (params.limit) search.set("limit", String(params.limit));
+  if (params.offset) search.set("offset", String(params.offset));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return requestAdmin<AdminUsageRecordsPage>(`/admin/usage/records${suffix}`, adminSecret);
 }
 
 export async function sendAdminTestChat(

@@ -340,6 +340,13 @@ class UsageRecordRead(BaseModel):
     created_at: str
 
 
+class UsageRecordsPage(BaseModel):
+    items: list[UsageRecordRead]
+    total: int
+    limit: int
+    offset: int
+
+
 class UsageOverview(BaseModel):
     key_activity: list[UsageActivityKey]
     by_provider: dict[str, int]
@@ -863,7 +870,11 @@ async def list_api_keys(
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> list[ApiKeyRead]:
-    rows = await session.scalars(select(ApiKeyRecord).order_by(ApiKeyRecord.id.asc()))
+    rows = await session.scalars(
+        select(ApiKeyRecord)
+        .where(ApiKeyRecord.status != "deleted")
+        .order_by(ApiKeyRecord.id.asc())
+    )
     return [serialize_api_key(row) for row in rows]
 
 
@@ -922,7 +933,14 @@ async def delete_api_key(
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ApiKeyRead:
-    return await revoke_api_key(key_id, None, session)
+    row = await session.scalar(select(ApiKeyRecord).where(ApiKeyRecord.id == key_id))
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api key not found")
+    row.status = "deleted"
+    row.revoked_at = datetime.now(timezone.utc)
+    await session.commit()
+    await session.refresh(row)
+    return serialize_api_key(row)
 
 
 @router.get("/api-keys/{key_id}/usage", response_model=UsageSummary)
@@ -1007,31 +1025,42 @@ async def get_usage_overview(
     )
 
 
-@router.get("/usage/records", response_model=list[UsageRecordRead])
+@router.get("/usage/records", response_model=UsageRecordsPage)
 async def list_usage_records(
     account_id: int | None = Query(default=None),
     api_key_id: int | None = Query(default=None),
     outcome: str | None = Query(default=None),
     provider_name: str | None = Query(default=None),
     model_id: str | None = Query(default=None),
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
-) -> list[UsageRecordRead]:
+) -> UsageRecordsPage:
     statement = select(UsageRecord)
+    count_statement = select(func.count(UsageRecord.id))
     if account_id is not None:
         statement = statement.where(UsageRecord.account_id == account_id)
+        count_statement = count_statement.where(UsageRecord.account_id == account_id)
     if api_key_id is not None:
         statement = statement.where(UsageRecord.api_key_id == api_key_id)
+        count_statement = count_statement.where(UsageRecord.api_key_id == api_key_id)
     if outcome:
         statement = statement.where(UsageRecord.outcome == outcome)
+        count_statement = count_statement.where(UsageRecord.outcome == outcome)
     if provider_name:
         statement = statement.where(UsageRecord.provider_name == provider_name)
+        count_statement = count_statement.where(UsageRecord.provider_name == provider_name)
     if model_id:
         statement = statement.where(UsageRecord.model_id == model_id)
+        count_statement = count_statement.where(UsageRecord.model_id == model_id)
+    total = await session.scalar(count_statement) or 0
     usage_rows = list(
         await session.scalars(
-            statement.order_by(UsageRecord.created_at.desc(), UsageRecord.id.desc()).limit(limit)
+            statement
+            .order_by(UsageRecord.created_at.desc(), UsageRecord.id.desc())
+            .limit(limit)
+            .offset(offset)
         )
     )
     account_ids = {row.account_id for row in usage_rows}
@@ -1048,7 +1077,12 @@ async def list_usage_records(
     )
     accounts_by_id = {row.id: row for row in accounts}
     api_keys_by_id = {row.id: row for row in api_keys}
-    return [serialize_usage_record(row, accounts_by_id, api_keys_by_id) for row in usage_rows]
+    return UsageRecordsPage(
+        items=[serialize_usage_record(row, accounts_by_id, api_keys_by_id) for row in usage_rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/dashboard/summary", response_model=DashboardSummary)

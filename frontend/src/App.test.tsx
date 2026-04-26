@@ -316,29 +316,34 @@ describe("public gateway frontend", () => {
             }),
           );
         }
-        if (path.endsWith("/admin/usage/records")) {
+        if (path.includes("/admin/usage/records")) {
           return new Response(
-            JSON.stringify([
-              {
-                id: 1,
-                account_id: 1,
-                account_name: "Nicky",
-                api_key_id: 1,
-                api_key_name: "primary",
-                key_prefix: "9ac99097",
-                provider_name: "codex",
-                model_id: "codex:gpt-5.4",
-                outcome: "success",
-                input_tokens: 10,
-                output_tokens: 2,
-                cached_input_tokens: 0,
-                usd_amount: 0.001,
-                credits_charged: 0.1,
-                pricing_source: "official",
-                token_source: "provider_usage",
-                created_at: "2026-04-25T00:00:00Z",
-              },
-            ]),
+            JSON.stringify({
+              items: [
+                {
+                  id: 1,
+                  account_id: 1,
+                  account_name: "Nicky",
+                  api_key_id: 1,
+                  api_key_name: "primary",
+                  key_prefix: "9ac99097",
+                  provider_name: "codex",
+                  model_id: "codex:gpt-5.4",
+                  outcome: "success",
+                  input_tokens: 10,
+                  output_tokens: 2,
+                  cached_input_tokens: 0,
+                  usd_amount: 0.001,
+                  credits_charged: 0.1,
+                  pricing_source: "official",
+                  token_source: "provider_usage",
+                  created_at: "2026-04-25T00:00:00Z",
+                },
+              ],
+              total: 1,
+              limit: 25,
+              offset: 0,
+            }),
           );
         }
         if (path.includes("/admin/providers/codex/models")) {

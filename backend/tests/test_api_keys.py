@@ -64,6 +64,7 @@ def test_admin_can_update_and_delete_api_key(tmp_path, monkeypatch) -> None:
             f"/admin/api-keys/{key_id}",
             headers={"x-admin-secret": "change-me"},
         )
+        keys_response = client.get("/admin/api-keys", headers={"x-admin-secret": "change-me"})
 
     assert update_response.status_code == 200
     assert update_response.json()["name"] == "edited-key"
@@ -71,7 +72,9 @@ def test_admin_can_update_and_delete_api_key(tmp_path, monkeypatch) -> None:
     assert update_response.json()["per_hour"] == 30
     assert update_response.json()["per_day"] == 300
     assert delete_response.status_code == 200
-    assert delete_response.json()["status"] == "revoked"
+    assert delete_response.json()["status"] == "deleted"
+    assert keys_response.status_code == 200
+    assert all(row["id"] != key_id for row in keys_response.json())
 
 
 def test_revoked_api_key_cannot_access_openai_routes(tmp_path, monkeypatch) -> None:
@@ -219,7 +222,11 @@ def test_admin_can_list_usage_records_as_table_rows(tmp_path, monkeypatch) -> No
         )
 
     assert response.status_code == 200
-    rows = response.json()
+    payload = response.json()
+    rows = payload["items"]
+    assert payload["total"] == 1
+    assert payload["limit"] == 25
+    assert payload["offset"] == 0
     assert len(rows) == 1
     assert rows[0]["account_id"] == account_id
     assert rows[0]["account_name"] == "account-one"
@@ -230,4 +237,36 @@ def test_admin_can_list_usage_records_as_table_rows(tmp_path, monkeypatch) -> No
     assert rows[0]["model_id"] == "missing:default"
     assert rows[0]["outcome"] == "error"
     assert filtered_response.status_code == 200
-    assert filtered_response.json()[0]["id"] == rows[0]["id"]
+    assert filtered_response.json()["items"][0]["id"] == rows[0]["id"]
+    assert filtered_response.json()["total"] == 1
+
+
+def test_admin_usage_records_support_offset_pagination(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        account_id, api_key, key_id = _create_account_and_key(client)
+        for model_id in ("missing:first", "missing:second", "missing:third"):
+            completion_response = client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": model_id,
+                    "messages": [{"role": "user", "content": "hello"}],
+                },
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+            assert completion_response.status_code == 404
+
+        response = client.get(
+            f"/admin/usage/records?account_id={account_id}&api_key_id={key_id}&limit=1&offset=1",
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 3
+    assert payload["limit"] == 1
+    assert payload["offset"] == 1
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["account_id"] == account_id
+    assert payload["items"][0]["api_key_id"] == key_id

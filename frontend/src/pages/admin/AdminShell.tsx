@@ -14,6 +14,7 @@ import type {
   AdminSettingsOverview,
   AdminUsageOverview,
   AdminUsageRecord,
+  AdminUsageRecordsPage,
 } from "../../api";
 import {
   adjustAdminAccountCredits,
@@ -56,6 +57,7 @@ type AdminShellProps = {
 };
 
 type AdminView = "overview" | "providers" | "models" | "accounts" | "api-keys" | "usage" | "permissions" | "settings";
+const ADMIN_USAGE_PAGE_SIZE = 25;
 type AdminModal =
   | { kind: "provider-create" }
   | { kind: "provider-edit"; provider: AdminProviderRecord }
@@ -123,7 +125,15 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   const [creditLedger, setCreditLedger] = useState<Record<number, AdminCreditLedgerEntry[]>>({});
   const [apiKeys, setApiKeys] = useState<AdminApiKeyRecord[]>([]);
   const [usage, setUsage] = useState<AdminUsageOverview | null>(null);
-  const [usageRecords, setUsageRecords] = useState<AdminUsageRecord[]>([]);
+  const [usageRecords, setUsageRecords] = useState<AdminUsageRecordsPage>({
+    items: [],
+    total: 0,
+    limit: ADMIN_USAGE_PAGE_SIZE,
+    offset: 0,
+  });
+  const [usageAccountFilter, setUsageAccountFilter] = useState("");
+  const [usageApiKeyFilter, setUsageApiKeyFilter] = useState("");
+  const [usagePage, setUsagePage] = useState(0);
   const [selectedProviderName, setSelectedProviderName] = useState("");
   const [providerModels, setProviderModels] = useState<Record<string, AdminProviderModelRecord[]>>({});
   const [selectedModelNativeModel, setSelectedModelNativeModel] = useState("");
@@ -278,6 +288,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           columnPrefix: "前缀",
           columnStatus: "状态",
           revoke: "撤销",
+          delete: "删除",
           createdKey: "新建明文 Key",
         },
         usage: {
@@ -298,6 +309,13 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           source: "来源",
           count: "次数",
           empty: "还没有 Usage 流水。",
+          allAccounts: "全部账号",
+          allKeys: "全部 Key",
+          accountFilter: "账号筛选",
+          keyFilter: "Key 筛选",
+          pageStatus: (page: number, pages: number, total: number) => `第 ${page}/${pages} 页 · 共 ${total} 条`,
+          previous: "上一页",
+          next: "下一页",
           requestsLimited: (requests: number, limited: number) => `${requests} 请求 · ${limited} 限流`,
           lastUsed: (value: string | null) => value ?? "暂无使用",
         },
@@ -424,6 +442,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           columnPrefix: "Prefix",
           columnStatus: "Status",
           revoke: "Revoke",
+          delete: "Delete",
           createdKey: "Last created raw key",
         },
         usage: {
@@ -444,6 +463,13 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           source: "Source",
           count: "Count",
           empty: "No usage records yet.",
+          allAccounts: "All accounts",
+          allKeys: "All keys",
+          accountFilter: "Account filter",
+          keyFilter: "Key filter",
+          pageStatus: (page: number, pages: number, total: number) => `Page ${page}/${pages} · ${total} total`,
+          previous: "Previous",
+          next: "Next",
           requestsLimited: (requests: number, limited: number) => `${requests} requests · ${limited} limited`,
           lastUsed: (value: string | null) => value ?? "No activity yet",
         },
@@ -523,7 +549,12 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       setAccounts(Array.isArray(accountRows) ? accountRows : []);
       setApiKeys(Array.isArray(apiKeyRows) ? apiKeyRows : []);
       setUsage(usageRow);
-      setUsageRecords(Array.isArray(usageRecordRows) ? usageRecordRows : []);
+      setUsageRecords({
+        items: Array.isArray(usageRecordRows.items) ? usageRecordRows.items : [],
+        total: typeof usageRecordRows.total === "number" ? usageRecordRows.total : 0,
+        limit: typeof usageRecordRows.limit === "number" ? usageRecordRows.limit : ADMIN_USAGE_PAGE_SIZE,
+        offset: typeof usageRecordRows.offset === "number" ? usageRecordRows.offset : 0,
+      });
       if (Array.isArray(accountRows) && accountRows.length > 0 && !selectedAccountId) {
         setSelectedAccountId(String(accountRows[0].id));
       }
@@ -535,6 +566,23 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadUsageRecords() {
+    const accountId = usageAccountFilter ? Number(usageAccountFilter) : null;
+    const apiKeyId = usageApiKeyFilter ? Number(usageApiKeyFilter) : null;
+    const page = await getAdminUsageRecords(adminSecret, {
+      accountId: Number.isFinite(accountId) ? accountId : null,
+      apiKeyId: Number.isFinite(apiKeyId) ? apiKeyId : null,
+      limit: ADMIN_USAGE_PAGE_SIZE,
+      offset: usagePage * ADMIN_USAGE_PAGE_SIZE,
+    });
+    setUsageRecords({
+      items: Array.isArray(page.items) ? page.items : [],
+      total: typeof page.total === "number" ? page.total : 0,
+      limit: typeof page.limit === "number" ? page.limit : ADMIN_USAGE_PAGE_SIZE,
+      offset: typeof page.offset === "number" ? page.offset : 0,
+    });
   }
 
   async function loadSelectedProviderModels(providerName: string) {
@@ -662,6 +710,12 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   }, [adminSecret, dashboardWindow]);
 
   useEffect(() => {
+    void loadUsageRecords().catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "request failed");
+    });
+  }, [adminSecret, usageAccountFilter, usageApiKeyFilter, usagePage]);
+
+  useEffect(() => {
     if (!selectedProviderName) return;
     void loadSelectedProviderModels(selectedProviderName);
   }, [selectedProviderName]);
@@ -698,6 +752,17 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       setNotice(ledgerError instanceof Error ? ledgerError.message : "ledger request failed");
     });
   }, [adminSecret, selectedAccountId]);
+
+  useEffect(() => {
+    if (!usageApiKeyFilter || !usageAccountFilter) return;
+    const keyBelongsToAccount = (usage?.key_activity ?? []).some(
+      (apiKey) => String(apiKey.api_key_id) === usageApiKeyFilter && String(apiKey.account_id) === usageAccountFilter,
+    );
+    if (!keyBelongsToAccount) {
+      setUsageApiKeyFilter("");
+      setUsagePage(0);
+    }
+  }, [usage, usageAccountFilter, usageApiKeyFilter]);
 
   async function handleSaveAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -817,8 +882,14 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     setModalError(null);
     try {
       const updated = await deleteAdminApiKey(adminSecret, apiKey.id);
-      setApiKeys((current) => current.map((row) => (row.id === updated.id ? updated : row)));
-      setNotice(isZh ? "API Key 已撤销。" : "API key revoked.");
+      setApiKeys((current) => current.filter((row) => row.id !== updated.id));
+      if (usageApiKeyFilter === String(apiKey.id)) {
+        setUsageApiKeyFilter("");
+        setUsagePage(0);
+      }
+      const usageRow = await getAdminUsageOverview(adminSecret);
+      setUsage(usageRow);
+      setNotice(isZh ? "API Key 已删除。" : "API key deleted.");
       setModal(null);
     } catch (deleteError) {
       setModalError(deleteError instanceof Error ? deleteError.message : "request failed");
@@ -1065,6 +1136,15 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   const totalSeriesRequests = (timeseries?.buckets ?? []).reduce((sum, bucket) => sum + bucket.total_requests, 0);
   const totalSeriesErrors = (timeseries?.buckets ?? []).reduce((sum, bucket) => sum + bucket.error_requests, 0);
   const totalSeriesLimited = (timeseries?.buckets ?? []).reduce((sum, bucket) => sum + bucket.limited_requests, 0);
+  const usageKeyOptions = usage?.key_activity ?? [];
+  const usageFilteredKeyOptions = usageAccountFilter
+    ? usageKeyOptions.filter((apiKey) => String(apiKey.account_id) === usageAccountFilter)
+    : usageKeyOptions;
+  const usageTotalPages = Math.max(Math.ceil(usageRecords.total / Math.max(usageRecords.limit, 1)), 1);
+  const usageCurrentPage = Math.min(
+    Math.floor(usageRecords.offset / Math.max(usageRecords.limit, 1)) + 1,
+    usageTotalPages,
+  );
 
   function renderModal() {
     if (!modal) return null;
@@ -1083,7 +1163,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       "credit-adjust": copy.accounts.adjustCredits,
       "api-key-create": copy.apiKeys.createKey,
       "api-key-edit": `${actionCopy.edit} ${copy.apiKeys.title}`,
-      "api-key-delete": `${copy.apiKeys.revoke} ${copy.apiKeys.title}`,
+      "api-key-delete": `${copy.apiKeys.delete} ${copy.apiKeys.title}`,
     };
 
     return (
@@ -1234,10 +1314,10 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
 
           {modal.kind === "api-key-delete" ? (
             <div className="admin-modal__body">
-              <p>{isZh ? `撤销 API Key ${modal.apiKey.name}。` : `Revoke API key ${modal.apiKey.name}.`}</p>
+              <p>{isZh ? `删除 API Key ${modal.apiKey.name}。历史 Usage 流水会保留。` : `Delete API key ${modal.apiKey.name}. Historical usage rows will be kept.`}</p>
               <div className="admin-modal__actions">
                 <button className="ghost-action" onClick={closeModal} type="button">{actionCopy.cancel}</button>
-                <button className="ghost-action ghost-action--danger" disabled={modalBusy} onClick={() => void handleDeleteApiKey(modal.apiKey)} type="button">{copy.apiKeys.revoke}</button>
+                <button className="ghost-action ghost-action--danger" disabled={modalBusy} onClick={() => void handleDeleteApiKey(modal.apiKey)} type="button">{copy.apiKeys.delete}</button>
               </div>
             </div>
           ) : null}
@@ -1483,7 +1563,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
                       <td>{apiKey.status}</td>
                       <td className="data-table__actions">
                         <button className="ghost-action ghost-action--bright" onClick={() => openApiKeyEditModal(apiKey)}>{actionCopy.edit}</button>
-                        <button className="ghost-action ghost-action--danger" onClick={() => openModal({ kind: "api-key-delete", apiKey })}>{copy.apiKeys.revoke}</button>
+                        <button className="ghost-action ghost-action--danger" onClick={() => openModal({ kind: "api-key-delete", apiKey })}>{copy.apiKeys.delete}</button>
                       </td>
                     </tr>
                   ))}
@@ -1497,7 +1577,46 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       {!loading && !error && view === "usage" ? (
         <section className="detail-grid">
           <article className="detail-panel detail-panel--wide">
-            <h3>{copy.usage.records}</h3>
+            <div className="panel-heading-row">
+              <h3>{copy.usage.records}</h3>
+              <span className="muted-meta">{copy.usage.pageStatus(usageCurrentPage, usageTotalPages, usageRecords.total)}</span>
+            </div>
+            <div className="inline-form usage-filter-form">
+              <label>
+                <span>{copy.usage.accountFilter}</span>
+                <select
+                  value={usageAccountFilter}
+                  onChange={(event) => {
+                    setUsageAccountFilter(event.target.value);
+                    setUsagePage(0);
+                  }}
+                >
+                  <option value="">{copy.usage.allAccounts}</option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.email ? `${account.name} · ${account.email}` : account.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>{copy.usage.keyFilter}</span>
+                <select
+                  value={usageApiKeyFilter}
+                  onChange={(event) => {
+                    setUsageApiKeyFilter(event.target.value);
+                    setUsagePage(0);
+                  }}
+                >
+                  <option value="">{copy.usage.allKeys}</option>
+                  {usageFilteredKeyOptions.map((apiKey) => (
+                    <option key={apiKey.api_key_id} value={apiKey.api_key_id}>
+                      {`${apiKey.name} · ${apiKey.key_prefix}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <div className="table-shell">
               <table className="data-table">
                 <thead>
@@ -1515,9 +1634,9 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {usageRecords.length === 0 ? (
+                  {usageRecords.items.length === 0 ? (
                     <tr><td colSpan={10}>{copy.usage.empty}</td></tr>
-                  ) : usageRecords.map((row) => (
+                  ) : usageRecords.items.map((row) => (
                     <tr key={row.id}>
                       <td>{new Date(row.created_at).toLocaleString(isZh ? "zh-CN" : "en-US")}</td>
                       <td>{row.account_name ? `${row.account_name} #${row.account_id}` : row.account_id}</td>
@@ -1533,6 +1652,25 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="pagination-row">
+              <button
+                className="ghost-action"
+                disabled={usageCurrentPage <= 1}
+                onClick={() => setUsagePage((page) => Math.max(page - 1, 0))}
+                type="button"
+              >
+                {copy.usage.previous}
+              </button>
+              <span>{copy.usage.pageStatus(usageCurrentPage, usageTotalPages, usageRecords.total)}</span>
+              <button
+                className="ghost-action"
+                disabled={usageCurrentPage >= usageTotalPages}
+                onClick={() => setUsagePage((page) => page + 1)}
+                type="button"
+              >
+                {copy.usage.next}
+              </button>
             </div>
           </article>
           <article className="detail-panel detail-panel--wide">
