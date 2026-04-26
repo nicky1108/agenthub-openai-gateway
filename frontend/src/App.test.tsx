@@ -196,7 +196,7 @@ describe("public gateway frontend", () => {
             }),
           );
         }
-        if (path.endsWith("/admin-api/dashboard/summary")) {
+        if (path.endsWith("/admin/dashboard/summary")) {
           return new Response(
             JSON.stringify({
               total_requests: 128,
@@ -206,7 +206,7 @@ describe("public gateway frontend", () => {
             }),
           );
         }
-        if (path.includes("/admin-api/dashboard/timeseries")) {
+        if (path.includes("/admin/dashboard/timeseries")) {
           return new Response(
             JSON.stringify({
               window: "24h",
@@ -229,7 +229,7 @@ describe("public gateway frontend", () => {
             }),
           );
         }
-        if (path.endsWith("/admin-api/account-sync/summary")) {
+        if (path.endsWith("/admin/account-sync/summary")) {
           return new Response(
             JSON.stringify({
               total_accounts: 2,
@@ -241,7 +241,7 @@ describe("public gateway frontend", () => {
             }),
           );
         }
-        if (path.endsWith("/admin-api/settings/overview")) {
+        if (path.endsWith("/admin/settings/overview")) {
           return new Response(
             JSON.stringify({
               gateway_host: "127.0.0.1",
@@ -255,7 +255,7 @@ describe("public gateway frontend", () => {
             }),
           );
         }
-        if (path.endsWith("/admin-api/providers")) {
+        if (path.endsWith("/admin/providers")) {
           return new Response(
             JSON.stringify([
               {
@@ -271,16 +271,32 @@ describe("public gateway frontend", () => {
             ]),
           );
         }
-        if (path.endsWith("/admin-api/health")) {
+        if (path.endsWith("/admin/health")) {
           return new Response(JSON.stringify([]));
         }
-        if (path.endsWith("/admin-api/accounts")) {
+        if (path.endsWith("/admin/accounts")) {
+          return new Response(JSON.stringify([
+            {
+              id: 1,
+              name: "Nicky",
+              email: "nicky.liyang@gmail.com",
+              status: "active",
+              is_admin: true,
+              credit_balance: 100,
+              public_account_id: "acct_admin",
+              public_workspace_id: "ws_admin",
+              notes: null,
+              created_at: "2026-04-25T00:00:00Z",
+            },
+          ]));
+        }
+        if (path.endsWith("/admin/accounts/1/credits/ledger")) {
           return new Response(JSON.stringify([]));
         }
-        if (path.endsWith("/admin-api/api-keys")) {
+        if (path.endsWith("/admin/api-keys")) {
           return new Response(JSON.stringify([]));
         }
-        if (path.endsWith("/admin-api/usage/overview")) {
+        if (path.endsWith("/admin/usage/overview")) {
           return new Response(
             JSON.stringify({
               key_activity: [],
@@ -289,10 +305,10 @@ describe("public gateway frontend", () => {
             }),
           );
         }
-        if (path.includes("/admin-api/providers/codex/models")) {
+        if (path.includes("/admin/providers/codex/models")) {
           return new Response(JSON.stringify([]));
         }
-        return new Response(JSON.stringify({}));
+        return new Response(JSON.stringify({ detail: `unhandled ${path}` }), { status: 404 });
       }),
     );
 
@@ -301,5 +317,6 @@ describe("public gateway frontend", () => {
     expect(await screen.findByRole("heading", { name: "Admin Console" })).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Admin navigation" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Providers" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Permissions" })).toBeTruthy();
   });
 });

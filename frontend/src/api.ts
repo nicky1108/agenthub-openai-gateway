@@ -101,16 +101,30 @@ export type AdminAccountRecord = {
   name: string;
   email?: string | null;
   status: string;
+  is_admin: boolean;
   credit_balance?: number;
+  public_account_id?: string | null;
+  public_workspace_id?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
 };
 
 export type AdminCreditLedgerEntry = {
   id: number;
-  amount: number;
-  type: string;
-  status: string;
-  reference?: string | null;
+  account_id: number;
+  api_key_id?: number | null;
+  usage_record_id?: number | null;
+  entry_type: string;
+  credits_delta: number;
   balance_after: number;
+  usd_amount?: number | null;
+  provider_name?: string | null;
+  model_id?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cached_input_tokens?: number | null;
+  pricing_source?: string | null;
+  notes?: string | null;
   created_at: string;
 };
 
@@ -467,40 +481,40 @@ export async function logoutSession(): Promise<{ status: string }> {
 }
 
 export async function getAdminDashboardSummary(adminSecret: string): Promise<AdminDashboardSummary> {
-  return requestAdmin<AdminDashboardSummary>("/admin-api/dashboard/summary", adminSecret);
+  return requestAdmin<AdminDashboardSummary>("/admin/dashboard/summary", adminSecret);
 }
 
 export async function getAdminDashboardTimeseries(
   adminSecret: string,
   window: "24h" | "7d",
 ): Promise<AdminDashboardTimeseries> {
-  return requestAdmin<AdminDashboardTimeseries>(`/admin-api/dashboard/timeseries?window=${window}`, adminSecret);
+  return requestAdmin<AdminDashboardTimeseries>(`/admin/dashboard/timeseries?window=${window}`, adminSecret);
 }
 
 export async function getAdminSettingsOverview(adminSecret: string): Promise<AdminSettingsOverview> {
-  return requestAdmin<AdminSettingsOverview>("/admin-api/settings/overview", adminSecret);
+  return requestAdmin<AdminSettingsOverview>("/admin/settings/overview", adminSecret);
 }
 
 export async function getAdminProviders(adminSecret: string): Promise<AdminProviderRecord[]> {
-  return requestAdmin<AdminProviderRecord[]>("/admin-api/providers", adminSecret);
+  return requestAdmin<AdminProviderRecord[]>("/admin/providers", adminSecret);
 }
 
 export async function getAdminHealth(adminSecret: string): Promise<AdminProviderHealthRecord[]> {
-  return requestAdmin<AdminProviderHealthRecord[]>("/admin-api/health", adminSecret);
+  return requestAdmin<AdminProviderHealthRecord[]>("/admin/health", adminSecret);
 }
 
 export async function getAdminProviderModels(
   adminSecret: string,
   providerName: string,
 ): Promise<AdminProviderModelRecord[]> {
-  return requestAdmin<AdminProviderModelRecord[]>(`/admin-api/providers/${providerName}/models`, adminSecret);
+  return requestAdmin<AdminProviderModelRecord[]>(`/admin/providers/${providerName}/models`, adminSecret);
 }
 
 export async function rediscoverAdminProviderModels(
   adminSecret: string,
   providerName: string,
 ): Promise<AdminProviderModelRecord[]> {
-  return requestAdmin<AdminProviderModelRecord[]>(`/admin-api/providers/${providerName}/rediscover`, adminSecret, {
+  return requestAdmin<AdminProviderModelRecord[]>(`/admin/providers/${providerName}/rediscover`, adminSecret, {
     method: "POST",
   });
 }
@@ -509,7 +523,7 @@ export async function refreshAdminProviderPricing(
   adminSecret: string,
   providerName: string,
 ): Promise<AdminProviderModelRecord[]> {
-  return requestAdmin<AdminProviderModelRecord[]>(`/admin-api/providers/${providerName}/pricing/refresh`, adminSecret, {
+  return requestAdmin<AdminProviderModelRecord[]>(`/admin/providers/${providerName}/pricing/refresh`, adminSecret, {
     method: "POST",
   });
 }
@@ -520,7 +534,7 @@ export async function patchAdminProviderModel(
   nativeModel: string,
   payload: { exposed_model_id?: string; enabled?: boolean },
 ): Promise<AdminProviderModelRecord> {
-  return requestAdmin<AdminProviderModelRecord>(`/admin-api/providers/${providerName}/models/${nativeModel}`, adminSecret, {
+  return requestAdmin<AdminProviderModelRecord>(`/admin/providers/${providerName}/models/${nativeModel}`, adminSecret, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
@@ -541,7 +555,7 @@ export async function patchAdminProviderModelPricing(
     notes?: string | null;
   },
 ): Promise<AdminModelPricingRecord> {
-  return requestAdmin<AdminModelPricingRecord>(`/admin-api/providers/${providerName}/models/${nativeModel}/pricing`, adminSecret, {
+  return requestAdmin<AdminModelPricingRecord>(`/admin/providers/${providerName}/models/${nativeModel}/pricing`, adminSecret, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
@@ -551,7 +565,7 @@ export async function createAdminProvider(
   adminSecret: string,
   payload: Record<string, unknown>,
 ): Promise<AdminProviderRecord> {
-  return requestAdmin<AdminProviderRecord>("/admin-api/providers", adminSecret, {
+  return requestAdmin<AdminProviderRecord>("/admin/providers", adminSecret, {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -562,28 +576,39 @@ export async function createAdminProviderModel(
   providerName: string,
   payload: { native_model: string; exposed_model_id: string; enabled: boolean },
 ): Promise<AdminProviderModelRecord> {
-  return requestAdmin<AdminProviderModelRecord>(`/admin-api/providers/${providerName}/models`, adminSecret, {
+  return requestAdmin<AdminProviderModelRecord>(`/admin/providers/${providerName}/models`, adminSecret, {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
 export async function getAdminAccounts(adminSecret: string): Promise<AdminAccountRecord[]> {
-  return requestAdmin<AdminAccountRecord[]>("/admin-api/accounts", adminSecret);
+  return requestAdmin<AdminAccountRecord[]>("/admin/accounts", adminSecret);
 }
 
 export async function createAdminAccount(
   adminSecret: string,
-  payload: { name: string },
+  payload: { name: string; email?: string | null; is_admin?: boolean; public_account_id?: string | null; public_workspace_id?: string | null; notes?: string | null },
 ): Promise<AdminAccountRecord> {
-  return requestAdmin<AdminAccountRecord>("/admin-api/accounts", adminSecret, {
+  return requestAdmin<AdminAccountRecord>("/admin/accounts", adminSecret, {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
+export async function updateAdminAccount(
+  adminSecret: string,
+  accountId: number,
+  payload: { name?: string; email?: string | null; status?: string; is_admin?: boolean; public_account_id?: string | null; public_workspace_id?: string | null; notes?: string | null },
+): Promise<AdminAccountRecord> {
+  return requestAdmin<AdminAccountRecord>(`/admin/accounts/${accountId}`, adminSecret, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function getAdminAccountSyncSummary(adminSecret: string): Promise<AdminAccountSyncSummary> {
-  return requestAdmin<AdminAccountSyncSummary>("/admin-api/account-sync/summary", adminSecret);
+  return requestAdmin<AdminAccountSyncSummary>("/admin/account-sync/summary", adminSecret);
 }
 
 export async function adjustAdminAccountCredits(
@@ -591,7 +616,7 @@ export async function adjustAdminAccountCredits(
   accountId: number,
   payload: { credits_delta: number; notes?: string },
 ): Promise<AdminAccountRecord> {
-  return requestAdmin<AdminAccountRecord>(`/admin-api/accounts/${accountId}/credits/adjust`, adminSecret, {
+  return requestAdmin<AdminAccountRecord>(`/admin/accounts/${accountId}/credits/adjust`, adminSecret, {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -601,38 +626,38 @@ export async function getAdminAccountCreditLedger(
   adminSecret: string,
   accountId: number,
 ): Promise<AdminCreditLedgerEntry[]> {
-  return requestAdmin<AdminCreditLedgerEntry[]>(`/admin-api/accounts/${accountId}/credits/ledger`, adminSecret);
+  return requestAdmin<AdminCreditLedgerEntry[]>(`/admin/accounts/${accountId}/credits/ledger`, adminSecret);
 }
 
 export async function getAdminApiKeys(adminSecret: string): Promise<AdminApiKeyRecord[]> {
-  return requestAdmin<AdminApiKeyRecord[]>("/admin-api/api-keys", adminSecret);
+  return requestAdmin<AdminApiKeyRecord[]>("/admin/api-keys", adminSecret);
 }
 
 export async function createAdminApiKey(
   adminSecret: string,
   payload: { account_id: number; name: string; per_minute?: number | null; per_hour?: number | null; per_day?: number | null },
 ): Promise<AdminApiKeyRecord & { api_key: string }> {
-  return requestAdmin<AdminApiKeyRecord & { api_key: string }>("/admin-api/api-keys", adminSecret, {
+  return requestAdmin<AdminApiKeyRecord & { api_key: string }>("/admin/api-keys", adminSecret, {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
 export async function revokeAdminApiKey(adminSecret: string, keyId: number): Promise<AdminApiKeyRecord> {
-  return requestAdmin<AdminApiKeyRecord>(`/admin-api/api-keys/${keyId}/revoke`, adminSecret, {
+  return requestAdmin<AdminApiKeyRecord>(`/admin/api-keys/${keyId}/revoke`, adminSecret, {
     method: "POST",
   });
 }
 
 export async function getAdminUsageOverview(adminSecret: string): Promise<AdminUsageOverview> {
-  return requestAdmin<AdminUsageOverview>("/admin-api/usage/overview", adminSecret);
+  return requestAdmin<AdminUsageOverview>("/admin/usage/overview", adminSecret);
 }
 
 export async function sendAdminTestChat(
   adminSecret: string,
   payload: { model: string; messages: Array<{ role: string; content: string }>; temperature?: number | null; top_p?: number | null; max_tokens?: number | null },
 ): Promise<AdminTestChatResponse> {
-  return requestAdmin<AdminTestChatResponse>("/admin-api/test-chat", adminSecret, {
+  return requestAdmin<AdminTestChatResponse>("/admin/test-chat", adminSecret, {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -643,7 +668,7 @@ export async function streamAdminTestChat(
   payload: { model: string; messages: Array<{ role: string; content: string }>; temperature?: number | null; top_p?: number | null; max_tokens?: number | null },
   options: { signal?: AbortSignal; onChunk: (chunk: AdminTestChatChunk) => void },
 ): Promise<void> {
-  const response = await fetch("/admin-api/test-chat", {
+  const response = await fetch("/admin/test-chat", {
     method: "POST",
     credentials: "same-origin",
     signal: options.signal,

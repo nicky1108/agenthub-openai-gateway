@@ -92,6 +92,8 @@ def backfill_sqlite_account_auth_columns(connection: Connection) -> None:
         connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN public_account_id VARCHAR(128)")
     if "public_workspace_id" not in column_names:
         connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN public_workspace_id VARCHAR(128)")
+    if "is_admin" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0")
     if "created_at" not in column_names:
         connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN created_at DATETIME")
     if "credit_balance" not in column_names:

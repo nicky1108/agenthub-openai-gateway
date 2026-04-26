@@ -38,6 +38,7 @@ import {
   revokeAdminApiKey,
   sendAdminTestChat,
   streamAdminTestChat,
+  updateAdminAccount,
 } from "../../api";
 import type { Locale } from "../../i18n";
 
@@ -47,7 +48,7 @@ type AdminShellProps = {
   onLogout: () => void;
 };
 
-type AdminView = "overview" | "providers" | "models" | "accounts" | "api-keys" | "usage" | "settings";
+type AdminView = "overview" | "providers" | "models" | "accounts" | "api-keys" | "usage" | "permissions" | "settings";
 
 function buildTrafficPath(series: AdminDashboardTimeseries | null): { stroke: string; fill: string } {
   const buckets = series?.buckets ?? [];
@@ -86,6 +87,9 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   const [selectedModelNativeModel, setSelectedModelNativeModel] = useState("");
 
   const [accountName, setAccountName] = useState("");
+  const [accountEmail, setAccountEmail] = useState("");
+  const [accountIsAdmin, setAccountIsAdmin] = useState(false);
+  const [accountNotes, setAccountNotes] = useState("");
   const [creditAdjustment, setCreditAdjustment] = useState("");
   const [creditAdjustmentReason, setCreditAdjustmentReason] = useState("");
   const [selectedAccountId, setSelectedAccountId] = useState("");
@@ -120,7 +124,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   const copy = isZh
     ? {
         title: "Admin Console",
-        nav: { overview: "概览", providers: "Providers", models: "Models", accounts: "Accounts", apiKeys: "API Keys", usage: "Usage", settings: "Settings" },
+        nav: { overview: "概览", providers: "Providers", models: "Models", accounts: "Accounts", apiKeys: "API Keys", usage: "Usage", permissions: "Permissions", settings: "Settings" },
         logout: "退出管理台",
         loading: "加载中...",
         overview: {
@@ -194,10 +198,15 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         accounts: {
           title: "Accounts",
           accountName: "账户名称",
+          accountEmail: "邮箱",
+          accountNotes: "备注",
+          adminRole: "管理员权限",
           addAccount: "创建账户",
           columnName: "名称",
           columnEmail: "邮箱",
+          columnAdmin: "管理员",
           columnStatus: "状态",
+          columnMirror: "同步镜像",
           balance: "信用点余额",
           adjustCredits: "调整信用点",
           adjustmentAmount: "调整额度",
@@ -205,6 +214,10 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           applyAdjustment: "应用调整",
           ledger: "最近流水",
           ledgerEmpty: "还没有信用点流水。",
+          grantAdmin: "设为管理员",
+          revokeAdmin: "移除管理员",
+          activate: "启用",
+          suspend: "暂停",
           balanceAfter: (amount: string) => `调整后余额 ${amount}`,
         },
         apiKeys: {
@@ -230,6 +243,12 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           requestsLimited: (requests: number, limited: number) => `${requests} 请求 · ${limited} 限流`,
           lastUsed: (value: string | null) => value ?? "暂无使用",
         },
+        permissions: {
+          title: "权限管理",
+          lead: "统一控制哪些账户可以进入 Admin，以及账户是否可继续使用 API。",
+          admins: "管理员",
+          members: "普通账户",
+        },
         settings: {
           title: "Settings",
           adminSecretConfigured: "管理员访问已配置",
@@ -238,7 +257,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       }
     : {
         title: "Admin Console",
-        nav: { overview: "Overview", providers: "Providers", models: "Models", accounts: "Accounts", apiKeys: "API Keys", usage: "Usage", settings: "Settings" },
+        nav: { overview: "Overview", providers: "Providers", models: "Models", accounts: "Accounts", apiKeys: "API Keys", usage: "Usage", permissions: "Permissions", settings: "Settings" },
         logout: "Sign out",
         loading: "Loading...",
         overview: {
@@ -312,10 +331,15 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         accounts: {
           title: "Accounts",
           accountName: "Account name",
+          accountEmail: "Email",
+          accountNotes: "Notes",
+          adminRole: "Admin role",
           addAccount: "Create account",
           columnName: "Name",
           columnEmail: "Email",
+          columnAdmin: "Admin",
           columnStatus: "Status",
+          columnMirror: "Mirror",
           balance: "Credit balance",
           adjustCredits: "Adjust credits",
           adjustmentAmount: "Adjustment amount",
@@ -323,6 +347,10 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           applyAdjustment: "Apply adjustment",
           ledger: "Recent ledger",
           ledgerEmpty: "No credit ledger entries yet.",
+          grantAdmin: "Grant admin",
+          revokeAdmin: "Revoke admin",
+          activate: "Activate",
+          suspend: "Suspend",
           balanceAfter: (amount: string) => `Balance after ${amount}`,
         },
         apiKeys: {
@@ -347,6 +375,12 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           models: "By model",
           requestsLimited: (requests: number, limited: number) => `${requests} requests · ${limited} limited`,
           lastUsed: (value: string | null) => value ?? "No activity yet",
+        },
+        permissions: {
+          title: "Permissions",
+          lead: "Control which accounts can enter Admin and whether each account can keep using API access.",
+          admins: "Admins",
+          members: "Members",
         },
         settings: {
           title: "Settings",
@@ -433,16 +467,33 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     if (!Number.isFinite(numericAccountId)) return;
     void getAdminAccountCreditLedger(adminSecret, numericAccountId).then((rows) => {
       setCreditLedger((current) => ({ ...current, [numericAccountId]: rows }));
+    }).catch((ledgerError) => {
+      setCreditLedger((current) => ({ ...current, [numericAccountId]: [] }));
+      setNotice(ledgerError instanceof Error ? ledgerError.message : "ledger request failed");
     });
   }, [adminSecret, selectedAccountId]);
 
   async function handleCreateAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const created = await createAdminAccount(adminSecret, { name: accountName });
+    const created = await createAdminAccount(adminSecret, {
+      name: accountName,
+      email: accountEmail || null,
+      is_admin: accountIsAdmin,
+      notes: accountNotes || null,
+    });
     setAccounts((current) => current.concat(created));
     setSelectedAccountId(String(created.id));
     setAccountName("");
+    setAccountEmail("");
+    setAccountIsAdmin(false);
+    setAccountNotes("");
     setNotice(isZh ? "账户已创建。" : "Account created.");
+  }
+
+  async function handleUpdateAccount(accountId: number, payload: Parameters<typeof updateAdminAccount>[2]) {
+    const updated = await updateAdminAccount(adminSecret, accountId, payload);
+    setAccounts((current) => current.map((row) => (row.id === accountId ? updated : row)));
+    setNotice(isZh ? "账户已更新。" : "Account updated.");
   }
 
   async function handleAdjustCredits(event: FormEvent<HTMLFormElement>) {
@@ -678,6 +729,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         <button className={view === "accounts" ? "active" : ""} onClick={() => setView("accounts")}>{copy.nav.accounts}</button>
         <button className={view === "api-keys" ? "active" : ""} onClick={() => setView("api-keys")}>{copy.nav.apiKeys}</button>
         <button className={view === "usage" ? "active" : ""} onClick={() => setView("usage")}>{copy.nav.usage}</button>
+        <button className={view === "permissions" ? "active" : ""} onClick={() => setView("permissions")}>{copy.nav.permissions}</button>
         <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>{copy.nav.settings}</button>
       </nav>
       {loading ? <div className="empty-state empty-state--loading">{copy.loading}</div> : null}
@@ -867,6 +919,9 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
             <div className="form-panel__header"><div><h3>{copy.accounts.title}</h3></div></div>
             <form className="inline-form" onSubmit={handleCreateAccount}>
               <label><span>{copy.accounts.accountName}</span><input value={accountName} onChange={(event) => setAccountName(event.target.value)} /></label>
+              <label><span>{copy.accounts.accountEmail}</span><input value={accountEmail} onChange={(event) => setAccountEmail(event.target.value)} /></label>
+              <label><span>{copy.accounts.accountNotes}</span><input value={accountNotes} onChange={(event) => setAccountNotes(event.target.value)} /></label>
+              <label><input checked={accountIsAdmin} onChange={(event) => setAccountIsAdmin(event.target.checked)} type="checkbox" /> {copy.accounts.adminRole}</label>
               <button className="primary-action" disabled={!accountName.trim()} type="submit">{copy.accounts.addAccount}</button>
             </form>
           </article>
@@ -882,8 +937,24 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           <article className="detail-panel detail-panel--wide">
             <div className="table-shell">
               <table className="data-table">
-                <thead><tr><th>{copy.accounts.columnName}</th><th>{copy.accounts.columnEmail}</th><th>{copy.accounts.columnStatus}</th><th>{copy.accounts.balance}</th></tr></thead>
-                <tbody>{accounts.map((account) => <tr key={account.id}><td>{account.name}</td><td>{account.email ?? "-"}</td><td>{account.status}</td><td>{account.credit_balance ?? 0}</td></tr>)}</tbody>
+                <thead><tr><th>{copy.accounts.columnName}</th><th>{copy.accounts.columnEmail}</th><th>{copy.accounts.columnAdmin}</th><th>{copy.accounts.columnStatus}</th><th>{copy.accounts.balance}</th><th>{copy.accounts.columnMirror}</th><th>{copy.models.action}</th></tr></thead>
+                <tbody>
+                  {accounts.map((account) => (
+                    <tr key={account.id}>
+                      <td>{account.name}</td>
+                      <td>{account.email ?? "-"}</td>
+                      <td>{account.is_admin ? "yes" : "no"}</td>
+                      <td>{account.status}</td>
+                      <td>{account.credit_balance ?? 0}</td>
+                      <td>{account.public_account_id ?? account.public_workspace_id ?? "-"}</td>
+                      <td className="data-table__actions">
+                        <button className="ghost-action ghost-action--bright" onClick={() => setSelectedAccountId(String(account.id))}>{copy.models.select}</button>
+                        <button className="ghost-action ghost-action--bright" onClick={() => void handleUpdateAccount(account.id, { is_admin: !account.is_admin })}>{account.is_admin ? copy.accounts.revokeAdmin : copy.accounts.grantAdmin}</button>
+                        <button className={account.status === "active" ? "ghost-action ghost-action--danger" : "ghost-action ghost-action--bright"} onClick={() => void handleUpdateAccount(account.id, { status: account.status === "active" ? "suspended" : "active" })}>{account.status === "active" ? copy.accounts.suspend : copy.accounts.activate}</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
               </table>
             </div>
           </article>
@@ -896,8 +967,9 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
                 (creditLedger[Number(selectedAccountId)] ?? []).map((entry) => (
                   <article className="provider-row" key={entry.id}>
                     <div className="provider-row__body">
-                      <strong>{`${entry.amount > 0 ? "+" : ""}${entry.amount}`}</strong>
-                      <p>{`${entry.type} · ${entry.reference ?? "-"}`}</p>
+                      <strong>{`${entry.credits_delta > 0 ? "+" : ""}${entry.credits_delta}`}</strong>
+                      <p>{`${entry.entry_type} · ${entry.provider_name ?? "-"} · ${entry.model_id ?? "-"}`}</p>
+                      {entry.notes ? <small>{entry.notes}</small> : null}
                       <small>{copy.accounts.balanceAfter(String(entry.balance_after))}</small>
                     </div>
                     <div className="provider-row__actions"><small>{new Date(entry.created_at).toLocaleString(isZh ? "zh-CN" : "en-US")}</small></div>
@@ -967,6 +1039,42 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           <article className="detail-panel">
             <h3>{copy.usage.models}</h3>
             <div className="detail-panel__meta">{Object.entries(usage?.by_model ?? {}).map(([name, count]) => <span key={name}>{`${name}: ${count}`}</span>)}</div>
+          </article>
+        </section>
+      ) : null}
+
+      {!loading && !error && view === "permissions" ? (
+        <section className="detail-grid">
+          <article className="detail-panel detail-panel--wide">
+            <div className="detail-panel__title-row">
+              <div><h3>{copy.permissions.title}</h3><p>{copy.permissions.lead}</p></div>
+            </div>
+            <div className="detail-panel__meta">
+              <span>{`${copy.permissions.admins}: ${accounts.filter((account) => account.is_admin).length}`}</span>
+              <span>{`${copy.permissions.members}: ${accounts.filter((account) => !account.is_admin).length}`}</span>
+              <span>{`${copy.overview.totalAccounts}: ${accounts.length}`}</span>
+            </div>
+          </article>
+          <article className="detail-panel detail-panel--wide">
+            <div className="table-shell">
+              <table className="data-table">
+                <thead><tr><th>{copy.accounts.columnName}</th><th>{copy.accounts.columnEmail}</th><th>{copy.accounts.columnAdmin}</th><th>{copy.accounts.columnStatus}</th><th>{copy.models.action}</th></tr></thead>
+                <tbody>
+                  {accounts.map((account) => (
+                    <tr key={account.id}>
+                      <td>{account.name}</td>
+                      <td>{account.email ?? "-"}</td>
+                      <td><span className={`status-pill ${account.is_admin ? "status-pill--ok" : "status-pill--warning"}`}>{account.is_admin ? copy.permissions.admins : copy.permissions.members}</span></td>
+                      <td>{account.status}</td>
+                      <td className="data-table__actions">
+                        <button className="ghost-action ghost-action--bright" onClick={() => void handleUpdateAccount(account.id, { is_admin: !account.is_admin })}>{account.is_admin ? copy.accounts.revokeAdmin : copy.accounts.grantAdmin}</button>
+                        <button className={account.status === "active" ? "ghost-action ghost-action--danger" : "ghost-action ghost-action--bright"} onClick={() => void handleUpdateAccount(account.id, { status: account.status === "active" ? "suspended" : "active" })}>{account.status === "active" ? copy.accounts.suspend : copy.accounts.activate}</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </article>
         </section>
       ) : null}

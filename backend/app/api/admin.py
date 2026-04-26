@@ -141,17 +141,81 @@ class PricingOverridePatch(BaseModel):
     notes: str | None = None
 
 
+def normalize_optional_email(value: str | None) -> str | None:
+    if value is None:
+        return None
+    email = value.strip()
+    if not email:
+        return None
+    if " " in email or email.count("@") != 1:
+        raise ValueError("invalid email address")
+    local_part, domain = email.split("@", 1)
+    if not local_part or not domain or "." not in domain:
+        raise ValueError("invalid email address")
+    if domain.startswith(".") or domain.endswith(".") or ".." in domain:
+        raise ValueError("invalid email address")
+    return email
+
+
 class AccountCreate(BaseModel):
     name: str
+    email: str | None = None
+    is_admin: bool = False
+    public_account_id: str | None = None
+    public_workspace_id: str | None = None
     notes: str | None = None
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        return normalize_optional_email(value)
+
+
+class AccountUpdate(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    status: str | None = None
+    is_admin: bool | None = None
+    public_account_id: str | None = None
+    public_workspace_id: str | None = None
+    notes: str | None = None
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        return normalize_optional_email(value)
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        status_value = value.strip().lower()
+        if status_value not in {"active", "suspended", "deleted"}:
+            raise ValueError("must be active, suspended, or deleted")
+        return status_value
 
 
 class AccountRead(BaseModel):
     id: int
     name: str
+    email: str | None = None
     status: str
+    is_admin: bool
     credit_balance: float
+    public_account_id: str | None = None
+    public_workspace_id: str | None = None
     notes: str | None = None
+    created_at: str | None = None
+
+
+class AccountSyncSummary(BaseModel):
+    total_accounts: int
+    mirrored_accounts: int
+    accounts_needing_backfill: int
+    accounts_with_pending_sync: int
+    accounts_with_failed_sync: int
+    accounts_fully_converged: int
 
 
 class CreditAdjustmentCreate(BaseModel):
@@ -324,6 +388,21 @@ def normalize_timestamp(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def serialize_account(account: AccountRecord, settings: Settings) -> AccountRead:
+    return AccountRead(
+        id=account.id,
+        name=account.name,
+        email=account.email,
+        status=account.status,
+        is_admin=account_is_named_admin(account, settings),
+        credit_balance=account.credit_balance,
+        public_account_id=account.public_account_id,
+        public_workspace_id=account.public_workspace_id,
+        notes=account.notes,
+        created_at=account.created_at.isoformat() if account.created_at else None,
+    )
+
+
 def build_timeseries_window(window: Literal["24h", "7d"]) -> tuple[list[datetime], list[str], timedelta]:
     now = datetime.now(timezone.utc)
     if window == "24h":
@@ -401,8 +480,16 @@ async def create_account(
     payload: AccountCreate,
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> AccountRead:
-    account = AccountRecord(name=payload.name, notes=payload.notes)
+    account = AccountRecord(
+        name=payload.name.strip(),
+        email=payload.email,
+        is_admin=payload.is_admin,
+        public_account_id=payload.public_account_id,
+        public_workspace_id=payload.public_workspace_id,
+        notes=payload.notes,
+    )
     session.add(account)
     try:
         await session.commit()
@@ -410,16 +497,81 @@ async def create_account(
         await session.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="account already exists") from exc
     await session.refresh(account)
-    return AccountRead.model_validate(account, from_attributes=True)
+    return serialize_account(account, settings)
 
 
 @router.get("/accounts", response_model=list[AccountRead])
 async def list_accounts(
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> list[AccountRead]:
     rows = await session.scalars(select(AccountRecord).order_by(AccountRecord.id.asc()))
-    return [AccountRead.model_validate(row, from_attributes=True) for row in rows]
+    return [serialize_account(row, settings) for row in rows]
+
+
+@router.patch("/accounts/{account_id}", response_model=AccountRead)
+async def update_account(
+    account_id: int,
+    payload: AccountUpdate,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> AccountRead:
+    account = await session.scalar(select(AccountRecord).where(AccountRecord.id == account_id))
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+
+    if payload.name is not None:
+        stripped_name = payload.name.strip()
+        if not stripped_name:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="account name is required")
+        account.name = stripped_name
+    if payload.email is not None:
+        account.email = payload.email
+    if payload.status is not None:
+        account.status = payload.status
+    if payload.is_admin is not None:
+        account.is_admin = payload.is_admin
+    if payload.public_account_id is not None:
+        account.public_account_id = payload.public_account_id.strip() or None
+    if payload.public_workspace_id is not None:
+        account.public_workspace_id = payload.public_workspace_id.strip() or None
+    if payload.notes is not None:
+        account.notes = payload.notes
+
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="account already exists") from exc
+    await session.refresh(account)
+    return serialize_account(account, settings)
+
+
+@router.get("/account-sync/summary", response_model=AccountSyncSummary)
+async def account_sync_summary(
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AccountSyncSummary:
+    total_accounts = await session.scalar(select(func.count(AccountRecord.id))) or 0
+    mirrored_accounts = (
+        await session.scalar(
+            select(func.count(AccountRecord.id)).where(
+                (AccountRecord.public_account_id.is_not(None))
+                | (AccountRecord.public_workspace_id.is_not(None))
+            )
+        )
+    ) or 0
+    accounts_needing_backfill = max(total_accounts - mirrored_accounts, 0)
+    return AccountSyncSummary(
+        total_accounts=total_accounts,
+        mirrored_accounts=mirrored_accounts,
+        accounts_needing_backfill=accounts_needing_backfill,
+        accounts_with_pending_sync=0,
+        accounts_with_failed_sync=0,
+        accounts_fully_converged=mirrored_accounts,
+    )
 
 
 @router.post("/accounts/{account_id}/credits/adjust", response_model=AccountRead)
@@ -428,13 +580,14 @@ async def adjust_account_credits(
     payload: CreditAdjustmentCreate,
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> AccountRead:
     account = await session.scalar(select(AccountRecord).where(AccountRecord.id == account_id))
     if account is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
     await billing_service.record_manual_adjustment(session, account, payload.credits_delta, payload.notes)
     await session.refresh(account)
-    return AccountRead.model_validate(account, from_attributes=True)
+    return serialize_account(account, settings)
 
 
 @router.get("/accounts/{account_id}/credits/ledger", response_model=list[CreditLedgerRead])
