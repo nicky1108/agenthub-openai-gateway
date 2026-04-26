@@ -146,8 +146,17 @@ def combine_usage_snapshots(usages: list[UsageSnapshot]) -> UsageSnapshot:
     )
 
 
-def apply_direct_web_fetch_fallback(result: dict[str, Any], tool_messages: list[dict[str, str]]) -> dict[str, Any]:
-    if not tool_messages or not builtin_tools.result_claims_web_fetch_unavailable(result):
+def apply_direct_web_fetch_fallback(
+    result: dict[str, Any],
+    tool_messages: list[dict[str, str]],
+    original_messages: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not tool_messages:
+        return result
+    should_use_direct_answer = builtin_tools.result_claims_web_fetch_unavailable(
+        result
+    ) or builtin_tools.result_omits_requested_weather_date(result, original_messages, tool_messages)
+    if not should_use_direct_answer:
         return result
     direct_answer = builtin_tools.direct_answer_from_tool_messages(tool_messages)
     if direct_answer is None:
@@ -176,7 +185,7 @@ async def run_platform_completion_with_builtin_tools(
         if not tool_messages:
             if not builtin_tools.tool_choice_forces_web_fetch(current_payload):
                 return (
-                    apply_direct_web_fetch_fallback(result, last_tool_messages),
+                    apply_direct_web_fetch_fallback(result, last_tool_messages, request_payload["messages"]),
                     tool_round_usages,
                     list(current_payload["messages"]),
                 )
@@ -198,7 +207,7 @@ async def run_platform_completion_with_builtin_tools(
         }
 
     result = await orchestrator.run({**current_payload, "tool_choice": "none"}, session)
-    result = apply_direct_web_fetch_fallback(result, last_tool_messages)
+    result = apply_direct_web_fetch_fallback(result, last_tool_messages, request_payload["messages"])
     return result, tool_round_usages, list(current_payload["messages"])
 
 

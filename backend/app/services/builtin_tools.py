@@ -34,6 +34,7 @@ _WEB_FETCH_UNAVAILABLE_PATTERNS = (
     "cannot access the internet",
     "unable to access the internet",
 )
+_DATE_PATTERN = re.compile(r"\b20\d{2}-\d{2}-\d{2}\b|20\d{2}年\d{1,2}月\d{1,2}日")
 
 _TEXT_CONTENT_TYPES = {
     "application/json",
@@ -447,6 +448,29 @@ def direct_answer_from_tool_messages(tool_messages: list[dict[str, str]]) -> str
     if errors:
         return "web_fetch 执行失败：\n" + "\n".join(f"- {error}" for error in errors)
     return None
+
+
+def result_omits_requested_weather_date(
+    result: dict[str, Any],
+    original_messages: list[dict[str, Any]],
+    tool_messages: list[dict[str, str]],
+) -> bool:
+    user_text = _latest_user_text(original_messages)
+    if not user_text:
+        return False
+    lower_user_text = user_text.lower()
+    asks_weather = "天气" in user_text or "weather" in lower_user_text or "forecast" in lower_user_text
+    asks_date = "日期" in user_text or "今天" in user_text or "today" in lower_user_text or "date" in lower_user_text
+    if not asks_weather or not asks_date:
+        return False
+    direct_answer = direct_answer_from_tool_messages(tool_messages)
+    if direct_answer is None or "日期：" not in direct_answer:
+        return False
+    message = result_assistant_message(result)
+    if message is None:
+        return False
+    content = str(message.get("content") or "")
+    return _DATE_PATTERN.search(content) is None
 
 
 def result_claims_web_fetch_unavailable(result: dict[str, Any]) -> bool:
