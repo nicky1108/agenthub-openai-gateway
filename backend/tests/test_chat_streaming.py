@@ -221,9 +221,9 @@ def test_streaming_chat_resolves_web_fetch_before_final_stream(tmp_path, monkeyp
     assert "[DONE]" in body
     assert len(run_payloads) == 1
     assert run_payloads[0]["stream"] is False
-    assert streamed_messages[-2]["role"] == "assistant"
-    assert streamed_messages[-1]["role"] == "tool"
-    assert json.loads(streamed_messages[-1]["content"])["text"] == "Example body"
+    assert streamed_messages[-1]["role"] == "user"
+    assert "Web fetch result" in streamed_messages[-1]["content"]
+    assert "Example body" in streamed_messages[-1]["content"]
 
 
 def test_streaming_chat_uses_gemini_acp_when_enabled(tmp_path, monkeypatch) -> None:

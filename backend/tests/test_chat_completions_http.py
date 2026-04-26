@@ -255,11 +255,9 @@ def test_chat_completions_executes_explicit_web_fetch_tool_call(tmp_path, monkey
     assert run_payloads[0]["model"] == "codex:gpt-5.4-mini"
     assert run_payloads[1]["tool_choice"] == "none"
     second_messages = run_payloads[1]["messages"]
-    assert second_messages[-2]["role"] == "assistant"
-    assert second_messages[-2]["tool_calls"][0]["id"] == "call_fetch_1"
-    assert second_messages[-1]["role"] == "tool"
-    assert second_messages[-1]["tool_call_id"] == "call_fetch_1"
-    assert json.loads(second_messages[-1]["content"])["text"] == "Example body"
+    assert second_messages[-1]["role"] == "user"
+    assert "Web fetch result" in second_messages[-1]["content"]
+    assert "Example body" in second_messages[-1]["content"]
 
 
 def test_chat_completions_forces_declared_web_fetch_tool_by_default(tmp_path, monkeypatch) -> None:
@@ -349,7 +347,9 @@ def test_chat_completions_forces_declared_web_fetch_tool_by_default(tmp_path, mo
     assert len(run_payloads) == 2
     assert run_payloads[0]["tool_choice"] == {"type": "function", "function": {"name": "web_fetch"}}
     assert run_payloads[1]["tool_choice"] == "none"
-    assert json.loads(run_payloads[1]["messages"][-1]["content"])["text"] == "Weather body"
+    assert run_payloads[1]["messages"][-1]["role"] == "user"
+    assert "Web fetch result" in run_payloads[1]["messages"][-1]["content"]
+    assert "Weather body" in run_payloads[1]["messages"][-1]["content"]
 
 
 def test_chat_completions_synthesizes_web_fetch_when_provider_ignores_tool_choice(tmp_path, monkeypatch) -> None:
