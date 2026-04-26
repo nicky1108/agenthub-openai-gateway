@@ -134,6 +134,13 @@ export type AdminCreditLedgerEntry = {
   created_at: string;
 };
 
+export type AdminCreditLedgerPage = {
+  items: AdminCreditLedgerEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 export type AdminApiKeyRecord = {
   id: number;
   account_id: number;
@@ -731,8 +738,13 @@ export async function adjustAdminAccountCredits(
 export async function getAdminAccountCreditLedger(
   adminSecret: string,
   accountId: number,
-): Promise<AdminCreditLedgerEntry[]> {
-  return requestAdmin<AdminCreditLedgerEntry[]>(`/admin/accounts/${accountId}/credits/ledger`, adminSecret);
+  params: { limit?: number; offset?: number } = {},
+): Promise<AdminCreditLedgerPage> {
+  const search = new URLSearchParams();
+  if (params.limit) search.set("limit", String(params.limit));
+  if (params.offset) search.set("offset", String(params.offset));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return requestAdmin<AdminCreditLedgerPage>(`/admin/accounts/${accountId}/credits/ledger${suffix}`, adminSecret);
 }
 
 export async function getAdminApiKeys(adminSecret: string): Promise<AdminApiKeyRecord[]> {

@@ -4,13 +4,13 @@ import type {
   AdminAccountSyncSummary,
   AdminAccountRecord,
   AdminModelPricingRecord,
-  AdminCreditLedgerEntry,
   AdminApiKeyRecord,
   AdminDashboardSummary,
   AdminDashboardTimeseries,
   AdminProviderHealthRecord,
   AdminProviderModelRecord,
   AdminProviderRecord,
+  AdminCreditLedgerPage,
   AdminSettingsOverview,
   AdminUsageOverview,
   AdminUsageRecord,
@@ -58,6 +58,7 @@ type AdminShellProps = {
 
 type AdminView = "overview" | "providers" | "models" | "accounts" | "api-keys" | "usage" | "permissions" | "settings";
 const ADMIN_USAGE_PAGE_SIZE = 25;
+const ADMIN_LEDGER_PAGE_SIZE = 10;
 type AdminModal =
   | { kind: "provider-create" }
   | { kind: "provider-edit"; provider: AdminProviderRecord }
@@ -122,7 +123,8 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   const [providers, setProviders] = useState<AdminProviderRecord[]>([]);
   const [health, setHealth] = useState<AdminProviderHealthRecord[]>([]);
   const [accounts, setAccounts] = useState<AdminAccountRecord[]>([]);
-  const [creditLedger, setCreditLedger] = useState<Record<number, AdminCreditLedgerEntry[]>>({});
+  const [creditLedger, setCreditLedger] = useState<Record<number, AdminCreditLedgerPage>>({});
+  const [creditLedgerPage, setCreditLedgerPage] = useState(0);
   const [apiKeys, setApiKeys] = useState<AdminApiKeyRecord[]>([]);
   const [usage, setUsage] = useState<AdminUsageOverview | null>(null);
   const [usageRecords, setUsageRecords] = useState<AdminUsageRecordsPage>({
@@ -269,6 +271,9 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           applyAdjustment: "应用调整",
           ledger: "最近流水",
           ledgerEmpty: "还没有信用点流水。",
+          pageStatus: (page: number, pages: number, total: number) => `第 ${page}/${pages} 页 · 共 ${total} 条`,
+          previous: "上一页",
+          next: "下一页",
           grantAdmin: "设为管理员",
           revokeAdmin: "移除管理员",
           activate: "启用",
@@ -423,6 +428,9 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           applyAdjustment: "Apply adjustment",
           ledger: "Recent ledger",
           ledgerEmpty: "No credit ledger entries yet.",
+          pageStatus: (page: number, pages: number, total: number) => `Page ${page}/${pages} · ${total} total`,
+          previous: "Previous",
+          next: "Next",
           grantAdmin: "Grant admin",
           revokeAdmin: "Revoke admin",
           activate: "Activate",
@@ -601,6 +609,11 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     setModalError(null);
   }
 
+  function selectAccount(accountId: number) {
+    setSelectedAccountId(String(accountId));
+    setCreditLedgerPage(0);
+  }
+
   function openProviderCreateModal() {
     setProviderName("");
     setProviderExposedModel("default");
@@ -675,12 +688,12 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     setAccountIsAdmin(account.is_admin);
     setAccountStatus(account.status);
     setAccountNotes(account.notes ?? "");
-    setSelectedAccountId(String(account.id));
+    selectAccount(account.id);
     openModal({ kind: "account-edit", account });
   }
 
   function openCreditAdjustmentModal(account: AdminAccountRecord) {
-    setSelectedAccountId(String(account.id));
+    selectAccount(account.id);
     setCreditAdjustment("");
     setCreditAdjustmentReason("");
     openModal({ kind: "credit-adjust", account });
@@ -745,13 +758,28 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     if (!selectedAccountId) return;
     const numericAccountId = Number(selectedAccountId);
     if (!Number.isFinite(numericAccountId)) return;
-    void getAdminAccountCreditLedger(adminSecret, numericAccountId).then((rows) => {
-      setCreditLedger((current) => ({ ...current, [numericAccountId]: rows }));
+    const offset = creditLedgerPage * ADMIN_LEDGER_PAGE_SIZE;
+    void getAdminAccountCreditLedger(adminSecret, numericAccountId, {
+      limit: ADMIN_LEDGER_PAGE_SIZE,
+      offset,
+    }).then((page) => {
+      setCreditLedger((current) => ({
+        ...current,
+        [numericAccountId]: {
+          items: Array.isArray(page.items) ? page.items : [],
+          total: typeof page.total === "number" ? page.total : 0,
+          limit: typeof page.limit === "number" ? page.limit : ADMIN_LEDGER_PAGE_SIZE,
+          offset: typeof page.offset === "number" ? page.offset : offset,
+        },
+      }));
     }).catch((ledgerError) => {
-      setCreditLedger((current) => ({ ...current, [numericAccountId]: [] }));
+      setCreditLedger((current) => ({
+        ...current,
+        [numericAccountId]: { items: [], total: 0, limit: ADMIN_LEDGER_PAGE_SIZE, offset },
+      }));
       setNotice(ledgerError instanceof Error ? ledgerError.message : "ledger request failed");
     });
-  }, [adminSecret, selectedAccountId]);
+  }, [adminSecret, selectedAccountId, creditLedgerPage]);
 
   useEffect(() => {
     if (!usageApiKeyFilter || !usageAccountFilter) return;
@@ -787,7 +815,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           notes: accountNotes || null,
         });
         setAccounts((current) => current.concat(created));
-        setSelectedAccountId(String(created.id));
+        selectAccount(created.id);
         setNotice(isZh ? "账户已创建。" : "Account created.");
       }
       setModal(null);
@@ -831,7 +859,11 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         notes: creditAdjustmentReason || undefined,
       });
       setAccounts((current) => current.map((row) => (row.id === adjusted.id ? adjusted : row)));
-      const ledger = await getAdminAccountCreditLedger(adminSecret, accountId);
+      setCreditLedgerPage(0);
+      const ledger = await getAdminAccountCreditLedger(adminSecret, accountId, {
+        limit: ADMIN_LEDGER_PAGE_SIZE,
+        offset: 0,
+      });
       setCreditLedger((current) => ({ ...current, [accountId]: ledger }));
       setNotice(isZh ? "信用点已调整。" : "Credits adjusted.");
       setModal(null);
@@ -1144,6 +1176,27 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   const usageCurrentPage = Math.min(
     Math.floor(usageRecords.offset / Math.max(usageRecords.limit, 1)) + 1,
     usageTotalPages,
+  );
+  const selectedAccountNumericId = Number(selectedAccountId);
+  const selectedLedgerPage = Number.isFinite(selectedAccountNumericId)
+    ? creditLedger[selectedAccountNumericId] ?? {
+        items: [],
+        total: 0,
+        limit: ADMIN_LEDGER_PAGE_SIZE,
+        offset: creditLedgerPage * ADMIN_LEDGER_PAGE_SIZE,
+      }
+    : {
+        items: [],
+        total: 0,
+        limit: ADMIN_LEDGER_PAGE_SIZE,
+        offset: creditLedgerPage * ADMIN_LEDGER_PAGE_SIZE,
+      };
+  const ledgerRows = selectedLedgerPage.items;
+  const ledgerLimit = Math.max(selectedLedgerPage.limit, 1);
+  const ledgerTotalPages = Math.max(Math.ceil(selectedLedgerPage.total / ledgerLimit), 1);
+  const ledgerCurrentPage = Math.min(
+    Math.floor(selectedLedgerPage.offset / ledgerLimit) + 1,
+    ledgerTotalPages,
   );
 
   function renderModal() {
@@ -1503,7 +1556,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
                       <td>{account.credit_balance ?? 0}</td>
                       <td>{account.public_account_id ?? account.public_workspace_id ?? "-"}</td>
                       <td className="data-table__actions">
-                        <button className="ghost-action ghost-action--bright" onClick={() => setSelectedAccountId(String(account.id))}>{copy.models.select}</button>
+                        <button className="ghost-action ghost-action--bright" onClick={() => selectAccount(account.id)}>{copy.models.select}</button>
                         <button className="ghost-action ghost-action--bright" onClick={() => openAccountEditModal(account)}>{actionCopy.edit}</button>
                         <button className="ghost-action ghost-action--bright" onClick={() => openCreditAdjustmentModal(account)}>{actionCopy.adjustCredits}</button>
                         <button className="ghost-action ghost-action--danger" onClick={() => openModal({ kind: "account-delete", account })}>{actionCopy.delete}</button>
@@ -1520,9 +1573,9 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
               <table className="data-table">
                 <thead><tr><th>Delta</th><th>Type</th><th>Provider</th><th>Model</th><th>{copy.accounts.balance}</th><th>Notes</th><th>Time</th></tr></thead>
                 <tbody>
-                  {(creditLedger[Number(selectedAccountId)] ?? []).length === 0 ? (
+                  {ledgerRows.length === 0 ? (
                     <tr><td colSpan={7}>{copy.accounts.ledgerEmpty}</td></tr>
-                  ) : (creditLedger[Number(selectedAccountId)] ?? []).map((entry) => (
+                  ) : ledgerRows.map((entry) => (
                     <tr key={entry.id}>
                       <td>{`${entry.credits_delta > 0 ? "+" : ""}${entry.credits_delta}`}</td>
                       <td>{entry.entry_type}</td>
@@ -1535,6 +1588,25 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="pagination-row">
+              <button
+                className="ghost-action"
+                disabled={ledgerCurrentPage <= 1}
+                onClick={() => setCreditLedgerPage((page) => Math.max(page - 1, 0))}
+                type="button"
+              >
+                {copy.accounts.previous}
+              </button>
+              <span>{copy.accounts.pageStatus(ledgerCurrentPage, ledgerTotalPages, selectedLedgerPage.total)}</span>
+              <button
+                className="ghost-action"
+                disabled={ledgerCurrentPage >= ledgerTotalPages}
+                onClick={() => setCreditLedgerPage((page) => page + 1)}
+                type="button"
+              >
+                {copy.accounts.next}
+              </button>
             </div>
           </article>
         </section>

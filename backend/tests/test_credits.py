@@ -43,8 +43,39 @@ def test_admin_can_adjust_account_credits_and_list_ledger(tmp_path, monkeypatch)
     assert adjust_response.json()["credit_balance"] == 1500.25
     assert accounts_response.json()[0]["credit_balance"] == 1500.25
     assert ledger_response.status_code == 200
-    assert ledger_response.json()[0]["entry_type"] == "manual_adjustment"
-    assert ledger_response.json()[0]["credits_delta"] == 1500.25
+    ledger_payload = ledger_response.json()
+    assert ledger_payload["total"] == 1
+    assert ledger_payload["limit"] == 25
+    assert ledger_payload["offset"] == 0
+    assert ledger_payload["items"][0]["entry_type"] == "manual_adjustment"
+    assert ledger_payload["items"][0]["credits_delta"] == 1500.25
+
+
+def test_admin_account_credit_ledger_supports_offset_pagination(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+
+    with TestClient(create_app()) as client:
+        account_id = _create_account(client, "paged-ledger-account")
+        for amount, notes in ((10, "first"), (20, "second"), (30, "third")):
+            response = client.post(
+                f"/admin/accounts/{account_id}/credits/adjust",
+                json={"credits_delta": amount, "notes": notes},
+                headers={"x-admin-secret": "change-me"},
+            )
+            assert response.status_code == 200
+        ledger_response = client.get(
+            f"/admin/accounts/{account_id}/credits/ledger?limit=1&offset=1",
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert ledger_response.status_code == 200
+    payload = ledger_response.json()
+    assert payload["total"] == 3
+    assert payload["limit"] == 1
+    assert payload["offset"] == 1
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["notes"] == "second"
+    assert payload["items"][0]["credits_delta"] == 20
 
 
 def test_chat_rejects_requests_when_account_has_no_credits(tmp_path, monkeypatch) -> None:
@@ -162,7 +193,7 @@ def test_successful_chat_deducts_credits_and_records_ledger(tmp_path, monkeypatc
     account_payload = accounts_response.json()[0]
     assert account_payload["credit_balance"] == 1000.19
     inference_entry = next(
-        entry for entry in ledger_response.json() if entry["entry_type"] == "model_inference"
+        entry for entry in ledger_response.json()["items"] if entry["entry_type"] == "model_inference"
     )
     assert inference_entry["model_id"] == "codex:gpt-5.4"
     assert inference_entry["credits_delta"] == -0.06

@@ -190,6 +190,7 @@ describe("public gateway frontend", () => {
 
   it("renders the admin console when the signed-in account is an admin", async () => {
     setPath("/admin");
+    const ledgerRequests: string[] = [];
 
     vi.stubGlobal(
       "fetch",
@@ -309,8 +310,37 @@ describe("public gateway frontend", () => {
             },
           ]));
         }
-        if (path.endsWith("/admin/accounts/1/credits/ledger")) {
-          return new Response(JSON.stringify([]));
+        if (path.includes("/admin/accounts/1/credits/ledger")) {
+          ledgerRequests.push(path);
+          const url = new URL(path, "http://localhost");
+          const offset = Number(url.searchParams.get("offset") ?? "0");
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: offset === 10 ? 2 : 1,
+                  account_id: 1,
+                  api_key_id: 1,
+                  usage_record_id: null,
+                  entry_type: "manual_adjustment",
+                  credits_delta: offset === 10 ? -3 : 10,
+                  balance_after: offset === 10 ? 97 : 100,
+                  usd_amount: null,
+                  provider_name: null,
+                  model_id: null,
+                  input_tokens: null,
+                  output_tokens: null,
+                  cached_input_tokens: null,
+                  pricing_source: null,
+                  notes: offset === 10 ? "second-page" : "first-page",
+                  created_at: "2026-04-25T00:00:00Z",
+                },
+              ],
+              total: 11,
+              limit: 10,
+              offset,
+            }),
+          );
         }
         if (path.endsWith("/admin/api-keys")) {
           return new Response(JSON.stringify([]));
@@ -385,6 +415,14 @@ describe("public gateway frontend", () => {
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Accounts" }));
+    expect(await screen.findByText("第 1/2 页 · 共 11 条")).toBeTruthy();
+    expect(screen.getByText("first-page")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() => {
+      expect(ledgerRequests.some((requestPath) => requestPath.includes("limit=10") && requestPath.includes("offset=10"))).toBe(true);
+    });
+    expect(await screen.findByText("第 2/2 页 · 共 11 条")).toBeTruthy();
+    expect(screen.getByText("second-page")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "新建" }));
     expect(screen.getByRole("dialog", { name: "创建账户" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));

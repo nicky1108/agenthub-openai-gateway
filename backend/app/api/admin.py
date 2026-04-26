@@ -265,6 +265,13 @@ class CreditLedgerRead(BaseModel):
     created_at: str
 
 
+class CreditLedgerPage(BaseModel):
+    items: list[CreditLedgerRead]
+    total: int
+    limit: int
+    offset: int
+
+
 class ApiKeyCreate(BaseModel):
     account_id: int
     name: str
@@ -902,40 +909,54 @@ async def adjust_account_credits(
     return serialize_account(account, settings)
 
 
-@router.get("/accounts/{account_id}/credits/ledger", response_model=list[CreditLedgerRead])
+@router.get("/accounts/{account_id}/credits/ledger", response_model=CreditLedgerPage)
 async def list_account_credit_ledger(
     account_id: int,
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
-) -> list[CreditLedgerRead]:
+) -> CreditLedgerPage:
+    total = (
+        await session.scalar(
+            select(func.count(CreditLedgerRecord.id)).where(CreditLedgerRecord.account_id == account_id)
+        )
+    ) or 0
     rows = list(
         await session.scalars(
             select(CreditLedgerRecord)
             .where(CreditLedgerRecord.account_id == account_id)
             .order_by(CreditLedgerRecord.created_at.desc(), CreditLedgerRecord.id.desc())
+            .limit(limit)
+            .offset(offset)
         )
     )
-    return [
-        CreditLedgerRead(
-            id=row.id,
-            account_id=row.account_id,
-            api_key_id=row.api_key_id,
-            usage_record_id=row.usage_record_id,
-            entry_type=row.entry_type,
-            credits_delta=row.credits_delta,
-            balance_after=row.balance_after,
-            usd_amount=row.usd_amount,
-            provider_name=row.provider_name,
-            model_id=row.model_id,
-            input_tokens=row.input_tokens,
-            output_tokens=row.output_tokens,
-            cached_input_tokens=row.cached_input_tokens,
-            pricing_source=row.pricing_source,
-            notes=row.notes,
-            created_at=row.created_at.isoformat(),
-        )
-        for row in rows
-    ]
+    return CreditLedgerPage(
+        items=[
+            CreditLedgerRead(
+                id=row.id,
+                account_id=row.account_id,
+                api_key_id=row.api_key_id,
+                usage_record_id=row.usage_record_id,
+                entry_type=row.entry_type,
+                credits_delta=row.credits_delta,
+                balance_after=row.balance_after,
+                usd_amount=row.usd_amount,
+                provider_name=row.provider_name,
+                model_id=row.model_id,
+                input_tokens=row.input_tokens,
+                output_tokens=row.output_tokens,
+                cached_input_tokens=row.cached_input_tokens,
+                pricing_source=row.pricing_source,
+                notes=row.notes,
+                created_at=row.created_at.isoformat(),
+            )
+            for row in rows
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.post("/api-keys", response_model=ApiKeyCreated, status_code=status.HTTP_201_CREATED)
