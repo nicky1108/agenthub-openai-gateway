@@ -50,6 +50,7 @@ def test_models_endpoint_returns_provider_prefixed_model_ids(tmp_path, monkeypat
     assert "codex:gpt-5.4-mini" in ids
     assert "codex:gpt-5.4-nano" in ids
     assert "codex:gpt-5.2" in ids
+    assert "codex:gpt-5.2-codex" not in ids
 
 
 def test_models_endpoint_discovers_codex_models_from_local_cache(tmp_path, monkeypatch) -> None:
@@ -147,7 +148,6 @@ def test_models_endpoint_omits_disabled_providers(tmp_path, monkeypatch) -> None
         "codex:gpt-5.1-codex-max",
         "codex:gpt-5.1-codex-mini",
         "codex:gpt-5.2",
-        "codex:gpt-5.2-codex",
         "codex:gpt-5.3-codex",
         "codex:gpt-5.4",
         "codex:gpt-5.4-mini",

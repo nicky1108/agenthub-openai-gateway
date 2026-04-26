@@ -17,6 +17,7 @@ from app.pricing.service import OfficialPricingService
 class DiscoveredModel:
     native_model: str
     source: str
+    enabled: bool = True
 
 
 class ProviderDiscoveryService:
@@ -34,6 +35,11 @@ class ProviderDiscoveryService:
         "gpt-5.1-codex-mini",
         "gpt-5.1-codex-max",
         "codex-mini-latest",
+    )
+    _CODEX_CHATGPT_ACCOUNT_UNSUPPORTED_MODELS = frozenset(
+        {
+            "gpt-5.2-codex",
+        }
     )
     _GEMINI_BOOTSTRAP_MODELS = (
         "gemini-2.5-pro",
@@ -93,7 +99,16 @@ class ProviderDiscoveryService:
                 self._CODEX_BOOTSTRAP_MODELS,
                 [snapshot.native_model for snapshot in self._pricing.snapshots_for_provider("codex")],
             )
-            return [DiscoveredModel(native_model=model, source="bootstrap") for model in model_names]
+            return [
+                DiscoveredModel(
+                    native_model=model,
+                    source="unsupported-chatgpt-account"
+                    if model in self._CODEX_CHATGPT_ACCOUNT_UNSUPPORTED_MODELS
+                    else "bootstrap",
+                    enabled=model not in self._CODEX_CHATGPT_ACCOUNT_UNSUPPORTED_MODELS,
+                )
+                for model in model_names
+            ]
         if provider.name == "gemini":
             model_names = self._merge_model_names(
                 self._GEMINI_BOOTSTRAP_MODELS,
@@ -123,7 +138,7 @@ class ProviderDiscoveryService:
                         native_model=item.native_model,
                         exposed_model_id=f"{provider.name}:{item.native_model}",
                         source=item.source,
-                        enabled=True,
+                        enabled=item.enabled,
                         manually_overridden=False,
                         last_seen_at=now,
                     )
@@ -132,8 +147,11 @@ class ProviderDiscoveryService:
 
             row.source = item.source
             row.last_seen_at = now
-            if not row.manually_overridden:
+            if not item.enabled:
+                row.enabled = False
+            elif not row.manually_overridden:
                 row.enabled = True
+            if not row.manually_overridden:
                 row.exposed_model_id = f"{provider.name}:{item.native_model}"
 
         await session.commit()

@@ -338,6 +338,78 @@ def test_admin_lists_official_pricing_for_provider_models(tmp_path, monkeypatch)
     assert gpt52["pricing"]["output_price"] == 14.0
 
 
+def test_admin_marks_codex_chatgpt_unsupported_model_disabled(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setenv("CODEX_MODELS_CACHE_FILE", str(tmp_path / "missing-codex-models.json"))
+
+    with TestClient(create_app()) as client:
+        create_response = client.post(
+            "/admin/providers",
+            json={
+                "name": "codex",
+                "http_enabled": True,
+                "cli_enabled": False,
+                "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        assert create_response.status_code == 201
+
+        response = client.get(
+            "/admin/providers/codex/models",
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert response.status_code == 200
+    unsupported = next(item for item in response.json() if item["native_model"] == "gpt-5.2-codex")
+    assert unsupported["source"] == "unsupported-chatgpt-account"
+    assert unsupported["enabled"] is False
+
+
+def test_admin_rediscover_disables_legacy_codex_chatgpt_unsupported_model(tmp_path, monkeypatch) -> None:
+    database_path = tmp_path / "gateway.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")
+    monkeypatch.setenv("CODEX_MODELS_CACHE_FILE", str(tmp_path / "missing-codex-models.json"))
+
+    with TestClient(create_app()) as client:
+        create_response = client.post(
+            "/admin/providers",
+            json={
+                "name": "codex",
+                "http_enabled": True,
+                "cli_enabled": False,
+                "route_policy": "fixed-http",
+                "http_base_url": "http://provider.invalid",
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        assert create_response.status_code == 201
+
+        connection = sqlite3.connect(database_path)
+        try:
+            connection.execute(
+                """
+                UPDATE provider_models
+                SET enabled = 1, manually_overridden = 0, source = 'bootstrap'
+                WHERE native_model = 'gpt-5.2-codex'
+                """
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        response = client.post(
+            "/admin/providers/codex/rediscover",
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert response.status_code == 200
+    unsupported = next(item for item in response.json() if item["native_model"] == "gpt-5.2-codex")
+    assert unsupported["source"] == "unsupported-chatgpt-account"
+    assert unsupported["enabled"] is False
+
+
 def test_admin_can_override_provider_model_pricing(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
 
