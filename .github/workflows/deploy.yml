@@ -112,11 +112,14 @@ jobs:
           fi
           ssh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" 'bash -s' <<'SH'
           set -euo pipefail
-          if command -v hermes >/dev/null 2>&1; then
-            HERMES_BIN="$(command -v hermes)"
-          elif [ -x "$HOME/.hermes/bin/hermes" ]; then
-            HERMES_BIN="$HOME/.hermes/bin/hermes"
-          else
+          HERMES_BIN=""
+          for candidate in "$HOME/.hermes/bin/hermes" "$(command -v hermes || true)" "/usr/local/bin/hermes"; do
+            if [ -n "$candidate" ] && [ -x "$candidate" ] && "$candidate" --help >/dev/null 2>&1; then
+              HERMES_BIN="$candidate"
+              break
+            fi
+          done
+          if [ -z "$HERMES_BIN" ]; then
             echo "Hermes CLI is not installed for the deploy user" >&2
             exit 1
           fi
@@ -128,7 +131,7 @@ jobs:
               < /dev/null &
           fi
           sleep 3
-          "$HERMES_BIN" gateway status || true
+          "$HERMES_BIN" gateway status
           SH
 
       - name: Verify Hermes server connection
