@@ -21,11 +21,17 @@ def _app_with_runner(runner: FakeRunner):
 def _create_account_key_and_pricing(client: TestClient) -> tuple[int, int]:
     account_response = client.post(
         "/admin/accounts",
-        json={"name": "admin-hermes-account"},
+        json={"name": "admin-hermes-account", "is_admin": True},
         headers={"x-admin-secret": "change-me"},
     )
     assert account_response.status_code == 201
     account_id = account_response.json()["id"]
+    model_access_response = client.put(
+        f"/admin/accounts/{account_id}/model-access",
+        json={"platform_model_access_mode": "all", "allowed_model_ids": ["hermes:hermes-agent"]},
+        headers={"x-admin-secret": "change-me"},
+    )
+    assert model_access_response.status_code == 200
     credit_response = client.post(
         f"/admin/accounts/{account_id}/credits/adjust",
         json={"credits_delta": 5000, "notes": "hermes admin test"},

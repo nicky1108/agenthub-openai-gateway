@@ -39,8 +39,10 @@ from app.services.model_access import (
     PLATFORM_MODEL_ACCESS_ALL,
     account_allowed_platform_model_ids,
     account_can_access_platform_model,
+    account_has_admin_permission,
     platform_model_id,
     platform_model_provider,
+    platform_model_requires_admin_grant,
     replace_account_platform_model_access,
 )
 from app.services.hermes_tasks import (
@@ -1039,6 +1041,7 @@ async def update_account_model_access(
     payload: AccountModelAccessUpdate,
     _: None = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> AccountModelAccessRead:
     account = await session.scalar(select(AccountRecord).where(AccountRecord.id == account_id))
     if account is None:
@@ -1048,12 +1051,24 @@ async def update_account_model_access(
     unknown_model_ids = [
         model_id
         for model_id in payload.allowed_model_ids
-        if payload.platform_model_access_mode == PLATFORM_MODEL_ACCESS_ALLOWLIST and model_id not in available_model_ids
+        if (
+            payload.platform_model_access_mode == PLATFORM_MODEL_ACCESS_ALLOWLIST
+            or platform_model_requires_admin_grant(model_id)
+        )
+        and model_id not in available_model_ids
     ]
     if unknown_model_ids:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"unknown platform model: {unknown_model_ids[0]}",
+        )
+    admin_only_model_ids = [
+        model_id for model_id in payload.allowed_model_ids if platform_model_requires_admin_grant(model_id)
+    ]
+    if admin_only_model_ids and not account_has_admin_permission(account, settings):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"admin permission required for platform model: {admin_only_model_ids[0]}",
         )
     await replace_account_platform_model_access(
         session,

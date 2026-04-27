@@ -229,7 +229,7 @@ For server-side Hermes task execution, set:
 - `HERMES_TASK_START_CREDITS=10`
 - `HERMES_TASK_RUNTIME_CREDITS_PER_MINUTE=1`
 
-Hermes task billing uses fixed credits: 10 credits when a task is accepted, then 1 credit per rounded-up runtime minute after the task reaches a terminal state. Before granting users access, allow `hermes:hermes-agent` through the admin account model visibility controls.
+Hermes task billing uses fixed credits: 10 credits when a task is accepted, then 1 credit per rounded-up runtime minute after the task reaches a terminal state. Hermes is a sensitive platform model: it is hidden from non-admin accounts even when their platform model access mode is `all`, and admin accounts must still be explicitly granted `hermes:hermes-agent` through the admin account model visibility controls before they can call it.
 
 Example local `.env` values for reverse-tunnel development:
 
@@ -347,7 +347,7 @@ curl -s http://127.0.0.1:8787/v1/chat/completions \
 
 ### Hermes Task API
 
-When `HERMES_ENABLED=true`, the gateway exposes long-running Hermes agent jobs through `/v1/hermes/tasks`.
+When `HERMES_ENABLED=true`, the gateway exposes long-running Hermes agent jobs through `/v1/hermes/tasks`. Only admin accounts with an explicit `hermes:hermes-agent` platform model grant can create Hermes tasks.
 
 Create an async task:
 

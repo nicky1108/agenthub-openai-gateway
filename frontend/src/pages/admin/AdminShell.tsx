@@ -73,6 +73,11 @@ type AdminView = "overview" | "providers" | "models" | "accounts" | "api-keys" |
 const ADMIN_USAGE_PAGE_SIZE = 25;
 const ADMIN_LEDGER_PAGE_SIZE = 10;
 const ADMIN_HERMES_PAGE_SIZE = 20;
+
+function modelRequiresExplicitGrant(modelId: string) {
+  return modelId.startsWith("hermes:");
+}
+
 type AdminModal =
   | { kind: "provider-create" }
   | { kind: "provider-edit"; provider: AdminProviderRecord }
@@ -1166,9 +1171,12 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         ...access.available_models.filter((model) => allowedSet.has(model.id)).map((model) => model.id),
         ...access.allowed_model_ids.filter((modelId) => !access.available_models.some((model) => model.id === modelId)),
       ];
+      const savedAllowedModelIds = access.platform_model_access_mode === "all"
+        ? orderedAllowedModelIds.filter(modelRequiresExplicitGrant)
+        : orderedAllowedModelIds;
       const updated = await updateAdminAccountModelAccess(adminSecret, accountId, {
         platform_model_access_mode: access.platform_model_access_mode,
-        allowed_model_ids: orderedAllowedModelIds,
+        allowed_model_ids: savedAllowedModelIds,
       });
       setAccountModelAccess((current) => ({
         ...current,
@@ -2032,25 +2040,28 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
               <div className="empty-state empty-state--compact">{copy.accounts.noPlatformModels}</div>
             ) : (
               <div className="model-access-grid">
-                {selectedModelAccess.available_models.map((model) => (
-                  <label className="model-access-option" key={model.id}>
-                    <input
-                      aria-label={model.id}
-                      checked={
-                        selectedModelAccess.platform_model_access_mode === "all"
-                          ? true
-                          : allowedPlatformModelIds.has(model.id)
-                      }
-                      disabled={selectedModelAccess.platform_model_access_mode === "all"}
-                      onChange={() => toggleSelectedModelAccess(model.id)}
-                      type="checkbox"
-                    />
-                    <span>
-                      <strong>{model.id}</strong>
-                      <small>{model.provider}</small>
-                    </span>
-                  </label>
-                ))}
+                {selectedModelAccess.available_models.map((model) => {
+                  const requiresExplicitGrant = modelRequiresExplicitGrant(model.id);
+                  return (
+                    <label className="model-access-option" key={model.id}>
+                      <input
+                        aria-label={model.id}
+                        checked={
+                          selectedModelAccess.platform_model_access_mode === "all" && !requiresExplicitGrant
+                            ? true
+                            : allowedPlatformModelIds.has(model.id)
+                        }
+                        disabled={selectedModelAccess.platform_model_access_mode === "all" && !requiresExplicitGrant}
+                        onChange={() => toggleSelectedModelAccess(model.id)}
+                        type="checkbox"
+                      />
+                      <span>
+                        <strong>{model.id}</strong>
+                        <small>{model.provider}</small>
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             )}
           </article>

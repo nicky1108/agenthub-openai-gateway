@@ -131,3 +131,61 @@ def test_account_platform_model_allowlist_does_not_hide_custom_models(tmp_path, 
     catalog_payload = catalog_response.json()
     assert {item["id"] for item in catalog_payload["platform_models"]} == {"codex:gpt-5.4"}
     assert "minimax-cn:MiniMax-M2.7" in {item["id"] for item in catalog_payload["custom_models"]}
+
+
+def test_portal_hides_hermes_until_account_is_admin_and_granted(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setenv("CODEX_MODELS_CACHE_FILE", str(tmp_path / "missing-codex-models.json"))
+    monkeypatch.setenv("HERMES_ENABLED", "true")
+    monkeypatch.setenv("HERMES_MODEL", "hermes-agent")
+
+    with TestClient(create_app()) as client:
+        _register_and_login(client)
+        default_catalog_response = client.get("/portal/catalog")
+        non_admin_grant_response = client.put(
+            "/admin/accounts/1/model-access",
+            json={
+                "platform_model_access_mode": "all",
+                "allowed_model_ids": ["hermes:hermes-agent"],
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        non_admin_granted_catalog_response = client.get("/portal/catalog")
+        admin_response = client.patch(
+            "/admin/accounts/1",
+            json={"is_admin": True},
+            headers={"x-admin-secret": "change-me"},
+        )
+        admin_grant_response = client.put(
+            "/admin/accounts/1/model-access",
+            json={
+                "platform_model_access_mode": "all",
+                "allowed_model_ids": ["hermes:hermes-agent"],
+            },
+            headers={"x-admin-secret": "change-me"},
+        )
+        admin_granted_catalog_response = client.get("/portal/catalog")
+        admin_model_access_response = client.get(
+            "/admin/accounts/1/model-access",
+            headers={"x-admin-secret": "change-me"},
+        )
+
+    assert default_catalog_response.status_code == 200
+    assert "hermes:hermes-agent" not in {
+        item["id"] for item in default_catalog_response.json()["platform_models"]
+    }
+    assert non_admin_grant_response.status_code == 422
+    assert non_admin_grant_response.json() == {
+        "detail": "admin permission required for platform model: hermes:hermes-agent"
+    }
+    assert "hermes:hermes-agent" not in {
+        item["id"] for item in non_admin_granted_catalog_response.json()["platform_models"]
+    }
+    assert admin_response.status_code == 200
+    assert admin_response.json()["is_admin"] is True
+    assert admin_grant_response.status_code == 200
+    assert "hermes:hermes-agent" in {
+        item["id"] for item in admin_granted_catalog_response.json()["platform_models"]
+    }
+    assert admin_model_access_response.json()["platform_model_access_mode"] == "all"
+    assert admin_model_access_response.json()["allowed_model_ids"] == ["hermes:hermes-agent"]

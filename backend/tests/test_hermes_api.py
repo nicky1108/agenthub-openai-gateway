@@ -16,10 +16,13 @@ def _create_account_and_key_pair(
     client: TestClient,
     name: str = "hermes-account",
     credits: float = 5000,
+    *,
+    is_admin: bool = True,
+    grant_hermes: bool = True,
 ) -> tuple[int, str]:
     account_response = client.post(
         "/admin/accounts",
-        json={"name": name},
+        json={"name": name, "is_admin": is_admin},
         headers={"x-admin-secret": "change-me"},
     )
     assert account_response.status_code == 201
@@ -36,11 +39,31 @@ def _create_account_and_key_pair(
         headers={"x-admin-secret": "change-me"},
     )
     assert key_response.status_code == 201
+    if grant_hermes:
+        model_access_response = client.put(
+            f"/admin/accounts/{account_id}/model-access",
+            json={"platform_model_access_mode": "all", "allowed_model_ids": ["hermes:hermes-agent"]},
+            headers={"x-admin-secret": "change-me"},
+        )
+        assert model_access_response.status_code == 200
     return account_id, key_response.json()["api_key"]
 
 
-def _create_account_and_key(client: TestClient, name: str = "hermes-account", credits: float = 5000) -> str:
-    _, api_key = _create_account_and_key_pair(client, name, credits)
+def _create_account_and_key(
+    client: TestClient,
+    name: str = "hermes-account",
+    credits: float = 5000,
+    *,
+    is_admin: bool = True,
+    grant_hermes: bool = True,
+) -> str:
+    _, api_key = _create_account_and_key_pair(
+        client,
+        name,
+        credits,
+        is_admin=is_admin,
+        grant_hermes=grant_hermes,
+    )
     return api_key
 
 
@@ -149,34 +172,84 @@ def test_cancel_hermes_task(tmp_path, monkeypatch) -> None:
     assert cancel_response.json()["status"] == "cancel_requested"
 
 
-def test_hermes_model_appears_in_models_only_when_enabled_and_allowed(tmp_path, monkeypatch) -> None:
+def test_hermes_model_requires_admin_account_and_explicit_grant(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
     monkeypatch.setenv("HERMES_ENABLED", "true")
     monkeypatch.setenv("HERMES_API_KEY", "test-hermes-key")
     monkeypatch.setenv("HERMES_MODEL", "hermes-agent")
 
-    with TestClient(create_app()) as client:
-        account_id, api_key = _create_account_and_key_pair(client)
-        models_response = client.get("/v1/models", headers={"authorization": f"Bearer {api_key}"})
-        restricted_response = client.put(
-            f"/admin/accounts/{account_id}/model-access",
-            json={"platform_model_access_mode": "allowlist", "allowed_model_ids": []},
-            headers={"x-admin-secret": "change-me"},
-        )
-        restricted_models_response = client.get("/v1/models", headers={"authorization": f"Bearer {api_key}"})
-        allowed_response = client.put(
-            f"/admin/accounts/{account_id}/model-access",
-            json={"platform_model_access_mode": "allowlist", "allowed_model_ids": ["hermes:hermes-agent"]},
-            headers={"x-admin-secret": "change-me"},
-        )
-        allowed_models_response = client.get("/v1/models", headers={"authorization": f"Bearer {api_key}"})
+    app = _app_with_runner(FakeRunner())
+    try:
+        with TestClient(app) as client:
+            non_admin_account_id, non_admin_api_key = _create_account_and_key_pair(
+                client,
+                name="non-admin-hermes-account",
+                is_admin=False,
+                grant_hermes=False,
+            )
+            default_models_response = client.get(
+                "/v1/models",
+                headers={"authorization": f"Bearer {non_admin_api_key}"},
+            )
+            grant_to_non_admin_response = client.put(
+                f"/admin/accounts/{non_admin_account_id}/model-access",
+                json={"platform_model_access_mode": "all", "allowed_model_ids": ["hermes:hermes-agent"]},
+                headers={"x-admin-secret": "change-me"},
+            )
+            non_admin_models_response = client.get(
+                "/v1/models",
+                headers={"authorization": f"Bearer {non_admin_api_key}"},
+            )
+            non_admin_task_response = client.post(
+                "/v1/hermes/tasks",
+                json={"input": "must not run"},
+                headers={"authorization": f"Bearer {non_admin_api_key}"},
+            )
 
-    assert models_response.status_code == 200
-    assert "hermes:hermes-agent" in {item["id"] for item in models_response.json()["data"]}
-    assert restricted_response.status_code == 200
-    assert "hermes:hermes-agent" not in {item["id"] for item in restricted_models_response.json()["data"]}
-    assert allowed_response.status_code == 200
-    assert "hermes:hermes-agent" in {item["id"] for item in allowed_models_response.json()["data"]}
+            admin_account_id, admin_api_key = _create_account_and_key_pair(
+                client,
+                name="admin-hermes-account",
+                is_admin=True,
+                grant_hermes=False,
+            )
+            admin_before_grant_response = client.get(
+                "/v1/models",
+                headers={"authorization": f"Bearer {admin_api_key}"},
+            )
+            grant_to_admin_response = client.put(
+                f"/admin/accounts/{admin_account_id}/model-access",
+                json={"platform_model_access_mode": "all", "allowed_model_ids": ["hermes:hermes-agent"]},
+                headers={"x-admin-secret": "change-me"},
+            )
+            admin_models_response = client.get(
+                "/v1/models",
+                headers={"authorization": f"Bearer {admin_api_key}"},
+            )
+            admin_task_response = client.post(
+                "/v1/hermes/tasks",
+                json={"input": "run long job"},
+                headers={"authorization": f"Bearer {admin_api_key}"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert default_models_response.status_code == 200
+    assert "hermes:hermes-agent" not in {item["id"] for item in default_models_response.json()["data"]}
+    assert grant_to_non_admin_response.status_code == 422
+    assert grant_to_non_admin_response.json() == {
+        "detail": "admin permission required for platform model: hermes:hermes-agent"
+    }
+    assert "hermes:hermes-agent" not in {item["id"] for item in non_admin_models_response.json()["data"]}
+    assert non_admin_task_response.status_code == 404
+    assert non_admin_task_response.json() == {"detail": "Hermes model is not available"}
+
+    assert admin_before_grant_response.status_code == 200
+    assert "hermes:hermes-agent" not in {item["id"] for item in admin_before_grant_response.json()["data"]}
+    assert grant_to_admin_response.status_code == 200
+    assert grant_to_admin_response.json()["platform_model_access_mode"] == "all"
+    assert grant_to_admin_response.json()["allowed_model_ids"] == ["hermes:hermes-agent"]
+    assert "hermes:hermes-agent" in {item["id"] for item in admin_models_response.json()["data"]}
+    assert admin_task_response.status_code == 202
 
 
 def test_hermes_task_create_charges_start_fee_without_model_pricing(tmp_path, monkeypatch) -> None:
@@ -239,7 +312,7 @@ def test_hermes_task_api_requires_enabled(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("HERMES_ENABLED", "false")
 
     with TestClient(create_app()) as client:
-        api_key = _create_account_and_key(client)
+        api_key = _create_account_and_key(client, grant_hermes=False)
         response = client.post(
             "/v1/hermes/tasks",
             json={"input": "run long job"},

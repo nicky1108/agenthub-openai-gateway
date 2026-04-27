@@ -345,15 +345,17 @@ describe("public gateway frontend", () => {
         }
         if (path.includes("/admin/accounts/1/model-access")) {
           if (init?.method === "PUT") {
-            modelAccessSaves.push(JSON.parse(String(init.body)));
+            const payload = JSON.parse(String(init.body));
+            modelAccessSaves.push(payload);
             return new Response(
               JSON.stringify({
                 account_id: 1,
-                platform_model_access_mode: "allowlist",
-                allowed_model_ids: modelAccessSaves[modelAccessSaves.length - 1]?.allowed_model_ids ?? [],
+                platform_model_access_mode: payload.platform_model_access_mode,
+                allowed_model_ids: payload.allowed_model_ids ?? [],
                 available_models: [
                   { id: "codex:gpt-5.4", provider: "codex", enabled: true },
                   { id: "codex:gpt-5.5", provider: "codex", enabled: true },
+                  { id: "hermes:hermes-agent", provider: "hermes", enabled: true },
                 ],
               }),
             );
@@ -366,6 +368,7 @@ describe("public gateway frontend", () => {
               available_models: [
                 { id: "codex:gpt-5.4", provider: "codex", enabled: true },
                 { id: "codex:gpt-5.5", provider: "codex", enabled: true },
+                { id: "hermes:hermes-agent", provider: "hermes", enabled: true },
               ],
             }),
           );
@@ -541,6 +544,23 @@ describe("public gateway frontend", () => {
         {
           platform_model_access_mode: "allowlist",
           allowed_model_ids: ["codex:gpt-5.4", "codex:gpt-5.5"],
+        },
+      ]);
+    });
+    fireEvent.click(screen.getByLabelText("全部平台模型"));
+    const hermesModelCheckbox = screen.getByLabelText("hermes:hermes-agent") as HTMLInputElement;
+    expect(hermesModelCheckbox.disabled).toBe(false);
+    fireEvent.click(hermesModelCheckbox);
+    fireEvent.click(screen.getByRole("button", { name: "保存可见性" }));
+    await waitFor(() => {
+      expect(modelAccessSaves).toEqual([
+        {
+          platform_model_access_mode: "allowlist",
+          allowed_model_ids: ["codex:gpt-5.4", "codex:gpt-5.5"],
+        },
+        {
+          platform_model_access_mode: "all",
+          allowed_model_ids: ["hermes:hermes-agent"],
         },
       ]);
     });
