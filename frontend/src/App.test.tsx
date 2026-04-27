@@ -423,6 +423,88 @@ describe("public gateway frontend", () => {
             }),
           );
         }
+        if (path.endsWith("/admin/hermes/overview")) {
+          return new Response(
+            JSON.stringify({
+              enabled: true,
+              api_base: "http://127.0.0.1:8642/v1",
+              api_key_configured: true,
+              model: "hermes-agent",
+              model_id: "hermes:hermes-agent",
+              runner_active: true,
+              max_concurrent_tasks: 2,
+            }),
+          );
+        }
+        if (path.includes("/admin/hermes/tasks/htask_demo/events")) {
+          return new Response(
+            JSON.stringify([
+              {
+                id: 1,
+                task_id: "htask_demo",
+                seq: 1,
+                event_type: "task.status",
+                payload: { status: "running" },
+                created_at: "2026-04-25T00:00:00Z",
+              },
+            ]),
+          );
+        }
+        if (path.endsWith("/admin/hermes/tasks/htask_demo")) {
+          return new Response(
+            JSON.stringify({
+              id: "htask_demo",
+              status: "running",
+              account_id: 1,
+              account_name: "Nicky",
+              api_key_id: 1,
+              api_key_name: "primary",
+              key_prefix: "9ac99097",
+              conversation: "acct:1:default",
+              previous_response_id: null,
+              response_id: null,
+              input_text: "inspect repo",
+              output_text: "working",
+              error_code: null,
+              error_message: null,
+              created_at: "2026-04-25T00:00:00Z",
+              started_at: "2026-04-25T00:00:01Z",
+              completed_at: null,
+              updated_at: "2026-04-25T00:00:02Z",
+            }),
+          );
+        }
+        if (path.includes("/admin/hermes/tasks")) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: "htask_demo",
+                  status: "running",
+                  account_id: 1,
+                  account_name: "Nicky",
+                  api_key_id: 1,
+                  api_key_name: "primary",
+                  key_prefix: "9ac99097",
+                  conversation: "acct:1:default",
+                  previous_response_id: null,
+                  response_id: null,
+                  input_text: "inspect repo",
+                  output_text: "working",
+                  error_code: null,
+                  error_message: null,
+                  created_at: "2026-04-25T00:00:00Z",
+                  started_at: "2026-04-25T00:00:01Z",
+                  completed_at: null,
+                  updated_at: "2026-04-25T00:00:02Z",
+                },
+              ],
+              total: 1,
+              limit: 20,
+              offset: 0,
+            }),
+          );
+        }
         if (path.includes("/admin/providers/codex/models")) {
           return new Response(JSON.stringify([]));
         }
@@ -470,5 +552,13 @@ describe("public gateway frontend", () => {
     expect(screen.getByRole("heading", { name: "Usage 明细" })).toBeTruthy();
     expect(screen.getAllByRole("columnheader", { name: "Provider" }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("codex").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Hermes" }));
+    expect(await screen.findByRole("heading", { name: "Hermes 控制台" })).toBeTruthy();
+    expect(screen.getByText(/hermes:hermes-agent/)).toBeTruthy();
+    expect(screen.getAllByText("htask_demo").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "选中" }));
+    expect(await screen.findByText("working")).toBeTruthy();
+    expect(await screen.findByText("task.status")).toBeTruthy();
   });
 });

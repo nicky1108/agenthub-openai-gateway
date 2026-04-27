@@ -207,6 +207,53 @@ export type AdminUsageRecordsPage = {
   offset: number;
 };
 
+export type AdminHermesOverview = {
+  enabled: boolean;
+  api_base: string;
+  api_key_configured: boolean;
+  model: string;
+  model_id: string | null;
+  runner_active: boolean;
+  max_concurrent_tasks: number;
+};
+
+export type AdminHermesTask = {
+  id: string;
+  status: string;
+  account_id: number;
+  account_name?: string | null;
+  api_key_id: number;
+  api_key_name?: string | null;
+  key_prefix?: string | null;
+  conversation: string;
+  previous_response_id?: string | null;
+  response_id?: string | null;
+  input_text: string;
+  output_text: string;
+  error_code?: string | null;
+  error_message?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  updated_at: string;
+};
+
+export type AdminHermesTaskPage = {
+  items: AdminHermesTask[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type AdminHermesTaskEvent = {
+  id: number;
+  task_id: string;
+  seq: number;
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
 export type AdminAccountSyncSummary = {
   total_accounts: number;
   mirrored_accounts: number;
@@ -834,6 +881,66 @@ export async function getAdminUsageRecords(
   if (params.offset) search.set("offset", String(params.offset));
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return requestAdmin<AdminUsageRecordsPage>(`/admin/usage/records${suffix}`, adminSecret);
+}
+
+export async function getAdminHermesOverview(adminSecret: string): Promise<AdminHermesOverview> {
+  return requestAdmin<AdminHermesOverview>("/admin/hermes/overview", adminSecret);
+}
+
+export async function getAdminHermesTasks(
+  adminSecret: string,
+  params: {
+    accountId?: number | null;
+    apiKeyId?: number | null;
+    status?: string | null;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<AdminHermesTaskPage> {
+  const search = new URLSearchParams();
+  if (params.accountId) search.set("account_id", String(params.accountId));
+  if (params.apiKeyId) search.set("api_key_id", String(params.apiKeyId));
+  if (params.status) search.set("status", params.status);
+  if (params.limit) search.set("limit", String(params.limit));
+  if (params.offset) search.set("offset", String(params.offset));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return requestAdmin<AdminHermesTaskPage>(`/admin/hermes/tasks${suffix}`, adminSecret);
+}
+
+export async function createAdminHermesTask(
+  adminSecret: string,
+  payload: {
+    account_id: number;
+    api_key_id: number;
+    input: string;
+    conversation?: string | null;
+    previous_response_id?: string | null;
+    instructions?: string | null;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<AdminHermesTask> {
+  return requestAdmin<AdminHermesTask>("/admin/hermes/tasks", adminSecret, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getAdminHermesTask(adminSecret: string, taskId: string): Promise<AdminHermesTask> {
+  return requestAdmin<AdminHermesTask>(`/admin/hermes/tasks/${taskId}`, adminSecret);
+}
+
+export async function getAdminHermesTaskEvents(
+  adminSecret: string,
+  taskId: string,
+  afterSeq = 0,
+): Promise<AdminHermesTaskEvent[]> {
+  return requestAdmin<AdminHermesTaskEvent[]>(`/admin/hermes/tasks/${taskId}/events?after_seq=${afterSeq}`, adminSecret);
+}
+
+export async function cancelAdminHermesTask(adminSecret: string, taskId: string): Promise<AdminHermesTask> {
+  return requestAdmin<AdminHermesTask>(`/admin/hermes/tasks/${taskId}/cancel`, adminSecret, {
+    method: "POST",
+  });
 }
 
 export async function sendAdminTestChat(

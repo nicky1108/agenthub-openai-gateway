@@ -1,23 +1,26 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const backendTarget = process.env.VITE_BACKEND_URL || "http://127.0.0.1:8787";
+
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
     proxy: {
-      "/auth": "http://127.0.0.1:8788",
+      "/auth": backendTarget,
+      "/admin": backendTarget,
       "/admin-api": {
-        target: "http://127.0.0.1:8788",
+        target: backendTarget,
         rewrite: (path) => path.replace(/^\/admin-api/, "/admin"),
       },
-      "/portal/dashboard": "http://127.0.0.1:8788",
-      "/portal/catalog": "http://127.0.0.1:8788",
-      "/portal/sync/retry": "http://127.0.0.1:8788",
-      "/portal/usage/records": "http://127.0.0.1:8788",
-      "/user": "http://127.0.0.1:8788",
-      "/v1": "http://127.0.0.1:8788",
-      "/healthz": "http://127.0.0.1:8788",
+      "/portal/dashboard": backendTarget,
+      "/portal/catalog": backendTarget,
+      "/portal/sync/retry": backendTarget,
+      "/portal/usage/records": backendTarget,
+      "/user": backendTarget,
+      "/v1": backendTarget,
+      "/healthz": backendTarget,
     },
   },
   test: {

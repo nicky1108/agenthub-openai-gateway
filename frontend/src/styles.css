@@ -51,7 +51,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -68,6 +69,7 @@ button:disabled {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
+textarea:focus-visible,
 a:focus-visible,
 summary:focus-visible {
   outline: 3px solid rgba(14, 165, 233, 0.35);
@@ -1950,6 +1952,15 @@ p {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.admin-shell .hermes-task-form {
+  margin-top: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-shell .hermes-task-form__wide {
+  grid-column: 1 / -1;
+}
+
 .admin-shell .model-access-form {
   margin: 14px 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2011,7 +2022,8 @@ p {
 }
 
 .admin-shell input,
-.admin-shell select {
+.admin-shell select,
+.admin-shell textarea {
   width: 100%;
   min-height: 42px;
   padding: 10px 12px;
@@ -2019,6 +2031,11 @@ p {
   border-radius: var(--radius);
   background: #fff;
   color: var(--ink);
+}
+
+.admin-shell textarea {
+  min-height: 96px;
+  resize: vertical;
 }
 
 .admin-shell input[type="checkbox"] {

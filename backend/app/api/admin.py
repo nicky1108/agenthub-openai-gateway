@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Literal
+import json
+from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, model_validator, field_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,8 @@ from app.core.models import (
     AuthSessionRecord,
     ApiKeyRecord,
     CreditLedgerRecord,
+    HermesTaskEventRecord,
+    HermesTaskRecord,
     ModelPricingRecord,
     ProviderModelRecord,
     ProviderRecord,
@@ -35,11 +38,20 @@ from app.services.model_access import (
     PLATFORM_MODEL_ACCESS_ALLOWLIST,
     PLATFORM_MODEL_ACCESS_ALL,
     account_allowed_platform_model_ids,
+    account_can_access_platform_model,
     platform_model_id,
     platform_model_provider,
     replace_account_platform_model_access,
 )
-from app.services.platform_catalog import list_platform_models
+from app.services.hermes_tasks import (
+    HERMES_STATUS_CANCEL_REQUESTED,
+    HERMES_TERMINAL_STATUSES,
+    HermesTaskCreate,
+    append_hermes_task_event,
+    create_hermes_task,
+    list_hermes_task_events,
+)
+from app.services.platform_catalog import hermes_model_id, list_platform_models
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 discovery = ProviderDiscoveryService()
@@ -401,6 +413,70 @@ class UsageOverview(BaseModel):
     by_model: dict[str, int]
 
 
+class AdminHermesOverview(BaseModel):
+    enabled: bool
+    api_base: str
+    api_key_configured: bool
+    model: str
+    model_id: str | None = None
+    runner_active: bool
+    max_concurrent_tasks: int
+
+
+class AdminHermesTaskCreate(BaseModel):
+    account_id: int
+    api_key_id: int
+    input: str
+    conversation: str | None = None
+    previous_response_id: str | None = None
+    instructions: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("input")
+    @classmethod
+    def validate_input(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("input is required")
+        return value
+
+
+class AdminHermesTaskRead(BaseModel):
+    id: str
+    status: str
+    account_id: int
+    account_name: str | None = None
+    api_key_id: int
+    api_key_name: str | None = None
+    key_prefix: str | None = None
+    conversation: str
+    previous_response_id: str | None = None
+    response_id: str | None = None
+    input_text: str
+    output_text: str
+    error_code: str | None = None
+    error_message: str | None = None
+    created_at: str
+    started_at: str | None = None
+    completed_at: str | None = None
+    updated_at: str
+
+
+class AdminHermesTaskPage(BaseModel):
+    items: list[AdminHermesTaskRead]
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminHermesTaskEventRead(BaseModel):
+    id: int
+    task_id: str
+    seq: int
+    event_type: str
+    payload: dict[str, Any]
+    created_at: str
+
+
 class DashboardSummary(BaseModel):
     total_requests: int
     active_api_keys: int
@@ -480,6 +556,10 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def get_admin_hermes_runner(request: Request):
+    return getattr(request.app.state, "hermes_task_runner", None)
+
+
 async def require_admin(
     x_admin_secret: str | None = Header(default=None),
     agh_session: str | None = Cookie(default=None, alias="agh_session"),
@@ -515,6 +595,27 @@ async def require_admin(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="invalid admin credentials",
     )
+
+
+def require_hermes_admin_enabled(settings: Settings) -> None:
+    if not settings.hermes_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hermes task API is disabled")
+    if not settings.hermes_api_key:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Hermes API key is not configured")
+
+
+def enforce_hermes_admin_payload_limits(payload: AdminHermesTaskCreate, settings: Settings) -> None:
+    if len(payload.input) > settings.hermes_input_max_chars:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Hermes input is too large",
+        )
+    metadata_bytes = len(json.dumps(payload.metadata, ensure_ascii=False).encode("utf-8"))
+    if metadata_bytes > settings.hermes_metadata_max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Hermes metadata is too large",
+        )
 
 
 def normalize_timestamp(value: datetime) -> datetime:
@@ -562,6 +663,52 @@ async def serialize_account_model_access(
             )
             for model in available_platform_models
         ],
+    )
+
+
+def serialize_admin_hermes_task(
+    task: HermesTaskRecord,
+    account: AccountRecord | None = None,
+    api_key: ApiKeyRecord | None = None,
+) -> AdminHermesTaskRead:
+    return AdminHermesTaskRead(
+        id=task.id,
+        status=task.status,
+        account_id=task.account_id,
+        account_name=account.name if account is not None else None,
+        api_key_id=task.api_key_id,
+        api_key_name=api_key.name if api_key is not None else None,
+        key_prefix=api_key.key_prefix if api_key is not None else None,
+        conversation=task.conversation,
+        previous_response_id=task.previous_response_id,
+        response_id=task.response_id,
+        input_text=task.input_text,
+        output_text=task.output_text,
+        error_code=task.error_code,
+        error_message=task.error_message,
+        created_at=task.created_at.isoformat(),
+        started_at=task.started_at.isoformat() if task.started_at else None,
+        completed_at=task.completed_at.isoformat() if task.completed_at else None,
+        updated_at=task.updated_at.isoformat(),
+    )
+
+
+def decode_hermes_event_payload(value: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(value or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def serialize_admin_hermes_event(event: HermesTaskEventRecord) -> AdminHermesTaskEventRead:
+    return AdminHermesTaskEventRead(
+        id=event.id,
+        task_id=event.task_id,
+        seq=event.seq,
+        event_type=event.event_type,
+        payload=decode_hermes_event_payload(event.payload_json),
+        created_at=event.created_at.isoformat(),
     )
 
 
@@ -1319,6 +1466,170 @@ async def list_usage_records(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/hermes/overview", response_model=AdminHermesOverview)
+async def hermes_overview(
+    _: None = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+    runner=Depends(get_admin_hermes_runner),
+) -> AdminHermesOverview:
+    return AdminHermesOverview(
+        enabled=settings.hermes_enabled,
+        api_base=settings.hermes_api_base,
+        api_key_configured=bool(settings.hermes_api_key),
+        model=settings.hermes_model,
+        model_id=hermes_model_id(settings),
+        runner_active=bool(runner is not None and getattr(runner, "_workers", [])),
+        max_concurrent_tasks=settings.hermes_max_concurrent_tasks,
+    )
+
+
+@router.post("/hermes/tasks", response_model=AdminHermesTaskRead, status_code=status.HTTP_202_ACCEPTED)
+async def create_admin_hermes_task(
+    payload: AdminHermesTaskCreate,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    runner=Depends(get_admin_hermes_runner),
+) -> AdminHermesTaskRead:
+    require_hermes_admin_enabled(settings)
+    enforce_hermes_admin_payload_limits(payload, settings)
+    account = await session.get(AccountRecord, payload.account_id)
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+    if account.status != "active":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="account is not active")
+    api_key = await session.get(ApiKeyRecord, payload.api_key_id)
+    if api_key is None or api_key.account_id != account.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api key not found for account")
+    if api_key.status != "active":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="api key is not active")
+    model_id = hermes_model_id(settings)
+    if model_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hermes task API is disabled")
+    if not await account_can_access_platform_model(session, account, model_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hermes model is not available for account")
+    await billing_service.quote_request(
+        session,
+        account,
+        "hermes",
+        settings.hermes_model,
+        [{"role": "user", "content": payload.input}],
+        None,
+    )
+    task = await create_hermes_task(
+        session,
+        account=account,
+        api_key=api_key,
+        payload=HermesTaskCreate(
+            input_text=payload.input,
+            conversation=payload.conversation,
+            previous_response_id=payload.previous_response_id,
+            instructions=payload.instructions,
+            metadata={"source": "admin-console", **payload.metadata},
+        ),
+    )
+    await session.commit()
+    if runner is not None:
+        await runner.enqueue(task.id)
+    return serialize_admin_hermes_task(task, account, api_key)
+
+
+@router.get("/hermes/tasks", response_model=AdminHermesTaskPage)
+async def list_admin_hermes_tasks(
+    account_id: int | None = Query(default=None),
+    api_key_id: int | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AdminHermesTaskPage:
+    filters = []
+    if account_id is not None:
+        filters.append(HermesTaskRecord.account_id == account_id)
+    if api_key_id is not None:
+        filters.append(HermesTaskRecord.api_key_id == api_key_id)
+    if status_filter:
+        filters.append(HermesTaskRecord.status == status_filter)
+    total = await session.scalar(select(func.count(HermesTaskRecord.id)).where(*filters)) or 0
+    rows = list(
+        await session.execute(
+            select(HermesTaskRecord, AccountRecord, ApiKeyRecord)
+            .join(AccountRecord, HermesTaskRecord.account_id == AccountRecord.id)
+            .join(ApiKeyRecord, HermesTaskRecord.api_key_id == ApiKeyRecord.id)
+            .where(*filters)
+            .order_by(HermesTaskRecord.created_at.desc(), HermesTaskRecord.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    )
+    return AdminHermesTaskPage(
+        items=[serialize_admin_hermes_task(task, account, api_key) for task, account, api_key in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/hermes/tasks/{task_id}", response_model=AdminHermesTaskRead)
+async def get_admin_hermes_task(
+    task_id: str,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AdminHermesTaskRead:
+    row = (
+        await session.execute(
+            select(HermesTaskRecord, AccountRecord, ApiKeyRecord)
+            .join(AccountRecord, HermesTaskRecord.account_id == AccountRecord.id)
+            .join(ApiKeyRecord, HermesTaskRecord.api_key_id == ApiKeyRecord.id)
+            .where(HermesTaskRecord.id == task_id)
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hermes task not found")
+    task, account, api_key = row
+    return serialize_admin_hermes_task(task, account, api_key)
+
+
+@router.get("/hermes/tasks/{task_id}/events", response_model=list[AdminHermesTaskEventRead])
+async def list_admin_hermes_task_events(
+    task_id: str,
+    after_seq: int = Query(default=0, ge=0),
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[AdminHermesTaskEventRead]:
+    task = await session.get(HermesTaskRecord, task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hermes task not found")
+    events = await list_hermes_task_events(session, task_id, after_seq=after_seq)
+    return [serialize_admin_hermes_event(event) for event in events]
+
+
+@router.post("/hermes/tasks/{task_id}/cancel", response_model=AdminHermesTaskRead)
+async def cancel_admin_hermes_task(
+    task_id: str,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AdminHermesTaskRead:
+    task = await session.get(HermesTaskRecord, task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hermes task not found")
+    if task.status not in HERMES_TERMINAL_STATUSES:
+        task.status = HERMES_STATUS_CANCEL_REQUESTED
+        task.updated_at = datetime.now(timezone.utc)
+        await append_hermes_task_event(
+            session,
+            task_id=task.id,
+            event_type="task.status",
+            payload={"status": task.status},
+        )
+        await session.commit()
+        await session.refresh(task)
+    account = await session.get(AccountRecord, task.account_id)
+    api_key = await session.get(ApiKeyRecord, task.api_key_id)
+    return serialize_admin_hermes_task(task, account, api_key)
 
 
 @router.get("/dashboard/summary", response_model=DashboardSummary)

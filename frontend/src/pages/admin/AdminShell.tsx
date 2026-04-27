@@ -11,6 +11,10 @@ import type {
   AdminProviderModelRecord,
   AdminProviderRecord,
   AdminCreditLedgerPage,
+  AdminHermesOverview,
+  AdminHermesTask,
+  AdminHermesTaskEvent,
+  AdminHermesTaskPage,
   AdminPlatformModelAccess,
   AdminSettingsOverview,
   AdminUsageOverview,
@@ -19,7 +23,9 @@ import type {
 } from "../../api";
 import {
   adjustAdminAccountCredits,
+  cancelAdminHermesTask,
   getAdminAccountSyncSummary,
+  createAdminHermesTask,
   createAdminAccount,
   createAdminApiKey,
   createAdminProvider,
@@ -35,6 +41,10 @@ import {
   getAdminDashboardSummary,
   getAdminDashboardTimeseries,
   getAdminHealth,
+  getAdminHermesOverview,
+  getAdminHermesTask,
+  getAdminHermesTaskEvents,
+  getAdminHermesTasks,
   getAdminProviderModels,
   getAdminProviders,
   getAdminSettingsOverview,
@@ -59,9 +69,10 @@ type AdminShellProps = {
   onLogout: () => void;
 };
 
-type AdminView = "overview" | "providers" | "models" | "accounts" | "api-keys" | "usage" | "permissions" | "settings";
+type AdminView = "overview" | "providers" | "models" | "accounts" | "api-keys" | "usage" | "hermes" | "permissions" | "settings";
 const ADMIN_USAGE_PAGE_SIZE = 25;
 const ADMIN_LEDGER_PAGE_SIZE = 10;
+const ADMIN_HERMES_PAGE_SIZE = 20;
 type AdminModal =
   | { kind: "provider-create" }
   | { kind: "provider-edit"; provider: AdminProviderRecord }
@@ -92,6 +103,19 @@ function formatUsageTokens(row: AdminUsageRecord): string {
     return "-";
   }
   return `${row.input_tokens ?? 0} / ${row.cached_input_tokens ?? 0} / ${row.output_tokens ?? 0}`;
+}
+
+function hermesStatusClass(status: string): string {
+  if (status === "completed") {
+    return "status-pill status-pill--ok";
+  }
+  if (status === "failed" || status === "cancelled" || status === "expired") {
+    return "status-pill status-pill--danger";
+  }
+  if (status === "running" || status === "queued" || status === "cancel_requested") {
+    return "status-pill status-pill--warning";
+  }
+  return "status-pill";
 }
 
 function buildTrafficPath(series: AdminDashboardTimeseries | null): { stroke: string; fill: string } {
@@ -138,6 +162,23 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     limit: ADMIN_USAGE_PAGE_SIZE,
     offset: 0,
   });
+  const [hermesOverview, setHermesOverview] = useState<AdminHermesOverview | null>(null);
+  const [hermesTasks, setHermesTasks] = useState<AdminHermesTaskPage>({
+    items: [],
+    total: 0,
+    limit: ADMIN_HERMES_PAGE_SIZE,
+    offset: 0,
+  });
+  const [hermesEvents, setHermesEvents] = useState<AdminHermesTaskEvent[]>([]);
+  const [hermesSelectedTaskId, setHermesSelectedTaskId] = useState("");
+  const [hermesAccountFilter, setHermesAccountFilter] = useState("");
+  const [hermesStatusFilter, setHermesStatusFilter] = useState("");
+  const [hermesPage, setHermesPage] = useState(0);
+  const [hermesInput, setHermesInput] = useState("");
+  const [hermesInstructions, setHermesInstructions] = useState("");
+  const [hermesMetadata, setHermesMetadata] = useState("{\n  \"source\": \"admin-console\"\n}");
+  const [hermesApiKeyId, setHermesApiKeyId] = useState("");
+  const [hermesSubmitting, setHermesSubmitting] = useState(false);
   const [usageAccountFilter, setUsageAccountFilter] = useState("");
   const [usageApiKeyFilter, setUsageApiKeyFilter] = useState("");
   const [usagePage, setUsagePage] = useState(0);
@@ -186,7 +227,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   const copy = isZh
     ? {
         title: "Admin Console",
-        nav: { overview: "概览", providers: "Providers", models: "Models", accounts: "Accounts", apiKeys: "API Keys", usage: "Usage", permissions: "Permissions", settings: "Settings" },
+        nav: { overview: "概览", providers: "Providers", models: "Models", accounts: "Accounts", apiKeys: "API Keys", usage: "Usage", hermes: "Hermes", permissions: "Permissions", settings: "Settings" },
         logout: "退出管理台",
         loading: "加载中...",
         overview: {
@@ -335,6 +376,38 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           requestsLimited: (requests: number, limited: number) => `${requests} 请求 · ${limited} 限流`,
           lastUsed: (value: string | null) => value ?? "暂无使用",
         },
+        hermes: {
+          title: "Hermes 控制台",
+          lead: "以指定账号和 API Key 发起 Hermes agent 任务，查看运行状态、输出和事件历史。",
+          overview: "运行概况",
+          enabled: "已启用",
+          disabled: "未启用",
+          runner: "Runner",
+          active: "运行中",
+          inactive: "未启动",
+          model: "模型",
+          apiBase: "API Base",
+          maxConcurrency: "最大并发",
+          createTitle: "发起任务",
+          account: "账号",
+          apiKey: "API Key",
+          prompt: "任务输入",
+          instructions: "Instructions",
+          metadata: "Metadata JSON",
+          submit: "提交任务",
+          refresh: "刷新",
+          history: "任务历史",
+          status: "状态",
+          allStatuses: "全部状态",
+          output: "输出",
+          events: "事件",
+          noTask: "还没有 Hermes 任务。",
+          noEvents: "还没有事件。",
+          noOutput: "还没有输出。",
+          details: "任务详情",
+          cancel: "取消任务",
+          pageStatus: (page: number, pages: number, total: number) => `第 ${page}/${pages} 页 · 共 ${total} 条`,
+        },
         permissions: {
           title: "权限管理",
           lead: "统一控制哪些账户可以进入 Admin，以及账户是否可继续使用 API。",
@@ -349,7 +422,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       }
     : {
         title: "Admin Console",
-        nav: { overview: "Overview", providers: "Providers", models: "Models", accounts: "Accounts", apiKeys: "API Keys", usage: "Usage", permissions: "Permissions", settings: "Settings" },
+        nav: { overview: "Overview", providers: "Providers", models: "Models", accounts: "Accounts", apiKeys: "API Keys", usage: "Usage", hermes: "Hermes", permissions: "Permissions", settings: "Settings" },
         logout: "Sign out",
         loading: "Loading...",
         overview: {
@@ -498,6 +571,38 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           requestsLimited: (requests: number, limited: number) => `${requests} requests · ${limited} limited`,
           lastUsed: (value: string | null) => value ?? "No activity yet",
         },
+        hermes: {
+          title: "Hermes Console",
+          lead: "Start Hermes agent tasks as a selected account/API key, then inspect status, output, and event history.",
+          overview: "Runtime overview",
+          enabled: "Enabled",
+          disabled: "Disabled",
+          runner: "Runner",
+          active: "Active",
+          inactive: "Inactive",
+          model: "Model",
+          apiBase: "API base",
+          maxConcurrency: "Max concurrency",
+          createTitle: "Create task",
+          account: "Account",
+          apiKey: "API Key",
+          prompt: "Task input",
+          instructions: "Instructions",
+          metadata: "Metadata JSON",
+          submit: "Submit task",
+          refresh: "Refresh",
+          history: "Task history",
+          status: "Status",
+          allStatuses: "All statuses",
+          output: "Output",
+          events: "Events",
+          noTask: "No Hermes tasks yet.",
+          noEvents: "No events yet.",
+          noOutput: "No output yet.",
+          details: "Task details",
+          cancel: "Cancel task",
+          pageStatus: (page: number, pages: number, total: number) => `Page ${page}/${pages} · ${total} total`,
+        },
         permissions: {
           title: "Permissions",
           lead: "Control which accounts can enter Admin and whether each account can keep using API access.",
@@ -553,6 +658,8 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         apiKeyRows,
         usageRow,
         usageRecordRows,
+        hermesOverviewRow,
+        hermesTaskRows,
       ] = await Promise.all([
         getAdminDashboardSummary(adminSecret),
         getAdminDashboardTimeseries(adminSecret, dashboardWindow),
@@ -564,6 +671,8 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         getAdminApiKeys(adminSecret),
         getAdminUsageOverview(adminSecret),
         getAdminUsageRecords(adminSecret),
+        getAdminHermesOverview(adminSecret),
+        getAdminHermesTasks(adminSecret, { limit: ADMIN_HERMES_PAGE_SIZE, offset: 0 }),
       ]);
       setSummary(summaryRow);
       setTimeseries(timeseriesRow);
@@ -580,6 +689,16 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         limit: typeof usageRecordRows.limit === "number" ? usageRecordRows.limit : ADMIN_USAGE_PAGE_SIZE,
         offset: typeof usageRecordRows.offset === "number" ? usageRecordRows.offset : 0,
       });
+      setHermesOverview(hermesOverviewRow);
+      setHermesTasks({
+        items: Array.isArray(hermesTaskRows.items) ? hermesTaskRows.items : [],
+        total: typeof hermesTaskRows.total === "number" ? hermesTaskRows.total : 0,
+        limit: typeof hermesTaskRows.limit === "number" ? hermesTaskRows.limit : ADMIN_HERMES_PAGE_SIZE,
+        offset: typeof hermesTaskRows.offset === "number" ? hermesTaskRows.offset : 0,
+      });
+      if (!hermesSelectedTaskId && Array.isArray(hermesTaskRows.items) && hermesTaskRows.items.length > 0) {
+        setHermesSelectedTaskId(hermesTaskRows.items[0].id);
+      }
       if (Array.isArray(accountRows) && accountRows.length > 0 && !selectedAccountId) {
         setSelectedAccountId(String(accountRows[0].id));
       }
@@ -608,6 +727,50 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       limit: typeof page.limit === "number" ? page.limit : ADMIN_USAGE_PAGE_SIZE,
       offset: typeof page.offset === "number" ? page.offset : 0,
     });
+  }
+
+  async function loadHermesTasks() {
+    const accountId = hermesAccountFilter ? Number(hermesAccountFilter) : null;
+    const page = await getAdminHermesTasks(adminSecret, {
+      accountId: Number.isFinite(accountId) ? accountId : null,
+      status: hermesStatusFilter || null,
+      limit: ADMIN_HERMES_PAGE_SIZE,
+      offset: hermesPage * ADMIN_HERMES_PAGE_SIZE,
+    });
+    const normalized = {
+      items: Array.isArray(page.items) ? page.items : [],
+      total: typeof page.total === "number" ? page.total : 0,
+      limit: typeof page.limit === "number" ? page.limit : ADMIN_HERMES_PAGE_SIZE,
+      offset: typeof page.offset === "number" ? page.offset : hermesPage * ADMIN_HERMES_PAGE_SIZE,
+    };
+    setHermesTasks(normalized);
+    if (!hermesSelectedTaskId && normalized.items.length > 0) {
+      setHermesSelectedTaskId(normalized.items[0].id);
+    }
+  }
+
+  async function loadHermesOverviewAndTasks() {
+    const [overviewRow] = await Promise.all([
+      getAdminHermesOverview(adminSecret),
+      loadHermesTasks(),
+    ]);
+    setHermesOverview(overviewRow);
+  }
+
+  async function loadSelectedHermesTask(taskId: string) {
+    if (!taskId) {
+      setHermesEvents([]);
+      return;
+    }
+    const [taskRow, eventRows] = await Promise.all([
+      getAdminHermesTask(adminSecret, taskId),
+      getAdminHermesTaskEvents(adminSecret, taskId),
+    ]);
+    setHermesTasks((current) => ({
+      ...current,
+      items: current.items.map((item) => (item.id === taskRow.id ? taskRow : item)),
+    }));
+    setHermesEvents(Array.isArray(eventRows) ? eventRows : []);
   }
 
   async function loadSelectedProviderModels(providerName: string) {
@@ -785,6 +948,33 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   }, [adminSecret, usageAccountFilter, usageApiKeyFilter, usagePage]);
 
   useEffect(() => {
+    void loadHermesTasks().catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "request failed");
+    });
+  }, [adminSecret, hermesAccountFilter, hermesStatusFilter, hermesPage]);
+
+  useEffect(() => {
+    if (!hermesSelectedTaskId) {
+      setHermesEvents([]);
+      return;
+    }
+    void loadSelectedHermesTask(hermesSelectedTaskId).catch((loadError) => {
+      setNotice(loadError instanceof Error ? loadError.message : "Hermes task request failed");
+    });
+  }, [adminSecret, hermesSelectedTaskId]);
+
+  useEffect(() => {
+    if (view !== "hermes") return;
+    const interval = window.setInterval(() => {
+      void loadHermesOverviewAndTasks().catch(() => undefined);
+      if (hermesSelectedTaskId) {
+        void loadSelectedHermesTask(hermesSelectedTaskId).catch(() => undefined);
+      }
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [view, adminSecret, hermesAccountFilter, hermesStatusFilter, hermesPage, hermesSelectedTaskId]);
+
+  useEffect(() => {
     if (!selectedProviderName) return;
     void loadSelectedProviderModels(selectedProviderName);
   }, [selectedProviderName]);
@@ -859,6 +1049,17 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       setNotice(accessError instanceof Error ? accessError.message : "model access request failed");
     });
   }, [adminSecret, selectedAccountId]);
+
+  useEffect(() => {
+    const accountKeys = apiKeys.filter((apiKey) => String(apiKey.account_id) === selectedAccountId && apiKey.status === "active");
+    if (accountKeys.length === 0) {
+      setHermesApiKeyId("");
+      return;
+    }
+    if (!accountKeys.some((apiKey) => String(apiKey.id) === hermesApiKeyId)) {
+      setHermesApiKeyId(String(accountKeys[0].id));
+    }
+  }, [apiKeys, selectedAccountId, hermesApiKeyId]);
 
   useEffect(() => {
     if (!usageApiKeyFilter || !usageAccountFilter) return;
@@ -983,6 +1184,54 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       setNotice(saveError instanceof Error ? saveError.message : "model access request failed");
     } finally {
       setModelAccessBusy(false);
+    }
+  }
+
+  async function handleCreateHermesTask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedAccountId || !hermesApiKeyId || !hermesInput.trim()) return;
+    setHermesSubmitting(true);
+    setNotice(null);
+    try {
+      let metadata: Record<string, unknown> = {};
+      if (hermesMetadata.trim()) {
+        const parsed = JSON.parse(hermesMetadata) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error(isZh ? "Metadata 必须是 JSON object。" : "Metadata must be a JSON object.");
+        }
+        metadata = parsed as Record<string, unknown>;
+      }
+      const task = await createAdminHermesTask(adminSecret, {
+        account_id: Number(selectedAccountId),
+        api_key_id: Number(hermesApiKeyId),
+        input: hermesInput,
+        instructions: hermesInstructions.trim() || null,
+        metadata,
+      });
+      setHermesSelectedTaskId(task.id);
+      setHermesInput("");
+      setHermesInstructions("");
+      setHermesMetadata("{\n  \"source\": \"admin-console\"\n}");
+      setHermesPage(0);
+      await loadHermesOverviewAndTasks();
+      await loadSelectedHermesTask(task.id);
+      setNotice(isZh ? "Hermes 任务已提交。" : "Hermes task submitted.");
+    } catch (createError) {
+      setNotice(createError instanceof Error ? createError.message : "Hermes task request failed");
+    } finally {
+      setHermesSubmitting(false);
+    }
+  }
+
+  async function handleCancelHermesTask(taskId: string) {
+    try {
+      const task = await cancelAdminHermesTask(adminSecret, taskId);
+      setHermesSelectedTaskId(task.id);
+      await loadHermesOverviewAndTasks();
+      await loadSelectedHermesTask(task.id);
+      setNotice(isZh ? "Hermes 任务已请求取消。" : "Hermes task cancellation requested.");
+    } catch (cancelError) {
+      setNotice(cancelError instanceof Error ? cancelError.message : "Hermes cancel request failed");
     }
   }
 
@@ -1324,6 +1573,14 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         available_models: [],
       };
   const allowedPlatformModelIds = new Set(selectedModelAccess.allowed_model_ids);
+  const hermesAccountKeyOptions = apiKeys.filter((apiKey) => String(apiKey.account_id) === selectedAccountId);
+  const selectedHermesTask = hermesTasks.items.find((task) => task.id === hermesSelectedTaskId) ?? null;
+  const hermesTotalPages = Math.max(Math.ceil(hermesTasks.total / Math.max(hermesTasks.limit, 1)), 1);
+  const hermesCurrentPage = Math.min(
+    Math.floor(hermesTasks.offset / Math.max(hermesTasks.limit, 1)) + 1,
+    hermesTotalPages,
+  );
+  const hermesOutput = selectedHermesTask?.output_text || copy.hermes.noOutput;
 
   function renderModal() {
     if (!modal) return null;
@@ -1523,6 +1780,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         <button className={view === "accounts" ? "active" : ""} onClick={() => setView("accounts")}>{copy.nav.accounts}</button>
         <button className={view === "api-keys" ? "active" : ""} onClick={() => setView("api-keys")}>{copy.nav.apiKeys}</button>
         <button className={view === "usage" ? "active" : ""} onClick={() => setView("usage")}>{copy.nav.usage}</button>
+        <button className={view === "hermes" ? "active" : ""} onClick={() => setView("hermes")}>{copy.nav.hermes}</button>
         <button className={view === "permissions" ? "active" : ""} onClick={() => setView("permissions")}>{copy.nav.permissions}</button>
         <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>{copy.nav.settings}</button>
       </nav>
@@ -1980,6 +2238,215 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
                   ) : Object.entries(usage?.by_model ?? {})
                     .sort(([, left], [, right]) => right - left)
                     .map(([name, count]) => <tr key={name}><td>{name}</td><td>{count}</td></tr>)}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {!loading && !error && view === "hermes" ? (
+        <section className="detail-grid">
+          <article className="detail-panel detail-panel--wide">
+            <div className="panel-heading-row">
+              <div>
+                <h3>{copy.hermes.title}</h3>
+                <p>{copy.hermes.lead}</p>
+              </div>
+              <button className="ghost-action ghost-action--bright" onClick={() => void loadHermesOverviewAndTasks()} type="button">
+                {copy.hermes.refresh}
+              </button>
+            </div>
+            <div className="detail-panel__meta">
+              <span>{`${copy.hermes.overview}: ${hermesOverview?.enabled ? copy.hermes.enabled : copy.hermes.disabled}`}</span>
+              <span>{`${copy.hermes.runner}: ${hermesOverview?.runner_active ? copy.hermes.active : copy.hermes.inactive}`}</span>
+              <span>{`${copy.hermes.model}: ${hermesOverview?.model_id ?? "-"}`}</span>
+              <span>{`${copy.hermes.apiBase}: ${hermesOverview?.api_base ?? "-"}`}</span>
+              <span>{`${copy.hermes.maxConcurrency}: ${hermesOverview?.max_concurrent_tasks ?? "-"}`}</span>
+            </div>
+          </article>
+
+          <article className="detail-panel detail-panel--wide">
+            <div className="panel-heading-row">
+              <h3>{copy.hermes.createTitle}</h3>
+              <span className="muted-meta">{hermesOverview?.api_key_configured ? copy.hermes.enabled : copy.hermes.disabled}</span>
+            </div>
+            <form className="inline-form hermes-task-form" onSubmit={handleCreateHermesTask}>
+              <label>
+                <span>{copy.hermes.account}</span>
+                <select value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.email ? `${account.name} · ${account.email}` : account.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>{copy.hermes.apiKey}</span>
+                <select value={hermesApiKeyId} onChange={(event) => setHermesApiKeyId(event.target.value)}>
+                  {hermesAccountKeyOptions.length === 0 ? <option value="">-</option> : null}
+                  {hermesAccountKeyOptions.map((apiKey) => (
+                    <option key={apiKey.id} value={apiKey.id}>
+                      {`${apiKey.name} · ${apiKey.key_prefix} · ${apiKey.status}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="hermes-task-form__wide">
+                <span>{copy.hermes.prompt}</span>
+                <textarea value={hermesInput} onChange={(event) => setHermesInput(event.target.value)} rows={6} />
+              </label>
+              <label>
+                <span>{copy.hermes.instructions}</span>
+                <textarea value={hermesInstructions} onChange={(event) => setHermesInstructions(event.target.value)} rows={5} />
+              </label>
+              <label>
+                <span>{copy.hermes.metadata}</span>
+                <textarea value={hermesMetadata} onChange={(event) => setHermesMetadata(event.target.value)} rows={5} />
+              </label>
+              <div className="data-table__actions hermes-task-form__wide">
+                <button
+                  className="primary-action"
+                  disabled={!hermesOverview?.enabled || hermesSubmitting || !selectedAccountId || !hermesApiKeyId || !hermesInput.trim()}
+                  type="submit"
+                >
+                  {copy.hermes.submit}
+                </button>
+              </div>
+            </form>
+          </article>
+
+          <article className="detail-panel detail-panel--wide">
+            <div className="panel-heading-row">
+              <div>
+                <h3>{copy.hermes.history}</h3>
+                <span className="muted-meta">{copy.hermes.pageStatus(hermesCurrentPage, hermesTotalPages, hermesTasks.total)}</span>
+              </div>
+              <div className="data-table__actions">
+                <select
+                  aria-label={copy.hermes.account}
+                  value={hermesAccountFilter}
+                  onChange={(event) => {
+                    setHermesAccountFilter(event.target.value);
+                    setHermesPage(0);
+                  }}
+                >
+                  <option value="">{copy.usage.allAccounts}</option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>{account.name}</option>
+                  ))}
+                </select>
+                <select
+                  aria-label={copy.hermes.status}
+                  value={hermesStatusFilter}
+                  onChange={(event) => {
+                    setHermesStatusFilter(event.target.value);
+                    setHermesPage(0);
+                  }}
+                >
+                  <option value="">{copy.hermes.allStatuses}</option>
+                  <option value="queued">queued</option>
+                  <option value="running">running</option>
+                  <option value="completed">completed</option>
+                  <option value="failed">failed</option>
+                  <option value="cancel_requested">cancel_requested</option>
+                  <option value="cancelled">cancelled</option>
+                </select>
+              </div>
+            </div>
+            <div className="table-shell">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Task</th>
+                    <th>{copy.hermes.status}</th>
+                    <th>{copy.hermes.account}</th>
+                    <th>{copy.hermes.apiKey}</th>
+                    <th>{copy.usage.time}</th>
+                    <th>{copy.models.action}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hermesTasks.items.length === 0 ? (
+                    <tr><td colSpan={6}>{copy.hermes.noTask}</td></tr>
+                  ) : hermesTasks.items.map((task) => (
+                    <tr key={task.id}>
+                      <td><code>{task.id}</code></td>
+                      <td><span className={hermesStatusClass(task.status)}>{task.status}</span></td>
+                      <td>{task.account_name ? `${task.account_name} #${task.account_id}` : task.account_id}</td>
+                      <td>{task.api_key_name ? `${task.api_key_name} ${task.key_prefix ?? ""}` : task.api_key_id}</td>
+                      <td>{new Date(task.created_at).toLocaleString(isZh ? "zh-CN" : "en-US")}</td>
+                      <td className="data-table__actions">
+                        <button className="ghost-action ghost-action--bright" onClick={() => setHermesSelectedTaskId(task.id)} type="button">
+                          {copy.models.select}
+                        </button>
+                        {["completed", "failed", "cancelled", "expired"].includes(task.status) ? null : (
+                          <button className="ghost-action ghost-action--danger" onClick={() => void handleCancelHermesTask(task.id)} type="button">
+                            {copy.hermes.cancel}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="pagination-row">
+              <button className="ghost-action" disabled={hermesCurrentPage <= 1} onClick={() => setHermesPage((page) => Math.max(page - 1, 0))} type="button">
+                {copy.usage.previous}
+              </button>
+              <span>{copy.hermes.pageStatus(hermesCurrentPage, hermesTotalPages, hermesTasks.total)}</span>
+              <button className="ghost-action" disabled={hermesCurrentPage >= hermesTotalPages} onClick={() => setHermesPage((page) => page + 1)} type="button">
+                {copy.usage.next}
+              </button>
+            </div>
+          </article>
+
+          <article className="detail-panel">
+            <div className="panel-heading-row">
+              <h3>{copy.hermes.details}</h3>
+              {selectedHermesTask ? <span className={hermesStatusClass(selectedHermesTask.status)}>{selectedHermesTask.status}</span> : null}
+            </div>
+            {selectedHermesTask ? (
+              <div className="detail-panel__meta">
+                <span>{selectedHermesTask.id}</span>
+                <span>{`${copy.hermes.account}: ${selectedHermesTask.account_name ?? selectedHermesTask.account_id}`}</span>
+                <span>{`${copy.hermes.apiKey}: ${selectedHermesTask.api_key_name ?? selectedHermesTask.api_key_id}`}</span>
+                <span>{`conversation: ${selectedHermesTask.conversation}`}</span>
+                <span>{`response: ${selectedHermesTask.response_id ?? "-"}`}</span>
+                <span>{`updated: ${new Date(selectedHermesTask.updated_at).toLocaleString(isZh ? "zh-CN" : "en-US")}`}</span>
+                {selectedHermesTask.error_message ? <span>{`${selectedHermesTask.error_code ?? "error"}: ${selectedHermesTask.error_message}`}</span> : null}
+              </div>
+            ) : <div className="empty-state empty-state--compact">{copy.hermes.noTask}</div>}
+          </article>
+
+          <article className="detail-panel">
+            <h3>{copy.hermes.output}</h3>
+            <pre className="admin-modal__transcript">{hermesOutput}</pre>
+          </article>
+
+          <article className="detail-panel detail-panel--wide">
+            <div className="panel-heading-row">
+              <h3>{copy.hermes.events}</h3>
+              <button className="ghost-action ghost-action--bright" disabled={!hermesSelectedTaskId} onClick={() => void loadSelectedHermesTask(hermesSelectedTaskId)} type="button">
+                {copy.hermes.refresh}
+              </button>
+            </div>
+            <div className="table-shell">
+              <table className="data-table">
+                <thead><tr><th>Seq</th><th>Type</th><th>{copy.usage.time}</th><th>Payload</th></tr></thead>
+                <tbody>
+                  {hermesEvents.length === 0 ? (
+                    <tr><td colSpan={4}>{copy.hermes.noEvents}</td></tr>
+                  ) : hermesEvents.map((event) => (
+                    <tr key={event.id}>
+                      <td>{event.seq}</td>
+                      <td>{event.event_type}</td>
+                      <td>{new Date(event.created_at).toLocaleString(isZh ? "zh-CN" : "en-US")}</td>
+                      <td><pre>{JSON.stringify(event.payload, null, 2)}</pre></td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
