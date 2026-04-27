@@ -60,6 +60,31 @@ describe("DocsPage", () => {
     expect((await screen.findAllByText(/minimax-cn:MiniMax-M2\.5/)).length).toBeGreaterThan(0);
   });
 
+  it("does not expose Hermes task models in public user docs", async () => {
+    vi.mocked(api.getPortalCatalog).mockResolvedValue({
+      platform_providers: [],
+      platform_models: [
+        { id: "codex:gpt-5.4-mini", provider: "codex", source: "platform", enabled: true },
+        { id: "hermes:hermes-agent", provider: "hermes", source: "platform", enabled: true },
+      ],
+      custom_models: [],
+    });
+
+    render(
+      <DocsPage
+        authUser={{ account_id: "acct_admin", workspace_id: "ws_admin", name: "Admin", email: "admin@example.com", is_admin: true }}
+        copy={messages.zh}
+        locale="zh"
+        onNavigate={() => {}}
+        onToggleLocale={() => {}}
+      />,
+    );
+
+    expect((await screen.findAllByText(/codex:gpt-5\.4-mini/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/hermes:hermes-agent/)).toBeNull();
+    expect(screen.queryByText(/\/v1\/hermes\/tasks/)).toBeNull();
+  });
+
   it("updates examples when the selected live models change", async () => {
     vi.mocked(api.getPortalCatalog).mockResolvedValue({
       platform_providers: [],

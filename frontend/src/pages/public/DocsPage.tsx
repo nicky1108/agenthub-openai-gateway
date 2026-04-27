@@ -20,6 +20,10 @@ type DocsPageProps = {
   onToggleLocale: () => void;
 };
 
+function isPublicDocsModel(model: CatalogModelRecord) {
+  return !model.id.startsWith("hermes:");
+}
+
 export function DocsPage({ authUser, copy, locale, onNavigate, onToggleLocale }: DocsPageProps) {
   const apiBase = resolveApiBaseUrl();
   const isZh = locale === "zh";
@@ -111,7 +115,7 @@ export function DocsPage({ authUser, copy, locale, onNavigate, onToggleLocale }:
         if (!active) {
           return;
         }
-        setPlatformModels(catalog.platform_models);
+        setPlatformModels(catalog.platform_models.filter(isPublicDocsModel));
         setCustomModels(catalog.custom_models);
         setCatalogFallbackNotice(null);
       })

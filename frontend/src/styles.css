@@ -1888,6 +1888,65 @@ p {
   color: var(--ink);
 }
 
+.admin-toast {
+  position: fixed;
+  top: 22px;
+  right: 22px;
+  z-index: 60;
+  width: min(420px, calc(100vw - 44px));
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 15px 14px 15px 16px;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-left: 5px solid #15803d;
+  border-radius: var(--radius);
+  background: #f0fdf4;
+  color: #14532d;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.2);
+}
+
+.admin-toast--error {
+  border-left-color: #b91c1c;
+  background: #fef2f2;
+  color: #7f1d1d;
+}
+
+.admin-toast__body {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  line-height: 1.45;
+}
+
+.admin-toast__body strong {
+  color: inherit;
+  font-size: 0.9rem;
+}
+
+.admin-toast__body span {
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+
+.admin-toast__close {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius);
+  color: currentColor;
+  font-size: 1.15rem;
+  line-height: 1;
+  opacity: 0.72;
+}
+
+.admin-toast__close:hover {
+  background: rgba(15, 23, 42, 0.08);
+  opacity: 1;
+}
+
 .admin-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1936,6 +1995,43 @@ p {
 .admin-shell .inline-form,
 .admin-shell .api-key-form {
   gap: 12px;
+}
+
+.admin-doc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 22px;
+  margin-top: 16px;
+}
+
+.admin-doc-section {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.admin-doc-section h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.98rem;
+}
+
+.admin-code-block {
+  margin: 0;
+  max-height: 340px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  overflow: auto;
+}
+
+.admin-code-block code {
+  color: inherit;
 }
 
 .admin-shell .panel-heading-row,
@@ -2327,6 +2423,7 @@ p {
   }
 
   .provider-builder__steps,
+  .admin-doc-grid,
   .route-lane-grid,
   .launch-steps article {
     grid-template-columns: 1fr;
@@ -2338,5 +2435,12 @@ p {
 
   .confirm-dialog__actions {
     flex-direction: column;
+  }
+
+  .admin-toast {
+    top: 16px;
+    right: 16px;
+    left: 16px;
+    width: auto;
   }
 }

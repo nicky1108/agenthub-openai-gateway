@@ -73,6 +73,11 @@ type AdminView = "overview" | "providers" | "models" | "accounts" | "api-keys" |
 const ADMIN_USAGE_PAGE_SIZE = 25;
 const ADMIN_LEDGER_PAGE_SIZE = 10;
 const ADMIN_HERMES_PAGE_SIZE = 20;
+type AdminToastTone = "success" | "error";
+type AdminToast = {
+  message: string;
+  tone: AdminToastTone;
+};
 
 function modelRequiresExplicitGrant(modelId: string) {
   return modelId.startsWith("hermes:");
@@ -143,7 +148,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   const [view, setView] = useState<AdminView>("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<AdminToast | null>(null);
   const [modal, setModal] = useState<AdminModal | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const [modalBusy, setModalBusy] = useState(false);
@@ -411,6 +416,20 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           noOutput: "还没有输出。",
           details: "任务详情",
           cancel: "取消任务",
+          docTitle: "接口调用文档",
+          docLead: "这份说明只在管理后台可见，用于给已授权的管理员账号接入 Hermes 任务 API；不要复制到用户公开文档。",
+          adminOnly: "Admin only",
+          docAuthTitle: "认证与权限",
+          docAuthBody: "客户端使用 AgentHub API Key 调用网关，不使用服务器上的 Hermes service key。账号必须具备 admin 权限，并在 Permissions 中显式开放 Hermes 模型。",
+          docBillingTitle: "计费",
+          docBillingBody: "发起任务先扣 10 点；任务完成后按实际运行时间每 1 分钟扣 1 点，不足 1 分钟按 1 分钟计。",
+          docEndpointsTitle: "端点",
+          docAsyncTitle: "非流式异步",
+          docAsyncBody: "先提交任务拿到 task id，再轮询任务详情或列表。适合单次任务运行很久的场景。",
+          docStreamTitle: "同步看进度",
+          docStreamBody: "任务创建后，用 SSE events 连接跟随状态和增量输出；断线重连时带 after_seq 继续回放。",
+          docPayloadTitle: "请求字段",
+          docPayloadBody: "input 必填；instructions、conversation、previous_response_id、metadata 可选。metadata 必须是 JSON object。",
           pageStatus: (page: number, pages: number, total: number) => `第 ${page}/${pages} 页 · 共 ${total} 条`,
         },
         permissions: {
@@ -606,6 +625,20 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           noOutput: "No output yet.",
           details: "Task details",
           cancel: "Cancel task",
+          docTitle: "API usage guide",
+          docLead: "This guide is visible only in Admin for authorized admin-account integrations. Do not copy it into public user docs.",
+          adminOnly: "Admin only",
+          docAuthTitle: "Auth and access",
+          docAuthBody: "Clients call the gateway with an AgentHub API key, not the server-side Hermes service key. The account must have admin permission and explicit Hermes model access in Permissions.",
+          docBillingTitle: "Billing",
+          docBillingBody: "Starting a task charges 10 credits. After completion, runtime is charged at 1 credit per actual running minute, rounded up to at least 1 minute.",
+          docEndpointsTitle: "Endpoints",
+          docAsyncTitle: "Non-streaming async",
+          docAsyncBody: "Create a task first, then poll the task detail or list endpoint with the returned task id. This is the default path for long-running jobs.",
+          docStreamTitle: "Synchronous progress",
+          docStreamBody: "After task creation, connect to SSE events to follow status and output deltas. Reconnect with after_seq to replay from the last seen sequence.",
+          docPayloadTitle: "Payload fields",
+          docPayloadBody: "input is required. instructions, conversation, previous_response_id, and metadata are optional. metadata must be a JSON object.",
           pageStatus: (page: number, pages: number, total: number) => `Page ${page}/${pages} · ${total} total`,
         },
         permissions: {
@@ -647,6 +680,10 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         adjustCredits: "Adjust credits",
         rawKey: "Raw key is shown once",
       };
+
+  function showNotice(message: string, tone: AdminToastTone = "success") {
+    setNotice({ message, tone });
+  }
 
   async function loadData() {
     setLoading(true);
@@ -947,6 +984,14 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   }, [adminSecret, dashboardWindow]);
 
   useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => {
+      setNotice(null);
+    }, notice.tone === "success" ? 3600 : 6000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
+  useEffect(() => {
     void loadUsageRecords().catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "request failed");
     });
@@ -964,7 +1009,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       return;
     }
     void loadSelectedHermesTask(hermesSelectedTaskId).catch((loadError) => {
-      setNotice(loadError instanceof Error ? loadError.message : "Hermes task request failed");
+      showNotice(loadError instanceof Error ? loadError.message : "Hermes task request failed", "error");
     });
   }, [adminSecret, hermesSelectedTaskId]);
 
@@ -1028,7 +1073,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         ...current,
         [numericAccountId]: { items: [], total: 0, limit: ADMIN_LEDGER_PAGE_SIZE, offset },
       }));
-      setNotice(ledgerError instanceof Error ? ledgerError.message : "ledger request failed");
+      showNotice(ledgerError instanceof Error ? ledgerError.message : "ledger request failed", "error");
     });
   }, [adminSecret, selectedAccountId, creditLedgerPage]);
 
@@ -1051,7 +1096,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           available_models: [],
         },
       }));
-      setNotice(accessError instanceof Error ? accessError.message : "model access request failed");
+      showNotice(accessError instanceof Error ? accessError.message : "model access request failed", "error");
     });
   }, [adminSecret, selectedAccountId]);
 
@@ -1091,7 +1136,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           notes: accountNotes || null,
         });
         setAccounts((current) => current.map((row) => (row.id === updated.id ? updated : row)));
-        setNotice(isZh ? "账户已更新。" : "Account updated.");
+        showNotice(isZh ? "账户已更新。" : "Account updated.");
       } else {
         const created = await createAdminAccount(adminSecret, {
           name: accountName,
@@ -1101,7 +1146,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         });
         setAccounts((current) => current.concat(created));
         selectAccount(created.id);
-        setNotice(isZh ? "账户已创建。" : "Account created.");
+        showNotice(isZh ? "账户已创建。" : "Account created.");
       }
       setModal(null);
     } catch (saveError) {
@@ -1114,7 +1159,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   async function handleUpdateAccount(accountId: number, payload: Parameters<typeof updateAdminAccount>[2]) {
     const updated = await updateAdminAccount(adminSecret, accountId, payload);
     setAccounts((current) => current.map((row) => (row.id === accountId ? updated : row)));
-    setNotice(isZh ? "账户已更新。" : "Account updated.");
+    showNotice(isZh ? "账户已更新。" : "Account updated.");
   }
 
   async function handleDeleteAccount(account: AdminAccountRecord) {
@@ -1123,7 +1168,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     try {
       const updated = await deleteAdminAccount(adminSecret, account.id);
       setAccounts((current) => current.map((row) => (row.id === updated.id ? updated : row)));
-      setNotice(isZh ? "账户已删除。" : "Account deleted.");
+      showNotice(isZh ? "账户已删除。" : "Account deleted.");
       setModal(null);
     } catch (deleteError) {
       setModalError(deleteError instanceof Error ? deleteError.message : "request failed");
@@ -1150,7 +1195,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         offset: 0,
       });
       setCreditLedger((current) => ({ ...current, [accountId]: ledger }));
-      setNotice(isZh ? "信用点已调整。" : "Credits adjusted.");
+      showNotice(isZh ? "信用点已调整。" : "Credits adjusted.");
       setModal(null);
     } catch (adjustError) {
       setModalError(adjustError instanceof Error ? adjustError.message : "request failed");
@@ -1187,9 +1232,9 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           ? { ...row, platform_model_access_mode: updated.platform_model_access_mode }
           : row
       )));
-      setNotice(isZh ? "平台模型可见性已保存。" : "Platform model visibility saved.");
+      showNotice(isZh ? "平台模型可见性已保存。" : "Platform model visibility saved.");
     } catch (saveError) {
-      setNotice(saveError instanceof Error ? saveError.message : "model access request failed");
+      showNotice(saveError instanceof Error ? saveError.message : "model access request failed", "error");
     } finally {
       setModelAccessBusy(false);
     }
@@ -1223,9 +1268,9 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       setHermesPage(0);
       await loadHermesOverviewAndTasks();
       await loadSelectedHermesTask(task.id);
-      setNotice(isZh ? "Hermes 任务已提交。" : "Hermes task submitted.");
+      showNotice(isZh ? "Hermes 任务已提交。" : "Hermes task submitted.");
     } catch (createError) {
-      setNotice(createError instanceof Error ? createError.message : "Hermes task request failed");
+      showNotice(createError instanceof Error ? createError.message : "Hermes task request failed", "error");
     } finally {
       setHermesSubmitting(false);
     }
@@ -1237,9 +1282,9 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       setHermesSelectedTaskId(task.id);
       await loadHermesOverviewAndTasks();
       await loadSelectedHermesTask(task.id);
-      setNotice(isZh ? "Hermes 任务已请求取消。" : "Hermes task cancellation requested.");
+      showNotice(isZh ? "Hermes 任务已请求取消。" : "Hermes task cancellation requested.");
     } catch (cancelError) {
-      setNotice(cancelError instanceof Error ? cancelError.message : "Hermes cancel request failed");
+      showNotice(cancelError instanceof Error ? cancelError.message : "Hermes cancel request failed", "error");
     }
   }
 
@@ -1257,7 +1302,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           per_day: parseOptionalInt(apiKeyDay),
         });
         setApiKeys((current) => current.map((row) => (row.id === updated.id ? updated : row)));
-        setNotice(isZh ? "API Key 已更新。" : "API key updated.");
+        showNotice(isZh ? "API Key 已更新。" : "API key updated.");
       } else {
         const created = await createAdminApiKey(adminSecret, {
           account_id: Number(selectedAccountId),
@@ -1268,7 +1313,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         });
         setApiKeys((current) => current.concat(created));
         setCreatedApiKey(created.api_key);
-        setNotice(isZh ? "API Key 已创建。" : "API key created.");
+        showNotice(isZh ? "API Key 已创建。" : "API key created.");
       }
       setModal(null);
     } catch (saveError) {
@@ -1290,7 +1335,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       }
       const usageRow = await getAdminUsageOverview(adminSecret);
       setUsage(usageRow);
-      setNotice(isZh ? "API Key 已删除。" : "API key deleted.");
+      showNotice(isZh ? "API Key 已删除。" : "API key deleted.");
       setModal(null);
     } catch (deleteError) {
       setModalError(deleteError instanceof Error ? deleteError.message : "request failed");
@@ -1327,12 +1372,12 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         const updated = await updateAdminProvider(adminSecret, modal.provider.name, buildProviderPayload());
         setProviders((current) => current.map((row) => (row.id === updated.id ? updated : row)));
         setSelectedProviderName(updated.name);
-        setNotice(isZh ? "Provider 已更新。" : "Provider updated.");
+        showNotice(isZh ? "Provider 已更新。" : "Provider updated.");
       } else {
         const created = await createAdminProvider(adminSecret, buildProviderPayload());
         setProviders((current) => current.concat(created));
         setSelectedProviderName(created.name);
-        setNotice(isZh ? "Provider 已创建。" : "Provider created.");
+        showNotice(isZh ? "Provider 已创建。" : "Provider created.");
       }
       await loadData();
       setModal(null);
@@ -1358,7 +1403,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       if (selectedProviderName === provider.name) {
         setSelectedProviderName("");
       }
-      setNotice(isZh ? "Provider 已删除。" : "Provider deleted.");
+      showNotice(isZh ? "Provider 已删除。" : "Provider deleted.");
       setModal(null);
     } catch (deleteError) {
       setModalError(deleteError instanceof Error ? deleteError.message : "request failed");
@@ -1371,14 +1416,14 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     if (!selectedProviderName) return;
     const rows = await rediscoverAdminProviderModels(adminSecret, selectedProviderName);
     setProviderModels((current) => ({ ...current, [selectedProviderName]: Array.isArray(rows) ? rows : [] }));
-    setNotice(isZh ? "模型目录已刷新。" : "Model catalog refreshed.");
+    showNotice(isZh ? "模型目录已刷新。" : "Model catalog refreshed.");
   }
 
   async function handleRefreshPricing() {
     if (!selectedProviderName) return;
     const rows = await refreshAdminProviderPricing(adminSecret, selectedProviderName);
     setProviderModels((current) => ({ ...current, [selectedProviderName]: Array.isArray(rows) ? rows : [] }));
-    setNotice(isZh ? "价格快照已刷新。" : "Pricing snapshot refreshed.");
+    showNotice(isZh ? "价格快照已刷新。" : "Pricing snapshot refreshed.");
   }
 
   async function handleSaveModel(event: FormEvent<HTMLFormElement>) {
@@ -1396,7 +1441,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           ...current,
           [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) => row.native_model === updated.native_model ? updated : row),
         }));
-        setNotice(isZh ? "模型已更新。" : "Model updated.");
+        showNotice(isZh ? "模型已更新。" : "Model updated.");
       } else {
         const created = await createAdminProviderModel(adminSecret, selectedProviderName, {
           native_model: manualNativeModel,
@@ -1407,7 +1452,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           ...current,
           [selectedProviderName]: [...(Array.isArray(current[selectedProviderName]) ? current[selectedProviderName] : []), created],
         }));
-        setNotice(isZh ? "模型已添加。" : "Model added.");
+        showNotice(isZh ? "模型已添加。" : "Model added.");
       }
       setModal(null);
     } catch (saveError) {
@@ -1427,7 +1472,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         ...current,
         [selectedProviderName]: (current[selectedProviderName] ?? []).filter((row) => row.native_model !== model.native_model),
       }));
-      setNotice(isZh ? "模型已删除。" : "Model deleted.");
+      showNotice(isZh ? "模型已删除。" : "Model deleted.");
       setModal(null);
     } catch (deleteError) {
       setModalError(deleteError instanceof Error ? deleteError.message : "request failed");
@@ -1452,7 +1497,7 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         ...current,
         [selectedProviderName]: (current[selectedProviderName] ?? []).map((row) => row.native_model === selectedModelNativeModel ? { ...row, pricing } : row),
       }));
-      setNotice(isZh ? "价格覆盖已保存。" : "Pricing override saved.");
+      showNotice(isZh ? "价格覆盖已保存。" : "Pricing override saved.");
       setModal(null);
     } catch (saveError) {
       setModalError(saveError instanceof Error ? saveError.message : "request failed");
@@ -1589,6 +1634,24 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     hermesTotalPages,
   );
   const hermesOutput = selectedHermesTask?.output_text || copy.hermes.noOutput;
+  const hermesEndpoints = `POST /v1/hermes/tasks
+GET /v1/hermes/tasks?status=running&limit=20&offset=0
+GET /v1/hermes/tasks/{task_id}
+GET /v1/hermes/tasks/{task_id}/events?after_seq=0
+POST /v1/hermes/tasks/{task_id}/cancel`;
+  const hermesCreateExample = `curl /v1/hermes/tasks \\
+  -H "Authorization: Bearer YOUR_GATEWAY_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "input": "Analyze this incident and prepare a mitigation plan.",
+    "instructions": "Return concise engineering steps.",
+    "conversation": "ops-2026-04-27",
+    "previous_response_id": null,
+    "metadata": {"source": "customer-api"}
+  }'`;
+  const hermesEventsExample = `curl -N /v1/hermes/tasks/{task_id}/events?after_seq=0 \\
+  -H "Authorization: Bearer YOUR_GATEWAY_API_KEY" \\
+  -H "Accept: text/event-stream"`;
 
   function renderModal() {
     if (!modal) return null;
@@ -1793,7 +1856,26 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
         <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>{copy.nav.settings}</button>
       </nav>
       {loading ? <div className="empty-state empty-state--loading">{copy.loading}</div> : null}
-      {notice ? <div className="inline-success">{notice}</div> : null}
+      {notice ? (
+        <div
+          aria-live={notice.tone === "error" ? "assertive" : "polite"}
+          className={`admin-toast admin-toast--${notice.tone}`}
+          role={notice.tone === "error" ? "alert" : "status"}
+        >
+          <div className="admin-toast__body">
+            <strong>{notice.tone === "error" ? (isZh ? "操作失败" : "Action failed") : (isZh ? "操作成功" : "Action succeeded")}</strong>
+            <span>{notice.message}</span>
+          </div>
+          <button
+            aria-label={isZh ? "关闭通知" : "Dismiss notification"}
+            className="admin-toast__close"
+            onClick={() => setNotice(null)}
+            type="button"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       {error ? <div className="inline-error">{error}</div> : null}
 
       {!loading && !error && view === "overview" ? (
@@ -2274,6 +2356,46 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
               <span>{`${copy.hermes.model}: ${hermesOverview?.model_id ?? "-"}`}</span>
               <span>{`${copy.hermes.apiBase}: ${hermesOverview?.api_base ?? "-"}`}</span>
               <span>{`${copy.hermes.maxConcurrency}: ${hermesOverview?.max_concurrent_tasks ?? "-"}`}</span>
+            </div>
+          </article>
+
+          <article className="detail-panel detail-panel--wide hermes-doc-panel">
+            <div className="panel-heading-row">
+              <div>
+                <h3>{copy.hermes.docTitle}</h3>
+                <p>{copy.hermes.docLead}</p>
+              </div>
+              <span className="status-pill status-pill--warning">{copy.hermes.adminOnly}</span>
+            </div>
+            <div className="admin-doc-grid">
+              <section className="admin-doc-section">
+                <h4>{copy.hermes.docAuthTitle}</h4>
+                <p>{copy.hermes.docAuthBody}</p>
+                <pre className="admin-code-block"><code>{`Authorization: Bearer YOUR_GATEWAY_API_KEY
+Content-Type: application/json`}</code></pre>
+              </section>
+              <section className="admin-doc-section">
+                <h4>{copy.hermes.docBillingTitle}</h4>
+                <p>{copy.hermes.docBillingBody}</p>
+              </section>
+              <section className="admin-doc-section">
+                <h4>{copy.hermes.docEndpointsTitle}</h4>
+                <pre className="admin-code-block"><code>{hermesEndpoints}</code></pre>
+              </section>
+              <section className="admin-doc-section">
+                <h4>{copy.hermes.docPayloadTitle}</h4>
+                <p>{copy.hermes.docPayloadBody}</p>
+              </section>
+              <section className="admin-doc-section">
+                <h4>{copy.hermes.docAsyncTitle}</h4>
+                <p>{copy.hermes.docAsyncBody}</p>
+                <pre className="admin-code-block"><code>{hermesCreateExample}</code></pre>
+              </section>
+              <section className="admin-doc-section">
+                <h4>{copy.hermes.docStreamTitle}</h4>
+                <p>{copy.hermes.docStreamBody}</p>
+                <pre className="admin-code-block"><code>{hermesEventsExample}</code></pre>
+              </section>
             </div>
           </article>
 
