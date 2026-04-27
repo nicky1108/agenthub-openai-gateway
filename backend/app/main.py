@@ -6,6 +6,7 @@ from sqlalchemy.engine import Connection
 from app.api.auth import router as auth_router
 from app.api.admin import router as admin_router
 from app.api.health import router as health_router
+from app.api.hermes import router as hermes_router
 from app.api.internal_public_gateway import router as internal_public_gateway_router
 from app.api.openai import orchestrator as openai_orchestrator
 from app.api.openai import router as openai_router
@@ -251,6 +252,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(health_router)
+    app.include_router(hermes_router)
     app.include_router(internal_public_gateway_router)
     app.include_router(openai_router)
     app.include_router(portal_router)
