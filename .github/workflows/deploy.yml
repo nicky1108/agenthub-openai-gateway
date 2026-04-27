@@ -78,7 +78,7 @@ jobs:
         run: |
           RELEASE_DIR="/opt/agenthub-openai-gateway/releases/${GITHUB_SHA}"
           ssh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-            "set -euo pipefail; cd '${RELEASE_DIR}'; bash deploy/scripts/deploy.sh; ln -sfn '${RELEASE_DIR}' /opt/agenthub-openai-gateway/current; sudo systemctl restart agenthub-openai-gateway; sudo nginx -t; sudo systemctl reload nginx"
+            "set -euo pipefail; cd '${RELEASE_DIR}'; bash deploy/scripts/deploy.sh; bash deploy/scripts/configure-hermes-env.sh; ln -sfn '${RELEASE_DIR}' /opt/agenthub-openai-gateway/current; sudo systemctl restart agenthub-openai-gateway; sudo nginx -t; sudo systemctl reload nginx"
 
       - name: Smoke test
         run: |
