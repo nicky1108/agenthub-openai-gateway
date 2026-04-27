@@ -109,10 +109,22 @@ export type AdminAccountRecord = {
   status: string;
   is_admin: boolean;
   credit_balance?: number;
+  platform_model_access_mode?: "all" | "allowlist";
   public_account_id?: string | null;
   public_workspace_id?: string | null;
   notes?: string | null;
   created_at?: string | null;
+};
+
+export type AdminPlatformModelAccess = {
+  account_id: number;
+  platform_model_access_mode: "all" | "allowlist";
+  allowed_model_ids: string[];
+  available_models: Array<{
+    id: string;
+    provider: string;
+    enabled: boolean;
+  }>;
 };
 
 export type AdminCreditLedgerEntry = {
@@ -717,6 +729,24 @@ export async function updateAdminAccount(
 export async function deleteAdminAccount(adminSecret: string, accountId: number): Promise<AdminAccountRecord> {
   return requestAdmin<AdminAccountRecord>(`/admin/accounts/${accountId}`, adminSecret, {
     method: "DELETE",
+  });
+}
+
+export async function getAdminAccountModelAccess(
+  adminSecret: string,
+  accountId: number,
+): Promise<AdminPlatformModelAccess> {
+  return requestAdmin<AdminPlatformModelAccess>(`/admin/accounts/${accountId}/model-access`, adminSecret);
+}
+
+export async function updateAdminAccountModelAccess(
+  adminSecret: string,
+  accountId: number,
+  payload: { platform_model_access_mode: "all" | "allowlist"; allowed_model_ids: string[] },
+): Promise<AdminPlatformModelAccess> {
+  return requestAdmin<AdminPlatformModelAccess>(`/admin/accounts/${accountId}/model-access`, adminSecret, {
+    method: "PUT",
+    body: JSON.stringify(payload),
   });
 }
 

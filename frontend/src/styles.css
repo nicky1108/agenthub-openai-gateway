@@ -1950,6 +1950,45 @@ p {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.admin-shell .model-access-form {
+  margin: 14px 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-shell .model-access-form label,
+.admin-shell .model-access-option {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.admin-shell .model-access-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.admin-shell .model-access-option {
+  border: 1px solid rgba(127, 139, 161, 0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.admin-shell .model-access-option span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.admin-shell .model-access-option strong,
+.admin-shell .model-access-option small {
+  overflow-wrap: anywhere;
+}
+
+.admin-shell .model-access-option small {
+  color: var(--ink-muted);
+}
+
 .admin-shell .muted-meta,
 .admin-shell .pagination-row span {
   color: var(--ink-muted);

@@ -19,6 +19,7 @@ from app.core.models import (
     UserProviderRecord,
 )
 from app.registry.service import ProviderRegistry
+from app.services.model_access import filter_platform_models_for_account
 from app.services.provider_presets import list_provider_presets, resolved_custom_provider_models
 
 router = APIRouter(prefix="/portal", tags=["portal"])
@@ -181,7 +182,11 @@ async def catalog(
     account: AccountRecord = Depends(require_portal_account),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    platform_models = await registry.list_public_models(session)
+    platform_models = await filter_platform_models_for_account(
+        session,
+        account,
+        await registry.list_public_models(session),
+    )
     custom_provider_rows = list(
         await session.scalars(
             select(UserProviderRecord)

@@ -98,6 +98,10 @@ def backfill_sqlite_account_auth_columns(connection: Connection) -> None:
         connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN created_at DATETIME")
     if "credit_balance" not in column_names:
         connection.exec_driver_sql("ALTER TABLE accounts ADD COLUMN credit_balance FLOAT NOT NULL DEFAULT 0")
+    if "platform_model_access_mode" not in column_names:
+        connection.exec_driver_sql(
+            "ALTER TABLE accounts ADD COLUMN platform_model_access_mode VARCHAR(32) NOT NULL DEFAULT 'all'"
+        )
 
     index_rows = connection.exec_driver_sql("PRAGMA index_list(accounts)").mappings().all()
     has_unique_email_index = False

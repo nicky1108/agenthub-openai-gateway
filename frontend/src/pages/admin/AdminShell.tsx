@@ -11,6 +11,7 @@ import type {
   AdminProviderModelRecord,
   AdminProviderRecord,
   AdminCreditLedgerPage,
+  AdminPlatformModelAccess,
   AdminSettingsOverview,
   AdminUsageOverview,
   AdminUsageRecord,
@@ -27,6 +28,7 @@ import {
   deleteAdminApiKey,
   deleteAdminProvider,
   deleteAdminProviderModel,
+  getAdminAccountModelAccess,
   getAdminAccounts,
   getAdminAccountCreditLedger,
   getAdminApiKeys,
@@ -46,6 +48,7 @@ import {
   streamAdminTestChat,
   updateAdminApiKey,
   updateAdminAccount,
+  updateAdminAccountModelAccess,
   updateAdminProvider,
 } from "../../api";
 import type { Locale } from "../../i18n";
@@ -125,6 +128,8 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   const [accounts, setAccounts] = useState<AdminAccountRecord[]>([]);
   const [creditLedger, setCreditLedger] = useState<Record<number, AdminCreditLedgerPage>>({});
   const [creditLedgerPage, setCreditLedgerPage] = useState(0);
+  const [accountModelAccess, setAccountModelAccess] = useState<Record<number, AdminPlatformModelAccess>>({});
+  const [modelAccessBusy, setModelAccessBusy] = useState(false);
   const [apiKeys, setApiKeys] = useState<AdminApiKeyRecord[]>([]);
   const [usage, setUsage] = useState<AdminUsageOverview | null>(null);
   const [usageRecords, setUsageRecords] = useState<AdminUsageRecordsPage>({
@@ -274,6 +279,12 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           pageStatus: (page: number, pages: number, total: number) => `第 ${page}/${pages} 页 · 共 ${total} 条`,
           previous: "上一页",
           next: "下一页",
+          modelAccess: "平台模型可见性",
+          modelAccessLead: "控制该账号可见、可调用的平台模型；用户自己添加的模型服务不受影响。",
+          allPlatformModels: "全部平台模型",
+          allowlistPlatformModels: "只开放勾选模型",
+          saveModelAccess: "保存可见性",
+          noPlatformModels: "还没有可配置的平台模型。",
           grantAdmin: "设为管理员",
           revokeAdmin: "移除管理员",
           activate: "启用",
@@ -431,6 +442,12 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
           pageStatus: (page: number, pages: number, total: number) => `Page ${page}/${pages} · ${total} total`,
           previous: "Previous",
           next: "Next",
+          modelAccess: "Platform model visibility",
+          modelAccessLead: "Control which managed platform models this account can see and call. User-owned custom providers are not affected.",
+          allPlatformModels: "All platform models",
+          allowlistPlatformModels: "Only checked models",
+          saveModelAccess: "Save visibility",
+          noPlatformModels: "No platform models are available to configure.",
           grantAdmin: "Grant admin",
           revokeAdmin: "Revoke admin",
           activate: "Activate",
@@ -614,6 +631,45 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     setCreditLedgerPage(0);
   }
 
+  function normalizeAccountModelAccess(page: AdminPlatformModelAccess, accountId: number): AdminPlatformModelAccess {
+    return {
+      account_id: typeof page.account_id === "number" ? page.account_id : accountId,
+      platform_model_access_mode: page.platform_model_access_mode === "allowlist" ? "allowlist" : "all",
+      allowed_model_ids: Array.isArray(page.allowed_model_ids) ? page.allowed_model_ids : [],
+      available_models: Array.isArray(page.available_models) ? page.available_models : [],
+    };
+  }
+
+  function updateSelectedModelAccess(mutator: (current: AdminPlatformModelAccess) => AdminPlatformModelAccess) {
+    const accountId = Number(selectedAccountId);
+    if (!Number.isFinite(accountId)) return;
+    setAccountModelAccess((current) => {
+      const fallback: AdminPlatformModelAccess = {
+        account_id: accountId,
+        platform_model_access_mode: "all",
+        allowed_model_ids: [],
+        available_models: [],
+      };
+      return { ...current, [accountId]: mutator(current[accountId] ?? fallback) };
+    });
+  }
+
+  function setSelectedModelAccessMode(mode: "all" | "allowlist") {
+    updateSelectedModelAccess((current) => ({ ...current, platform_model_access_mode: mode }));
+  }
+
+  function toggleSelectedModelAccess(modelId: string) {
+    updateSelectedModelAccess((current) => {
+      const allowed = new Set(current.allowed_model_ids);
+      if (allowed.has(modelId)) {
+        allowed.delete(modelId);
+      } else {
+        allowed.add(modelId);
+      }
+      return { ...current, allowed_model_ids: Array.from(allowed) };
+    });
+  }
+
   function openProviderCreateModal() {
     setProviderName("");
     setProviderExposedModel("default");
@@ -782,6 +838,29 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
   }, [adminSecret, selectedAccountId, creditLedgerPage]);
 
   useEffect(() => {
+    if (!selectedAccountId) return;
+    const numericAccountId = Number(selectedAccountId);
+    if (!Number.isFinite(numericAccountId)) return;
+    void getAdminAccountModelAccess(adminSecret, numericAccountId).then((page) => {
+      setAccountModelAccess((current) => ({
+        ...current,
+        [numericAccountId]: normalizeAccountModelAccess(page, numericAccountId),
+      }));
+    }).catch((accessError) => {
+      setAccountModelAccess((current) => ({
+        ...current,
+        [numericAccountId]: {
+          account_id: numericAccountId,
+          platform_model_access_mode: "all",
+          allowed_model_ids: [],
+          available_models: [],
+        },
+      }));
+      setNotice(accessError instanceof Error ? accessError.message : "model access request failed");
+    });
+  }, [adminSecret, selectedAccountId]);
+
+  useEffect(() => {
     if (!usageApiKeyFilter || !usageAccountFilter) return;
     const keyBelongsToAccount = (usage?.key_activity ?? []).some(
       (apiKey) => String(apiKey.api_key_id) === usageApiKeyFilter && String(apiKey.account_id) === usageAccountFilter,
@@ -871,6 +950,39 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
       setModalError(adjustError instanceof Error ? adjustError.message : "request failed");
     } finally {
       setModalBusy(false);
+    }
+  }
+
+  async function handleSaveAccountModelAccess() {
+    const accountId = Number(selectedAccountId);
+    if (!Number.isFinite(accountId)) return;
+    const access = accountModelAccess[accountId];
+    if (!access) return;
+    setModelAccessBusy(true);
+    try {
+      const allowedSet = new Set(access.allowed_model_ids);
+      const orderedAllowedModelIds = [
+        ...access.available_models.filter((model) => allowedSet.has(model.id)).map((model) => model.id),
+        ...access.allowed_model_ids.filter((modelId) => !access.available_models.some((model) => model.id === modelId)),
+      ];
+      const updated = await updateAdminAccountModelAccess(adminSecret, accountId, {
+        platform_model_access_mode: access.platform_model_access_mode,
+        allowed_model_ids: orderedAllowedModelIds,
+      });
+      setAccountModelAccess((current) => ({
+        ...current,
+        [accountId]: normalizeAccountModelAccess(updated, accountId),
+      }));
+      setAccounts((current) => current.map((row) => (
+        row.id === accountId
+          ? { ...row, platform_model_access_mode: updated.platform_model_access_mode }
+          : row
+      )));
+      setNotice(isZh ? "平台模型可见性已保存。" : "Platform model visibility saved.");
+    } catch (saveError) {
+      setNotice(saveError instanceof Error ? saveError.message : "model access request failed");
+    } finally {
+      setModelAccessBusy(false);
     }
   }
 
@@ -1198,6 +1310,20 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
     Math.floor(selectedLedgerPage.offset / ledgerLimit) + 1,
     ledgerTotalPages,
   );
+  const selectedModelAccess = Number.isFinite(selectedAccountNumericId)
+    ? accountModelAccess[selectedAccountNumericId] ?? {
+        account_id: selectedAccountNumericId,
+        platform_model_access_mode: "all" as const,
+        allowed_model_ids: [],
+        available_models: [],
+      }
+    : {
+        account_id: 0,
+        platform_model_access_mode: "all" as const,
+        allowed_model_ids: [],
+        available_models: [],
+      };
+  const allowedPlatformModelIds = new Set(selectedModelAccess.allowed_model_ids);
 
   function renderModal() {
     if (!modal) return null;
@@ -1608,6 +1734,67 @@ export function AdminShell({ adminSecret, locale, onLogout }: AdminShellProps) {
                 {copy.accounts.next}
               </button>
             </div>
+          </article>
+          <article className="detail-panel detail-panel--wide">
+            <div className="detail-panel__title-row">
+              <div>
+                <h3>{copy.accounts.modelAccess}</h3>
+                <p>{copy.accounts.modelAccessLead}</p>
+              </div>
+              <button
+                className="primary-action"
+                disabled={modelAccessBusy || !selectedAccountId}
+                onClick={() => void handleSaveAccountModelAccess()}
+                type="button"
+              >
+                {copy.accounts.saveModelAccess}
+              </button>
+            </div>
+            <div className="inline-form model-access-form">
+              <label>
+                <input
+                  checked={selectedModelAccess.platform_model_access_mode === "all"}
+                  name="platform-model-access-mode"
+                  onChange={() => setSelectedModelAccessMode("all")}
+                  type="radio"
+                />
+                {copy.accounts.allPlatformModels}
+              </label>
+              <label>
+                <input
+                  checked={selectedModelAccess.platform_model_access_mode === "allowlist"}
+                  name="platform-model-access-mode"
+                  onChange={() => setSelectedModelAccessMode("allowlist")}
+                  type="radio"
+                />
+                {copy.accounts.allowlistPlatformModels}
+              </label>
+            </div>
+            {selectedModelAccess.available_models.length === 0 ? (
+              <div className="empty-state empty-state--compact">{copy.accounts.noPlatformModels}</div>
+            ) : (
+              <div className="model-access-grid">
+                {selectedModelAccess.available_models.map((model) => (
+                  <label className="model-access-option" key={model.id}>
+                    <input
+                      aria-label={model.id}
+                      checked={
+                        selectedModelAccess.platform_model_access_mode === "all"
+                          ? true
+                          : allowedPlatformModelIds.has(model.id)
+                      }
+                      disabled={selectedModelAccess.platform_model_access_mode === "all"}
+                      onChange={() => toggleSelectedModelAccess(model.id)}
+                      type="checkbox"
+                    />
+                    <span>
+                      <strong>{model.id}</strong>
+                      <small>{model.provider}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
           </article>
         </section>
       ) : null}

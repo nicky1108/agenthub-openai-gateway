@@ -23,6 +23,7 @@ from app.services.custom_provider_runtime import (
     stream_custom_completion,
 )
 from app.services import builtin_tools
+from app.services.model_access import account_can_access_platform_model, filter_platform_models_for_account
 from app.services.provider_presets import resolved_custom_provider_models
 
 router = APIRouter(prefix="/v1", tags=["openai"])
@@ -294,7 +295,11 @@ async def list_models(
     session: AsyncSession = Depends(get_session),
     auth: AuthContext = Depends(require_api_key),
 ) -> dict[str, object]:
-    platform_models = await registry.list_public_models(session)
+    platform_models = await filter_platform_models_for_account(
+        session,
+        auth.account,
+        await registry.list_public_models(session),
+    )
     custom_models = await list_user_custom_models(session, auth.account.id)
     payload = {"object": "list", "data": [*platform_models, *custom_models]}
     await auth_service.record_usage(session, auth, None, None, "success")
@@ -344,6 +349,13 @@ async def create_chat_completion(
                 raise custom_provider_http_exception(exc) from exc
             await auth_service.record_usage(session, auth, custom_provider.slug, canonical_model, "success")
             return result
+
+        if not await account_can_access_platform_model(session, auth.account, payload.model):
+            await auth_service.record_usage(session, auth, provider_name, payload.model, "error")
+            raise HTTPException(
+                status_code=404,
+                detail=f"model or provider '{payload.model}' not found",
+            )
 
         if request_payload["stream"]:
             request_payload["_request_id"] = request_id

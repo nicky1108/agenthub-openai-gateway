@@ -191,10 +191,11 @@ describe("public gateway frontend", () => {
   it("renders the admin console when the signed-in account is an admin", async () => {
     setPath("/admin");
     const ledgerRequests: string[] = [];
+    const modelAccessSaves: Array<{ platform_model_access_mode: string; allowed_model_ids: string[] }> = [];
 
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = typeof input === "string" ? input : String(input);
         if (path.endsWith("/auth/me")) {
           return new Response(
@@ -342,6 +343,33 @@ describe("public gateway frontend", () => {
             }),
           );
         }
+        if (path.includes("/admin/accounts/1/model-access")) {
+          if (init?.method === "PUT") {
+            modelAccessSaves.push(JSON.parse(String(init.body)));
+            return new Response(
+              JSON.stringify({
+                account_id: 1,
+                platform_model_access_mode: "allowlist",
+                allowed_model_ids: modelAccessSaves[modelAccessSaves.length - 1]?.allowed_model_ids ?? [],
+                available_models: [
+                  { id: "codex:gpt-5.4", provider: "codex", enabled: true },
+                  { id: "codex:gpt-5.5", provider: "codex", enabled: true },
+                ],
+              }),
+            );
+          }
+          return new Response(
+            JSON.stringify({
+              account_id: 1,
+              platform_model_access_mode: "allowlist",
+              allowed_model_ids: ["codex:gpt-5.4"],
+              available_models: [
+                { id: "codex:gpt-5.4", provider: "codex", enabled: true },
+                { id: "codex:gpt-5.5", provider: "codex", enabled: true },
+              ],
+            }),
+          );
+        }
         if (path.endsWith("/admin/api-keys")) {
           return new Response(JSON.stringify([]));
         }
@@ -423,6 +451,17 @@ describe("public gateway frontend", () => {
     });
     expect(await screen.findByText("第 2/2 页 · 共 11 条")).toBeTruthy();
     expect(screen.getByText("second-page")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "平台模型可见性" })).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("codex:gpt-5.5"));
+    fireEvent.click(screen.getByRole("button", { name: "保存可见性" }));
+    await waitFor(() => {
+      expect(modelAccessSaves).toEqual([
+        {
+          platform_model_access_mode: "allowlist",
+          allowed_model_ids: ["codex:gpt-5.4", "codex:gpt-5.5"],
+        },
+      ]);
+    });
     fireEvent.click(screen.getByRole("button", { name: "新建" }));
     expect(screen.getByRole("dialog", { name: "创建账户" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));

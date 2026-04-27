@@ -83,7 +83,27 @@ class AccountRecord(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     credit_balance: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    platform_model_access_mode: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="all",
+        server_default="all",
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
+class AccountPlatformModelGrantRecord(Base):
+    __tablename__ = "account_platform_model_grants"
+    __table_args__ = (UniqueConstraint("account_id", "model_id", name="uq_account_platform_model_grants"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False, index=True)
+    model_id: Mapped[str] = mapped_column(String(300), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

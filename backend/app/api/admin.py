@@ -29,11 +29,20 @@ from app.core.secrets import seal_secret
 from app.pricing.service import OfficialPricingService
 from app.orchestration.chat import ChatOrchestrator
 from app.core.settings import Settings
-from app.registry.service import ProviderNotFoundError
+from app.registry.service import ProviderNotFoundError, ProviderRegistry
 from app.services.custom_provider_runtime import summarize_provider_error_response
+from app.services.model_access import (
+    PLATFORM_MODEL_ACCESS_ALLOWLIST,
+    PLATFORM_MODEL_ACCESS_ALL,
+    account_allowed_platform_model_ids,
+    platform_model_id,
+    platform_model_provider,
+    replace_account_platform_model_access,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 discovery = ProviderDiscoveryService()
+registry = ProviderRegistry()
 pricing = OfficialPricingService()
 chat_orchestrator = ChatOrchestrator()
 
@@ -226,6 +235,7 @@ class AccountRead(BaseModel):
     status: str
     is_admin: bool
     credit_balance: float
+    platform_model_access_mode: str = PLATFORM_MODEL_ACCESS_ALL
     public_account_id: str | None = None
     public_workspace_id: str | None = None
     notes: str | None = None
@@ -239,6 +249,29 @@ class AccountSyncSummary(BaseModel):
     accounts_with_pending_sync: int
     accounts_with_failed_sync: int
     accounts_fully_converged: int
+
+
+class PlatformModelAccessModelRead(BaseModel):
+    id: str
+    provider: str
+    enabled: bool = True
+
+
+class AccountModelAccessRead(BaseModel):
+    account_id: int
+    platform_model_access_mode: Literal["all", "allowlist"]
+    allowed_model_ids: list[str]
+    available_models: list[PlatformModelAccessModelRead]
+
+
+class AccountModelAccessUpdate(BaseModel):
+    platform_model_access_mode: Literal["all", "allowlist"]
+    allowed_model_ids: list[str] = []
+
+    @field_validator("allowed_model_ids")
+    @classmethod
+    def normalize_allowed_model_ids(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(model_id.strip() for model_id in value if model_id.strip()))
 
 
 class CreditAdjustmentCreate(BaseModel):
@@ -497,10 +530,37 @@ def serialize_account(account: AccountRecord, settings: Settings) -> AccountRead
         status=account.status,
         is_admin=account_is_named_admin(account, settings),
         credit_balance=account.credit_balance,
+        platform_model_access_mode=account.platform_model_access_mode,
         public_account_id=account.public_account_id,
         public_workspace_id=account.public_workspace_id,
         notes=account.notes,
         created_at=account.created_at.isoformat() if account.created_at else None,
+    )
+
+
+async def serialize_account_model_access(
+    account: AccountRecord,
+    session: AsyncSession,
+    platform_models: list[dict[str, object]] | None = None,
+) -> AccountModelAccessRead:
+    available_platform_models = platform_models if platform_models is not None else await registry.list_public_models(session)
+    allowed_model_ids = await account_allowed_platform_model_ids(session, account.id)
+    return AccountModelAccessRead(
+        account_id=account.id,
+        platform_model_access_mode=(
+            PLATFORM_MODEL_ACCESS_ALLOWLIST
+            if account.platform_model_access_mode == PLATFORM_MODEL_ACCESS_ALLOWLIST
+            else PLATFORM_MODEL_ACCESS_ALL
+        ),
+        allowed_model_ids=allowed_model_ids,
+        available_models=[
+            PlatformModelAccessModelRead(
+                id=platform_model_id(model),
+                provider=platform_model_provider(model),
+                enabled=True,
+            )
+            for model in available_platform_models
+        ],
     )
 
 
@@ -811,6 +871,51 @@ async def list_accounts(
 ) -> list[AccountRead]:
     rows = await session.scalars(select(AccountRecord).order_by(AccountRecord.id.asc()))
     return [serialize_account(row, settings) for row in rows]
+
+
+@router.get("/accounts/{account_id}/model-access", response_model=AccountModelAccessRead)
+async def get_account_model_access(
+    account_id: int,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AccountModelAccessRead:
+    account = await session.scalar(select(AccountRecord).where(AccountRecord.id == account_id))
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+    return await serialize_account_model_access(account, session)
+
+
+@router.put("/accounts/{account_id}/model-access", response_model=AccountModelAccessRead)
+async def update_account_model_access(
+    account_id: int,
+    payload: AccountModelAccessUpdate,
+    _: None = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> AccountModelAccessRead:
+    account = await session.scalar(select(AccountRecord).where(AccountRecord.id == account_id))
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+    platform_models = await registry.list_public_models(session)
+    available_model_ids = {platform_model_id(model) for model in platform_models}
+    unknown_model_ids = [
+        model_id
+        for model_id in payload.allowed_model_ids
+        if payload.platform_model_access_mode == PLATFORM_MODEL_ACCESS_ALLOWLIST and model_id not in available_model_ids
+    ]
+    if unknown_model_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"unknown platform model: {unknown_model_ids[0]}",
+        )
+    await replace_account_platform_model_access(
+        session,
+        account,
+        payload.platform_model_access_mode,
+        payload.allowed_model_ids,
+    )
+    await session.commit()
+    await session.refresh(account)
+    return await serialize_account_model_access(account, session, platform_models)
 
 
 @router.patch("/accounts/{account_id}", response_model=AccountRead)
