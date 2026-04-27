@@ -52,6 +52,7 @@ def discover_hermes_api_key(configured_env_file: str | None = None) -> str | Non
         paths.append(Path(configured_env_file))
     paths.extend(
         [
+            Path("/opt/agenthub-openai-gateway/shared/hermes.env"),
             Path.home() / ".hermes" / ".env",
             Path("/home/agenthub/.hermes/.env"),
             Path("/opt/hermes/.env"),

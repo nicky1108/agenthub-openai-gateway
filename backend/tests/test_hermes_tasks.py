@@ -46,6 +46,19 @@ def test_hermes_settings_discovers_api_key_from_home_env(tmp_path, monkeypatch) 
     assert settings.hermes_api_key == "server-key"
 
 
+def test_hermes_settings_discovers_api_key_from_configured_env_file(tmp_path, monkeypatch) -> None:
+    hermes_env = tmp_path / "hermes.env"
+    hermes_env.write_text("export API_SERVER_KEY=\"configured-key\"\n", encoding="utf-8")
+    monkeypatch.setenv("HERMES_ENV_FILE", str(hermes_env))
+    monkeypatch.delenv("HERMES_API_KEY", raising=False)
+    monkeypatch.delenv("HERMES_ENABLED", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.hermes_enabled is True
+    assert settings.hermes_api_key == "configured-key"
+
+
 def test_hermes_settings_prefers_explicit_api_key(tmp_path, monkeypatch) -> None:
     hermes_env = tmp_path / ".hermes" / ".env"
     hermes_env.parent.mkdir()

@@ -74,6 +74,17 @@ jobs:
             --exclude "frontend/node_modules" \
             ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${RELEASE_DIR}/"
 
+      - name: Configure Hermes secret
+        env:
+          HERMES_API_KEY: ${{ secrets.HERMES_API_KEY }}
+        run: |
+          if [ -z "$HERMES_API_KEY" ]; then
+            echo "HERMES_API_KEY secret is not configured; skipping Hermes server env file"
+            exit 0
+          fi
+          printf 'API_SERVER_KEY=%s\n' "$HERMES_API_KEY" | ssh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "set -euo pipefail; mkdir -p /opt/agenthub-openai-gateway/shared; umask 077; cat > /opt/agenthub-openai-gateway/shared/hermes.env; chmod 600 /opt/agenthub-openai-gateway/shared/hermes.env"
+
       - name: Activate release
         run: |
           RELEASE_DIR="/opt/agenthub-openai-gateway/releases/${GITHUB_SHA}"
