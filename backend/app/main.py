@@ -17,6 +17,7 @@ from app.core.models import Base, ProviderRecord
 from app.core.settings import Settings, validate_secure_runtime_config
 from app.discovery.service import ProviderDiscoveryService
 from app.pricing.service import OfficialPricingService
+from app.runtime.hermes_task_runner import HermesTaskRunner
 from app.runtime.logging import log_gateway_event
 from sqlalchemy import select
 
@@ -209,7 +210,7 @@ def backfill_sqlite_model_pricing_columns(connection: Connection) -> None:
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app: FastAPI):
     settings = Settings()
     validate_secure_runtime_config(settings)
     engine = get_engine(settings.database_url)
@@ -244,7 +245,21 @@ async def lifespan(_: FastAPI):
                         model=f"{provider.name}:{provider.exposed_model}",
                         reason=str(exc),
                     )
-    yield
+    runner: HermesTaskRunner | None = None
+    if settings.hermes_enabled:
+        runner = HermesTaskRunner(
+            sessionmaker=session_factory,
+            max_concurrent_tasks=settings.hermes_max_concurrent_tasks,
+            task_max_runtime_seconds=settings.hermes_task_max_runtime_seconds,
+        )
+        app.state.hermes_task_runner = runner
+        await runner.requeue_open_tasks()
+        await runner.start()
+    try:
+        yield
+    finally:
+        if runner is not None:
+            await runner.stop()
 
 
 def create_app() -> FastAPI:
