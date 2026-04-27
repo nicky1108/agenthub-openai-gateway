@@ -9,7 +9,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.models import HermesTaskRecord
+from app.auth.service import AuthContext
+from app.billing.service import UsageSnapshot, billing_service, estimate_messages_tokens, estimate_text_tokens
+from app.core.models import AccountRecord, ApiKeyRecord, HermesTaskRecord
 from app.core.settings import Settings
 from app.runtime.logging import log_gateway_event
 from app.services.hermes_client import (
@@ -156,6 +158,7 @@ class HermesTaskRunner:
             return
 
         await self._mark_completed(task_id, response_id, output_chunks)
+        await self._settle_successful_usage(task_id)
 
     async def _mark_running(self, task_id: str, started_at: datetime) -> HermesRequest | None:
         async with self.sessionmaker() as session:
@@ -245,6 +248,39 @@ class HermesTaskRunner:
             event_type="task.status",
             payload={"status": task.status},
         )
+
+    @staticmethod
+    def _usage_from_task(task: HermesTaskRecord) -> UsageSnapshot:
+        return UsageSnapshot(
+            input_tokens=estimate_messages_tokens([{"role": "user", "content": task.input_text}]),
+            output_tokens=estimate_text_tokens(task.output_text),
+            cached_input_tokens=0,
+            token_source="estimated",
+        )
+
+    async def _settle_successful_usage(self, task_id: str) -> None:
+        settings = Settings()
+        async with self.sessionmaker() as session:
+            task = await session.get(HermesTaskRecord, task_id)
+            if task is None:
+                return
+            account = await session.get(AccountRecord, task.account_id)
+            api_key = await session.get(ApiKeyRecord, task.api_key_id)
+            if account is None or api_key is None:
+                task.error_code = "billing_context_missing"
+                task.error_message = "Missing account or API key for Hermes task billing"
+                await session.commit()
+                return
+            pricing = await billing_service.get_pricing(session, "hermes", settings.hermes_model)
+            await billing_service.settle_inference(
+                session,
+                AuthContext(account=account, api_key=api_key, token=""),
+                "hermes",
+                f"hermes:{settings.hermes_model}",
+                pricing,
+                self._usage_from_task(task),
+                notes=f"Hermes task {task.id}",
+            )
 
     @staticmethod
     def _decode_metadata(value: str) -> dict[str, Any]:
