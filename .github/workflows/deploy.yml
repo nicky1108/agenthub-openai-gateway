@@ -137,7 +137,7 @@ jobs:
               git -C "$HOME/.hermes/hermes-agent" fetch --depth 1 origin main
               git -C "$HOME/.hermes/hermes-agent" reset --hard origin/main
             fi
-            yes n | "$HOME/.hermes/hermes-agent/setup-hermes.sh"
+            printf 'n\nn\n' | "$HOME/.hermes/hermes-agent/setup-hermes.sh"
             HERMES_BIN="$(find_hermes_bin || true)"
           fi
           if [ -z "$HERMES_BIN" ]; then
