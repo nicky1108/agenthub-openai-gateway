@@ -209,6 +209,23 @@ def backfill_sqlite_model_pricing_columns(connection: Connection) -> None:
         )
 
 
+def backfill_sqlite_hermes_task_billing_columns(connection: Connection) -> None:
+    if connection.dialect.name != "sqlite":
+        return
+
+    table_rows = connection.exec_driver_sql("PRAGMA table_info(hermes_tasks)").mappings().all()
+    column_names = {row["name"] for row in table_rows}
+    if not column_names:
+        return
+
+    if "start_usage_record_id" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE hermes_tasks ADD COLUMN start_usage_record_id INTEGER")
+    if "runtime_usage_record_id" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE hermes_tasks ADD COLUMN runtime_usage_record_id INTEGER")
+    if "runtime_billable_minutes" not in column_names:
+        connection.exec_driver_sql("ALTER TABLE hermes_tasks ADD COLUMN runtime_billable_minutes INTEGER")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = Settings()
@@ -222,6 +239,7 @@ async def lifespan(app: FastAPI):
         await connection.run_sync(backfill_sqlite_user_provider_columns)
         await connection.run_sync(backfill_sqlite_usage_billing_columns)
         await connection.run_sync(backfill_sqlite_model_pricing_columns)
+        await connection.run_sync(backfill_sqlite_hermes_task_billing_columns)
     session_factory = get_session_factory(settings.database_url)
     discovery = ProviderDiscoveryService()
     pricing = OfficialPricingService()

@@ -12,7 +12,11 @@ class FakeRunner:
         self.enqueued.append(task_id)
 
 
-def _create_account_and_key_pair(client: TestClient, name: str = "hermes-account") -> tuple[int, str]:
+def _create_account_and_key_pair(
+    client: TestClient,
+    name: str = "hermes-account",
+    credits: float = 5000,
+) -> tuple[int, str]:
     account_response = client.post(
         "/admin/accounts",
         json={"name": name},
@@ -22,7 +26,7 @@ def _create_account_and_key_pair(client: TestClient, name: str = "hermes-account
     account_id = account_response.json()["id"]
     credit_response = client.post(
         f"/admin/accounts/{account_id}/credits/adjust",
-        json={"credits_delta": 5000, "notes": "test credits"},
+        json={"credits_delta": credits, "notes": "test credits"},
         headers={"x-admin-secret": "change-me"},
     )
     assert credit_response.status_code == 200
@@ -35,18 +39,9 @@ def _create_account_and_key_pair(client: TestClient, name: str = "hermes-account
     return account_id, key_response.json()["api_key"]
 
 
-def _create_account_and_key(client: TestClient, name: str = "hermes-account") -> str:
-    _, api_key = _create_account_and_key_pair(client, name)
+def _create_account_and_key(client: TestClient, name: str = "hermes-account", credits: float = 5000) -> str:
+    _, api_key = _create_account_and_key_pair(client, name, credits)
     return api_key
-
-
-def _configure_hermes_pricing(client: TestClient) -> None:
-    response = client.patch(
-        "/admin/providers/hermes/models/hermes-agent/pricing",
-        json={"input_price": 0.01, "output_price": 0.01},
-        headers={"x-admin-secret": "change-me"},
-    )
-    assert response.status_code == 200
 
 
 def _app_with_runner(runner: FakeRunner):
@@ -65,7 +60,6 @@ def test_create_and_get_hermes_task(tmp_path, monkeypatch) -> None:
     try:
         with TestClient(app) as client:
             api_key = _create_account_and_key(client)
-            _configure_hermes_pricing(client)
             create_response = client.post(
                 "/v1/hermes/tasks",
                 json={"input": "run long job", "metadata": {"source": "test"}},
@@ -102,7 +96,6 @@ def test_create_task_enqueues_runner(tmp_path, monkeypatch) -> None:
     try:
         with TestClient(app) as client:
             api_key = _create_account_and_key(client)
-            _configure_hermes_pricing(client)
             response = client.post(
                 "/v1/hermes/tasks",
                 json={"input": "run long job"},
@@ -139,7 +132,6 @@ def test_cancel_hermes_task(tmp_path, monkeypatch) -> None:
     try:
         with TestClient(app) as client:
             api_key = _create_account_and_key(client)
-            _configure_hermes_pricing(client)
             create_response = client.post(
                 "/v1/hermes/tasks",
                 json={"input": "cancel me"},
@@ -187,7 +179,7 @@ def test_hermes_model_appears_in_models_only_when_enabled_and_allowed(tmp_path, 
     assert "hermes:hermes-agent" in {item["id"] for item in allowed_models_response.json()["data"]}
 
 
-def test_hermes_task_create_requires_pricing(tmp_path, monkeypatch) -> None:
+def test_hermes_task_create_charges_start_fee_without_model_pricing(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
     monkeypatch.setenv("HERMES_ENABLED", "true")
     monkeypatch.setenv("HERMES_API_KEY", "test-hermes-key")
@@ -195,7 +187,41 @@ def test_hermes_task_create_requires_pricing(tmp_path, monkeypatch) -> None:
     app = _app_with_runner(FakeRunner())
     try:
         with TestClient(app) as client:
-            api_key = _create_account_and_key(client)
+            account_id, api_key = _create_account_and_key_pair(client, credits=11)
+            response = client.post(
+                "/v1/hermes/tasks",
+                json={"input": "run long job"},
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+            accounts_response = client.get("/admin/accounts", headers={"x-admin-secret": "change-me"})
+            usage_response = client.get("/admin/usage/records", headers={"x-admin-secret": "change-me"})
+            ledger_response = client.get(
+                f"/admin/accounts/{account_id}/credits/ledger",
+                headers={"x-admin-secret": "change-me"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 202
+    account_row = next(item for item in accounts_response.json() if item["id"] == account_id)
+    assert account_row["credit_balance"] == 1
+    assert usage_response.json()["items"][0]["provider_name"] == "hermes"
+    assert usage_response.json()["items"][0]["model_id"] == "hermes:hermes-agent"
+    assert usage_response.json()["items"][0]["credits_charged"] == 10
+    assert usage_response.json()["items"][0]["token_source"] == "hermes_start_fee"
+    assert ledger_response.json()["items"][0]["entry_type"] == "hermes_task_start"
+    assert ledger_response.json()["items"][0]["credits_delta"] == -10
+
+
+def test_hermes_task_create_requires_start_fee_balance(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}")
+    monkeypatch.setenv("HERMES_ENABLED", "true")
+    monkeypatch.setenv("HERMES_API_KEY", "test-hermes-key")
+
+    app = _app_with_runner(FakeRunner())
+    try:
+        with TestClient(app) as client:
+            api_key = _create_account_and_key(client, credits=9)
             response = client.post(
                 "/v1/hermes/tasks",
                 json={"input": "run long job"},
@@ -204,8 +230,8 @@ def test_hermes_task_create_requires_pricing(tmp_path, monkeypatch) -> None:
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 409
-    assert response.json() == {"detail": "该模型暂无可用价格，请先配置定价"}
+    assert response.status_code == 402
+    assert response.json() == {"detail": "余额不足，请充值"}
 
 
 def test_hermes_task_api_requires_enabled(tmp_path, monkeypatch) -> None:

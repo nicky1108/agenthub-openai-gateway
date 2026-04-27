@@ -234,6 +234,15 @@ class HermesTaskRecord(Base):
     output_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    start_usage_record_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usage_records.id"),
+        nullable=True,
+    )
+    runtime_usage_record_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usage_records.id"),
+        nullable=True,
+    )
+    runtime_billable_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

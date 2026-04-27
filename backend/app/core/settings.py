@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     hermes_request_timeout_seconds: float = 60.0
     hermes_stream_read_timeout_seconds: float = 1800.0
     hermes_task_max_runtime_seconds: float = 7200.0
+    hermes_task_start_credits: float = 10.0
+    hermes_task_runtime_credits_per_minute: float = 1.0
     hermes_task_event_retention_days: int = 30
     hermes_max_concurrent_tasks: int = 2
     hermes_input_max_chars: int = 200_000

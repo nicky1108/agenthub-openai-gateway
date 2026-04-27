@@ -38,12 +38,6 @@ def _create_account_key_and_pricing(client: TestClient) -> tuple[int, int]:
         headers={"x-admin-secret": "change-me"},
     )
     assert key_response.status_code == 201
-    pricing_response = client.patch(
-        "/admin/providers/hermes/models/hermes-agent/pricing",
-        json={"input_price": 0.01, "output_price": 0.01},
-        headers={"x-admin-secret": "change-me"},
-    )
-    assert pricing_response.status_code == 200
     return account_id, key_response.json()["id"]
 
 

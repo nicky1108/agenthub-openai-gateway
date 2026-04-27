@@ -226,8 +226,10 @@ For server-side Hermes task execution, set:
 - `HERMES_API_KEY=<server-side-hermes-api-key>`
 - `HERMES_MODEL=hermes-agent`
 - `HERMES_MAX_CONCURRENT_TASKS=2`
+- `HERMES_TASK_START_CREDITS=10`
+- `HERMES_TASK_RUNTIME_CREDITS_PER_MINUTE=1`
 
-Before granting users access, configure pricing for `provider_name=hermes` and `native_model=hermes-agent`, then allow `hermes:hermes-agent` through the admin account model visibility controls.
+Hermes task billing uses fixed credits: 10 credits when a task is accepted, then 1 credit per rounded-up runtime minute after the task reaches a terminal state. Before granting users access, allow `hermes:hermes-agent` through the admin account model visibility controls.
 
 Example local `.env` values for reverse-tunnel development:
 

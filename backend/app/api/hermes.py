@@ -158,14 +158,7 @@ async def create_task(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Hermes model is not available",
         )
-    await billing_service.quote_request(
-        session,
-        auth.account,
-        "hermes",
-        settings.hermes_model,
-        [{"role": "user", "content": payload.input}],
-        None,
-    )
+    billing_service.require_credit_balance(auth.account, settings.hermes_task_start_credits)
     task = await create_hermes_task(
         session,
         account=auth.account,
@@ -178,6 +171,18 @@ async def create_task(
             metadata=payload.metadata,
         ),
     )
+    usage = await billing_service.record_fixed_credit_charge(
+        session,
+        auth,
+        "hermes",
+        model_id,
+        credits=settings.hermes_task_start_credits,
+        entry_type="hermes_task_start",
+        token_source="hermes_start_fee",
+        outcome="accepted",
+        notes=f"Hermes task {task.id} start fee",
+    )
+    task.start_usage_record_id = usage.id
     await session.commit()
     if runner is not None:
         await runner.enqueue(task.id)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -10,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.auth.service import AuthContext
-from app.billing.service import UsageSnapshot, billing_service, estimate_messages_tokens, estimate_text_tokens
+from app.billing.service import billing_service
 from app.core.models import AccountRecord, ApiKeyRecord, HermesTaskRecord
 from app.core.settings import Settings
 from app.runtime.logging import log_gateway_event
@@ -127,6 +128,7 @@ class HermesTaskRunner:
                         if task.status == HERMES_STATUS_CANCEL_REQUESTED:
                             await self._mark_cancelled(session, task)
                             await session.commit()
+                            await self._settle_runtime_usage(task_id)
                             return
                         if event.type == "response.output_text.delta":
                             delta = str(event.payload.get("delta") or "")
@@ -149,16 +151,19 @@ class HermesTaskRunner:
                         await session.commit()
         except TimeoutError:
             await self._mark_failed(task_id, "task_timeout", "Hermes task exceeded max runtime")
+            await self._settle_runtime_usage(task_id)
             return
         except HermesApiError as exc:
             await self._mark_failed(task_id, "hermes_request_failed", str(exc))
+            await self._settle_runtime_usage(task_id)
             return
         except Exception as exc:
             await self._mark_failed(task_id, "task_failed", str(exc))
+            await self._settle_runtime_usage(task_id)
             return
 
         await self._mark_completed(task_id, response_id, output_chunks)
-        await self._settle_successful_usage(task_id)
+        await self._settle_runtime_usage(task_id)
 
     async def _mark_running(self, task_id: str, started_at: datetime) -> HermesRequest | None:
         async with self.sessionmaker() as session:
@@ -250,19 +255,24 @@ class HermesTaskRunner:
         )
 
     @staticmethod
-    def _usage_from_task(task: HermesTaskRecord) -> UsageSnapshot:
-        return UsageSnapshot(
-            input_tokens=estimate_messages_tokens([{"role": "user", "content": task.input_text}]),
-            output_tokens=estimate_text_tokens(task.output_text),
-            cached_input_tokens=0,
-            token_source="estimated",
-        )
+    def _runtime_billable_minutes(task: HermesTaskRecord) -> int:
+        if task.started_at is None or task.completed_at is None:
+            return 0
+        runtime_seconds = (task.completed_at - task.started_at).total_seconds()
+        if runtime_seconds <= 0:
+            return 0
+        return max(1, math.ceil(runtime_seconds / 60))
 
-    async def _settle_successful_usage(self, task_id: str) -> None:
+    async def _settle_runtime_usage(self, task_id: str) -> None:
         settings = Settings()
         async with self.sessionmaker() as session:
             task = await session.get(HermesTaskRecord, task_id)
             if task is None:
+                return
+            if task.runtime_usage_record_id is not None:
+                return
+            billable_minutes = self._runtime_billable_minutes(task)
+            if billable_minutes <= 0:
                 return
             account = await session.get(AccountRecord, task.account_id)
             api_key = await session.get(ApiKeyRecord, task.api_key_id)
@@ -271,16 +281,21 @@ class HermesTaskRunner:
                 task.error_message = "Missing account or API key for Hermes task billing"
                 await session.commit()
                 return
-            pricing = await billing_service.get_pricing(session, "hermes", settings.hermes_model)
-            await billing_service.settle_inference(
+            credits = billable_minutes * settings.hermes_task_runtime_credits_per_minute
+            usage = await billing_service.record_fixed_credit_charge(
                 session,
                 AuthContext(account=account, api_key=api_key, token=""),
                 "hermes",
                 f"hermes:{settings.hermes_model}",
-                pricing,
-                self._usage_from_task(task),
-                notes=f"Hermes task {task.id}",
+                credits=credits,
+                entry_type="hermes_task_runtime",
+                token_source="hermes_runtime_minutes",
+                outcome=task.status,
+                notes=f"Hermes task {task.id} runtime {billable_minutes} minute(s)",
             )
+            task.runtime_usage_record_id = usage.id
+            task.runtime_billable_minutes = billable_minutes
+            await session.commit()
 
     @staticmethod
     def _decode_metadata(value: str) -> dict[str, Any]:

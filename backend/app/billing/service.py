@@ -223,6 +223,75 @@ class CreditBillingService:
             self._round_credits_up(self._decimal(usd_total) * self._decimal(self.CREDITS_PER_USD)),
         )
 
+    def require_credit_balance(self, account: AccountRecord, credits: float | Decimal) -> None:
+        required = self._round_credits_up(credits)
+        if account.credit_balance < required:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="余额不足，请充值",
+            )
+
+    async def record_fixed_credit_charge(
+        self,
+        session: AsyncSession,
+        context: AuthContext,
+        provider_name: str,
+        model_id: str,
+        *,
+        credits: float | Decimal,
+        entry_type: str,
+        token_source: str,
+        outcome: str,
+        notes: str | None = None,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cached_input_tokens: int = 0,
+        pricing_source: str = "fixed_credit",
+    ) -> UsageRecord:
+        credits_charged = self._round_credits(credits)
+        if credits_charged <= 0:
+            raise ValueError("credits must be positive")
+
+        context.account.credit_balance = self._round_credits(context.account.credit_balance - credits_charged)
+        context.api_key.last_used_at = datetime.now(timezone.utc)
+
+        usage_row = UsageRecord(
+            account_id=context.account.id,
+            api_key_id=context.api_key.id,
+            provider_name=provider_name,
+            model_id=model_id,
+            outcome=outcome,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_input_tokens=cached_input_tokens,
+            usd_amount=None,
+            credits_charged=credits_charged,
+            pricing_source=pricing_source,
+            token_source=token_source,
+        )
+        session.add(usage_row)
+        await session.flush()
+
+        ledger_row = CreditLedgerRecord(
+            account_id=context.account.id,
+            api_key_id=context.api_key.id,
+            usage_record_id=usage_row.id,
+            entry_type=entry_type,
+            credits_delta=-credits_charged,
+            balance_after=context.account.credit_balance,
+            usd_amount=None,
+            provider_name=provider_name,
+            model_id=model_id,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_input_tokens=cached_input_tokens,
+            pricing_source=pricing_source,
+            notes=notes,
+        )
+        session.add(ledger_row)
+        await session.flush()
+        return usage_row
+
     async def settle_inference(
         self,
         session: AsyncSession,

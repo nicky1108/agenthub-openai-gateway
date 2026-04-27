@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.admins import account_is_named_admin
-from app.auth.service import generate_api_key, hash_api_key
+from app.auth.service import AuthContext, generate_api_key, hash_api_key
 from app.billing.service import billing_service
 from app.discovery.service import ProviderDiscoveryService
 from app.core.db import get_session
@@ -1510,14 +1510,7 @@ async def create_admin_hermes_task(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hermes task API is disabled")
     if not await account_can_access_platform_model(session, account, model_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hermes model is not available for account")
-    await billing_service.quote_request(
-        session,
-        account,
-        "hermes",
-        settings.hermes_model,
-        [{"role": "user", "content": payload.input}],
-        None,
-    )
+    billing_service.require_credit_balance(account, settings.hermes_task_start_credits)
     task = await create_hermes_task(
         session,
         account=account,
@@ -1530,6 +1523,18 @@ async def create_admin_hermes_task(
             metadata={"source": "admin-console", **payload.metadata},
         ),
     )
+    usage = await billing_service.record_fixed_credit_charge(
+        session,
+        AuthContext(account=account, api_key=api_key, token=""),
+        "hermes",
+        model_id,
+        credits=settings.hermes_task_start_credits,
+        entry_type="hermes_task_start",
+        token_source="hermes_start_fee",
+        outcome="accepted",
+        notes=f"Hermes task {task.id} start fee",
+    )
+    task.start_usage_record_id = usage.id
     await session.commit()
     if runner is not None:
         await runner.enqueue(task.id)
