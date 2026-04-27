@@ -31,6 +31,61 @@ def test_hermes_settings_read_environment(monkeypatch) -> None:
     assert settings.hermes_max_concurrent_tasks == 3
 
 
+def test_hermes_settings_discovers_api_key_from_home_env(tmp_path, monkeypatch) -> None:
+    hermes_env = tmp_path / ".hermes" / ".env"
+    hermes_env.parent.mkdir()
+    hermes_env.write_text("API_SERVER_KEY='server-key'\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("HERMES_API_KEY", raising=False)
+    monkeypatch.delenv("HERMES_ENABLED", raising=False)
+    monkeypatch.delenv("HERMES_ENV_FILE", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.hermes_enabled is True
+    assert settings.hermes_api_key == "server-key"
+
+
+def test_hermes_settings_prefers_explicit_api_key(tmp_path, monkeypatch) -> None:
+    hermes_env = tmp_path / ".hermes" / ".env"
+    hermes_env.parent.mkdir()
+    hermes_env.write_text("API_SERVER_KEY=file-key\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_API_KEY", "explicit-key")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.hermes_api_key == "explicit-key"
+
+
+def test_hermes_settings_can_disable_env_discovery(tmp_path, monkeypatch) -> None:
+    hermes_env = tmp_path / ".hermes" / ".env"
+    hermes_env.parent.mkdir()
+    hermes_env.write_text("API_SERVER_KEY=file-key\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("HERMES_API_KEY", raising=False)
+    monkeypatch.setenv("HERMES_AUTO_DISCOVER_ENV", "false")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.hermes_enabled is False
+    assert settings.hermes_api_key is None
+
+
+def test_hermes_settings_respects_explicit_disabled_flag(tmp_path, monkeypatch) -> None:
+    hermes_env = tmp_path / ".hermes" / ".env"
+    hermes_env.parent.mkdir()
+    hermes_env.write_text("API_SERVER_KEY=file-key\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("HERMES_API_KEY", raising=False)
+    monkeypatch.setenv("HERMES_ENABLED", "false")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.hermes_enabled is False
+    assert settings.hermes_api_key is None
+
+
 @pytest.mark.asyncio
 async def test_hermes_tables_are_created(tmp_path, monkeypatch) -> None:
     database_url = f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}"

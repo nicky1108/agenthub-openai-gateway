@@ -1,4 +1,68 @@
+import shlex
+from pathlib import Path
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _parse_env_key_value(line: str, key: str) -> str | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    try:
+        parts = shlex.split(stripped, comments=True, posix=True)
+    except ValueError:
+        parts = [stripped]
+    if parts and parts[0] == "export":
+        parts = parts[1:]
+    for part in parts:
+        name, separator, value = part.partition("=")
+        if separator and name == key:
+            return value.strip()
+    return None
+
+
+def _read_env_key(path: Path, key: str) -> str | None:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        value = _parse_env_key_value(line, key)
+        if value:
+            return value
+    return None
+
+
+def _dedupe_paths(paths: list[Path]) -> list[Path]:
+    seen: set[str] = set()
+    unique_paths: list[Path] = []
+    for path in paths:
+        normalized = str(path.expanduser())
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique_paths.append(Path(normalized))
+    return unique_paths
+
+
+def discover_hermes_api_key(configured_env_file: str | None = None) -> str | None:
+    paths: list[Path] = []
+    if configured_env_file:
+        paths.append(Path(configured_env_file))
+    paths.extend(
+        [
+            Path.home() / ".hermes" / ".env",
+            Path("/home/agenthub/.hermes/.env"),
+            Path("/opt/hermes/.env"),
+            Path("/root/.hermes/.env"),
+        ]
+    )
+    for path in _dedupe_paths(paths):
+        value = _read_env_key(path, "API_SERVER_KEY")
+        if value:
+            return value
+    return None
 
 
 class Settings(BaseSettings):
@@ -39,6 +103,8 @@ class Settings(BaseSettings):
     hermes_enabled: bool = False
     hermes_api_base: str = "http://127.0.0.1:8642/v1"
     hermes_api_key: str | None = None
+    hermes_env_file: str | None = None
+    hermes_auto_discover_env: bool = True
     hermes_model: str = "hermes-agent"
     hermes_request_timeout_seconds: float = 60.0
     hermes_stream_read_timeout_seconds: float = 1800.0
@@ -68,6 +134,18 @@ class Settings(BaseSettings):
     reserved_provider_slugs_csv: str = "openai,codex,gemini,anthropic"
 
     model_config = SettingsConfigDict(env_file="../.env", extra="ignore")
+
+    @model_validator(mode="after")
+    def discover_hermes_config(self) -> "Settings":
+        if self.hermes_api_key or not self.hermes_auto_discover_env:
+            return self
+        if "hermes_enabled" in self.model_fields_set and not self.hermes_enabled:
+            return self
+        discovered_api_key = discover_hermes_api_key(self.hermes_env_file)
+        if discovered_api_key:
+            self.hermes_api_key = discovered_api_key
+            self.hermes_enabled = True
+        return self
 
     @property
     def database_scheme(self) -> str:
