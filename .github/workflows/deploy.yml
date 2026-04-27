@@ -112,15 +112,36 @@ jobs:
           fi
           ssh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" 'bash -s' <<'SH'
           set -euo pipefail
-          HERMES_BIN=""
-          for candidate in "$HOME/.hermes/bin/hermes" "$(command -v hermes || true)" "/usr/local/bin/hermes"; do
-            if [ -n "$candidate" ] && [ -x "$candidate" ] && "$candidate" --help >/dev/null 2>&1; then
-              HERMES_BIN="$candidate"
-              break
-            fi
-          done
+          find_hermes_bin() {
+            for candidate in \
+              "$HOME/.local/bin/hermes" \
+              "$HOME/.hermes/bin/hermes" \
+              "$HOME/.hermes/hermes-agent/venv/bin/hermes" \
+              "$(command -v hermes || true)" \
+              "/usr/local/bin/hermes"
+            do
+              if [ -n "$candidate" ] && [ -x "$candidate" ] && "$candidate" --help >/dev/null 2>&1; then
+                printf '%s\n' "$candidate"
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          HERMES_BIN="$(find_hermes_bin || true)"
           if [ -z "$HERMES_BIN" ]; then
-            echo "Hermes CLI is not installed for the deploy user" >&2
+            mkdir -p "$HOME/.hermes"
+            if [ ! -d "$HOME/.hermes/hermes-agent/.git" ]; then
+              git clone --depth 1 https://github.com/NousResearch/hermes-agent.git "$HOME/.hermes/hermes-agent"
+            else
+              git -C "$HOME/.hermes/hermes-agent" fetch --depth 1 origin main
+              git -C "$HOME/.hermes/hermes-agent" reset --hard origin/main
+            fi
+            yes n | "$HOME/.hermes/hermes-agent/setup-hermes.sh"
+            HERMES_BIN="$(find_hermes_bin || true)"
+          fi
+          if [ -z "$HERMES_BIN" ]; then
+            echo "Hermes CLI could not be installed for the deploy user" >&2
             exit 1
           fi
           if ! "$HERMES_BIN" gateway restart --all && ! "$HERMES_BIN" gateway start --all; then
