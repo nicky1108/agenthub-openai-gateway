@@ -39,6 +39,7 @@ from app.services.model_access import (
     platform_model_provider,
     replace_account_platform_model_access,
 )
+from app.services.platform_catalog import list_platform_models
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 discovery = ProviderDiscoveryService()
@@ -543,7 +544,7 @@ async def serialize_account_model_access(
     session: AsyncSession,
     platform_models: list[dict[str, object]] | None = None,
 ) -> AccountModelAccessRead:
-    available_platform_models = platform_models if platform_models is not None else await registry.list_public_models(session)
+    available_platform_models = platform_models if platform_models is not None else await list_platform_models(session, registry)
     allowed_model_ids = await account_allowed_platform_model_ids(session, account.id)
     return AccountModelAccessRead(
         account_id=account.id,
@@ -895,7 +896,7 @@ async def update_account_model_access(
     account = await session.scalar(select(AccountRecord).where(AccountRecord.id == account_id))
     if account is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
-    platform_models = await registry.list_public_models(session)
+    platform_models = await list_platform_models(session, registry)
     available_model_ids = {platform_model_id(model) for model in platform_models}
     unknown_model_ids = [
         model_id

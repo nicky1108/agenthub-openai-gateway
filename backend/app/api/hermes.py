@@ -10,9 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.service import AuthContext, require_api_key
+from app.billing.service import billing_service
 from app.core.db import get_session
 from app.core.models import HermesTaskRecord
 from app.core.settings import Settings
+from app.services.model_access import account_can_access_platform_model
 from app.services.hermes_tasks import (
     HERMES_STATUS_CANCEL_REQUESTED,
     HERMES_TERMINAL_STATUSES,
@@ -24,6 +26,7 @@ from app.services.hermes_tasks import (
     list_hermes_task_events,
     list_hermes_tasks_for_account,
 )
+from app.services.platform_catalog import hermes_model_id
 
 router = APIRouter(prefix="/v1/hermes", tags=["hermes"])
 
@@ -144,6 +147,25 @@ async def create_task(
     auth: AuthContext = Depends(require_api_key),
 ) -> HermesTaskRead:
     _enforce_payload_limits(payload, settings)
+    model_id = hermes_model_id(settings)
+    if model_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Hermes task API is disabled",
+        )
+    if not await account_can_access_platform_model(session, auth.account, model_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Hermes model is not available",
+        )
+    await billing_service.quote_request(
+        session,
+        auth.account,
+        "hermes",
+        settings.hermes_model,
+        [{"role": "user", "content": payload.input}],
+        None,
+    )
     task = await create_hermes_task(
         session,
         account=auth.account,

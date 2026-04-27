@@ -20,6 +20,7 @@ from app.core.models import (
 )
 from app.registry.service import ProviderRegistry
 from app.services.model_access import filter_platform_models_for_account
+from app.services.platform_catalog import list_platform_models
 from app.services.provider_presets import list_provider_presets, resolved_custom_provider_models
 
 router = APIRouter(prefix="/portal", tags=["portal"])
@@ -185,7 +186,7 @@ async def catalog(
     platform_models = await filter_platform_models_for_account(
         session,
         account,
-        await registry.list_public_models(session),
+        await list_platform_models(session, registry),
     )
     custom_provider_rows = list(
         await session.scalars(

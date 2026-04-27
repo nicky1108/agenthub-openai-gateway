@@ -24,6 +24,7 @@ from app.services.custom_provider_runtime import (
 )
 from app.services import builtin_tools
 from app.services.model_access import account_can_access_platform_model, filter_platform_models_for_account
+from app.services.platform_catalog import list_platform_models
 from app.services.provider_presets import resolved_custom_provider_models
 
 router = APIRouter(prefix="/v1", tags=["openai"])
@@ -298,7 +299,7 @@ async def list_models(
     platform_models = await filter_platform_models_for_account(
         session,
         auth.account,
-        await registry.list_public_models(session),
+        await list_platform_models(session, registry),
     )
     custom_models = await list_user_custom_models(session, auth.account.id)
     payload = {"object": "list", "data": [*platform_models, *custom_models]}

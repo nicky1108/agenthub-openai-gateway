@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.service import hash_api_key
 from app.core.models import AccountRecord, ApiKeyRecord, UsageRecord
 from app.registry.service import ProviderRegistry
+from app.services.platform_catalog import list_platform_models
 
 
 def workspace_id_for_account(account_id: int) -> str:
@@ -115,7 +116,7 @@ class PublicGatewayContractService:
         )
 
     async def list_platform_models(self, session: AsyncSession) -> dict[str, object]:
-        return {"object": "list", "data": await self.registry.list_public_models(session)}
+        return {"object": "list", "data": await list_platform_models(session, self.registry)}
 
     async def record_usage_event(
         self,
