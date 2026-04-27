@@ -1,9 +1,18 @@
 import pytest
 from sqlalchemy import text
 
-from app.core.db import get_engine
-from app.core.models import Base
+from app.core.db import get_engine, get_session_factory
+from app.core.models import AccountRecord, ApiKeyRecord, Base
 from app.core.settings import Settings
+from app.services.hermes_tasks import (
+    HERMES_STATUS_QUEUED,
+    HermesTaskCreate,
+    append_hermes_task_event,
+    create_hermes_task,
+    get_hermes_task_for_account,
+    list_hermes_task_events,
+    list_hermes_tasks_for_account,
+)
 
 
 def test_hermes_settings_read_environment(monkeypatch) -> None:
@@ -57,3 +66,49 @@ async def test_hermes_tables_are_created(tmp_path, monkeypatch) -> None:
     assert "hermes_task_events" in tables
     assert {"id", "account_id", "api_key_id", "status", "input_text", "output_text"} <= task_columns
     assert {"task_id", "seq", "event_type", "payload_json"} <= event_columns
+
+
+@pytest.mark.asyncio
+async def test_create_task_and_replay_events(tmp_path, monkeypatch) -> None:
+    database_url = f"sqlite+aiosqlite:///{tmp_path / 'gateway.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    engine = get_engine(database_url)
+    session_factory = get_session_factory(database_url)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as session:
+        account = AccountRecord(name="acct", credit_balance=100)
+        session.add(account)
+        await session.flush()
+        api_key = ApiKeyRecord(account_id=account.id, name="key", key_prefix="sk-test", secret_hash="hash")
+        session.add(api_key)
+        await session.commit()
+
+        task = await create_hermes_task(
+            session,
+            account=account,
+            api_key=api_key,
+            payload=HermesTaskCreate(input_text="hello", metadata={"source": "test"}),
+        )
+        await append_hermes_task_event(
+            session,
+            task_id=task.id,
+            event_type="response.output_text.delta",
+            payload={"delta": "hi"},
+        )
+        await session.commit()
+
+        loaded = await get_hermes_task_for_account(session, task.id, account.id)
+        events = await list_hermes_task_events(session, task.id, after_seq=0)
+        page = await list_hermes_tasks_for_account(session, account.id, limit=10, offset=0, status=None)
+
+    await engine.dispose()
+
+    assert loaded is not None
+    assert loaded.status == HERMES_STATUS_QUEUED
+    assert loaded.conversation == f"acct:{account.id}:default"
+    assert events[0].seq == 1
+    assert events[0].event_type == "response.output_text.delta"
+    assert page["total"] == 1
+    assert page["items"][0].id == task.id
