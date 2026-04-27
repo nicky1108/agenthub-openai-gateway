@@ -48,6 +48,11 @@ It can:
 - `GET /v1/models`
 - `POST /v1/chat/completions`
 - SSE streaming for `chat/completions`
+- `POST /v1/hermes/tasks`
+- `GET /v1/hermes/tasks`
+- `GET /v1/hermes/tasks/{id}`
+- `GET /v1/hermes/tasks/{id}/events`
+- `POST /v1/hermes/tasks/{id}/cancel`
 
 ### Portal API
 
@@ -118,10 +123,10 @@ The gateway currently has real local support for:
 
 - `codex`
 - `gemini`
+- `hermes` through the long-running task API
 
 The current project also has placeholder/admin surface support for:
 
-- `hermes`
 - `opencode`
 
 Those two are not fully brought up yet.
@@ -154,6 +159,7 @@ Examples:
 - `gemini:gemini-2.5-pro`
 - `gemini:gemini-2.5-flash`
 - `gemini:gemini-2.5-flash-lite`
+- `hermes:hermes-agent` when `HERMES_ENABLED=true`
 
 Pricing comes from:
 
@@ -182,6 +188,11 @@ For CLI-backed providers:
 - `codex` and `gemini` now stream by incrementally reading CLI stdout
 - the external chunk cadence still depends on the upstream CLI's own output granularity
 
+For Hermes tasks:
+
+- `/v1/hermes/tasks/{id}/events` replays stored events and then streams live SSE until the task reaches a terminal state
+- disconnecting from the events stream does not cancel the task
+
 ## Ports
 
 Default local ports:
@@ -207,6 +218,16 @@ For public-gateway integration, also set:
 - `PUBLIC_GATEWAY_TUNNEL_URL`
 - `PUBLIC_GATEWAY_TUNNEL_DEVICE_ID`
 - `PUBLIC_GATEWAY_TUNNEL_SECRET`
+
+For server-side Hermes task execution, set:
+
+- `HERMES_ENABLED=true`
+- `HERMES_API_BASE=http://127.0.0.1:8642/v1`
+- `HERMES_API_KEY=<server-side-hermes-api-key>`
+- `HERMES_MODEL=hermes-agent`
+- `HERMES_MAX_CONCURRENT_TASKS=2`
+
+Before granting users access, configure pricing for `provider_name=hermes` and `native_model=hermes-agent`, then allow `hermes:hermes-agent` through the admin account model visibility controls.
 
 Example local `.env` values for reverse-tunnel development:
 
@@ -320,6 +341,50 @@ curl -s http://127.0.0.1:8787/v1/chat/completions \
     ],
     "tool_choice": { "type": "function", "function": { "name": "web_fetch" } }
   }'
+```
+
+### Hermes Task API
+
+When `HERMES_ENABLED=true`, the gateway exposes long-running Hermes agent jobs through `/v1/hermes/tasks`.
+
+Create an async task:
+
+```bash
+curl -s http://127.0.0.1:8787/v1/hermes/tasks \
+  -H 'Authorization: Bearer <API_KEY>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "input": "帮我分析这个仓库的风险点",
+    "metadata": { "source": "curl" }
+  }'
+```
+
+Poll task status:
+
+```bash
+curl -s http://127.0.0.1:8787/v1/hermes/tasks/htask_example \
+  -H 'Authorization: Bearer <API_KEY>'
+```
+
+List recent tasks:
+
+```bash
+curl -s 'http://127.0.0.1:8787/v1/hermes/tasks?limit=20&offset=0' \
+  -H 'Authorization: Bearer <API_KEY>'
+```
+
+Stream task events:
+
+```bash
+curl -sN 'http://127.0.0.1:8787/v1/hermes/tasks/htask_example/events?after_seq=0' \
+  -H 'Authorization: Bearer <API_KEY>'
+```
+
+Cancel a task:
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/v1/hermes/tasks/htask_example/cancel \
+  -H 'Authorization: Bearer <API_KEY>'
 ```
 
 ## Basic Admin Checks

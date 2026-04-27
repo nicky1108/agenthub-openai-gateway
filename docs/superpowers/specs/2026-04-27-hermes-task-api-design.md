@@ -77,7 +77,7 @@ Response:
 }
 ```
 
-If `stream=true`, the server may return `text/event-stream` and execute the task while streaming events. The task is still persisted before execution starts, so reconnect and polling work the same way.
+Implementation note: the first version always returns an async task envelope from `POST /tasks`. Clients that need live progress should open `GET /tasks/{task_id}/events`; the `stream` request field is reserved for a later direct create-and-stream response mode.
 
 ### Get Task
 
@@ -237,10 +237,9 @@ If the API process restarts, live subscriptions disappear but tasks can be resum
 
 Map Hermes and gateway failures to stable task states:
 
-- Hermes 401/403: task `failed`, `error_code=hermes_auth_failed`
-- Hermes 404/405/422: task `failed`, `error_code=hermes_request_rejected`
-- Hermes network failure: retry with bounded backoff, then `failed`, `error_code=hermes_unavailable`
-- Hermes `response.failed`: task `failed`, preserve Hermes error payload
+- Hermes API or network failure: task `failed`, `error_code=hermes_request_failed`
+- Hermes event processing failure: task `failed`, `error_code=task_failed`
+- Hermes `response.failed`: task `failed`, preserving the Hermes error payload is a follow-up refinement
 - task runtime exceeds max: `failed`, `error_code=task_timeout`
 - client disconnects from `/events`: no task state change
 
@@ -253,12 +252,12 @@ Task creation uses the existing API-key auth and account credit checks.
 For first version:
 
 - Quote a conservative minimum execution estimate before enqueueing.
-- Do not settle final credit usage until the task reaches `completed` or `failed`.
+- Settle final credit usage when the task reaches `completed`.
 - If Hermes returns usage metadata, use it.
 - If Hermes does not return usage, estimate tokens from `input_text` plus `output_text`, matching existing gateway estimation style.
 - Record `provider_name="hermes"` and `model_id="hermes:hermes-agent"` in usage and ledger records.
 
-Failed tasks should record usage with `outcome="error"`. Whether failed tasks charge credits should follow the existing gateway billing policy; if no explicit policy exists, first version should not charge failed tasks unless Hermes returned billable usage.
+Failed tasks are not charged in the first implementation unless a later Hermes usage payload makes billable failed executions explicit.
 
 ## Access Control
 
