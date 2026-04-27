@@ -91,6 +91,33 @@ jobs:
           ssh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
             "set -euo pipefail; cd '${RELEASE_DIR}'; bash deploy/scripts/deploy.sh; ln -sfn '${RELEASE_DIR}' /opt/agenthub-openai-gateway/current; sudo systemctl restart agenthub-openai-gateway; sudo nginx -t; sudo systemctl reload nginx"
 
+      - name: Verify Hermes server connection
+        env:
+          HERMES_API_KEY: ${{ secrets.HERMES_API_KEY }}
+        run: |
+          if [ -z "$HERMES_API_KEY" ]; then
+            echo "HERMES_API_KEY secret is not configured; skipping Hermes connection check"
+            exit 0
+          fi
+          ssh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "set -euo pipefail; cd /opt/agenthub-openai-gateway/current/backend; .venv/bin/python -" <<'PY'
+          import httpx
+
+          from app.core.settings import Settings
+
+          settings = Settings(_env_file=None)
+          if not settings.hermes_enabled or not settings.hermes_api_key:
+              raise SystemExit("Hermes settings did not load a server key")
+          response = httpx.get(
+              f"{settings.hermes_api_base.rstrip('/')}/models",
+              headers={"Authorization": f"Bearer {settings.hermes_api_key}"},
+              timeout=10.0,
+          )
+          if response.status_code != 200:
+              raise SystemExit(f"Hermes /models check failed with HTTP {response.status_code}")
+          print("Hermes /models check passed")
+          PY
+
       - name: Smoke test
         run: |
           HEALTH_URL="${{ secrets.DEPLOY_HEALTH_URL }}"
